@@ -45,7 +45,7 @@ export function DbStatusBar() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
           </span>
-          <span>{status.record_count.toLocaleString()} records</span>
+          <span>{status.record_count.toLocaleString()} ASN + {status.cn_record_count.toLocaleString()} CN ISP</span>
           <span className="text-zinc-700">|</span>
           <span>Updated {status.last_updated}</span>
           {status.is_stale && (

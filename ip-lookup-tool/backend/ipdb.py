@@ -1,7 +1,12 @@
+import csv
+import gzip
 import ipaddress
+import json
 import logging
+import os
 import shutil
 import time
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -10,13 +15,82 @@ import pytricia
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
+
+# IPinfo Lite (primary: country + ASN)
+LITE_PATH = DATA_DIR / "ipinfo_lite.csv"
+LITE_GZ_PATH = DATA_DIR / "ipinfo_lite.csv.gz"
+LITE_URL = f"https://ipinfo.io/data/ipinfo_lite.csv.gz?token={os.environ.get('IPINFO_TOKEN', '547356ef9543cc')}"
+
+# IPtoASN (fallback)
 TSV_PATH = DATA_DIR / "ip-to-asn.tsv"
 TSV_URL = "https://iptoasn.com/data/ip2asn-combined.tsv.gz"
+
+# Chinese ISP (ispip.clang.cn - for is_isp flag)
+ISP_BASE_URL = "https://ispip.clang.cn"
+ISP_FILES = {
+    "chinatelecom": ("CN", "中国电信"),
+    "unicom_cnc": ("CN", "中国联通"),
+    "cmcc": ("CN", "中国移动"),
+    "chinabtn": ("CN", "中国广电"),
+    "cernet": ("CN", "教育网"),
+    "gwbn": ("CN", "长宽宽带"),
+    "othernet": ("CN", "其他"),
+    "hk": ("HK", "香港"),
+    "mo": ("MO", "澳门"),
+    "tw": ("TW", "台湾"),
+}
+
 STALE_DAYS = 7
 
-_pytree: Optional[pytricia.PyTricia] = None
-_record_count: int = 0
+_lite_tree: Optional[pytricia.PyTricia] = None
+_tsv_tree: Optional[pytricia.PyTricia] = None
+_cn_tree: Optional[pytricia.PyTricia] = None
+_lite_count: int = 0
+_tsv_count: int = 0
+_cn_count: int = 0
 _loaded_at: float = 0.0
+
+
+def _parse_lite(path: Path) -> tuple[pytricia.PyTricia, int]:
+    tree = pytricia.PyTricia(32)
+    count = 0
+    with open(path, "r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        next(reader, None)  # skip header
+        for row in reader:
+            if len(row) < 8:
+                continue
+            network, country, country_code, _, _, asn, as_name, as_domain = (
+                row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]
+            )
+            try:
+                ipaddress.IPv4Network(network, strict=False)
+            except (ipaddress.AddressValueError, ValueError):
+                continue
+            # Strip "AS" prefix from ASN field
+            asn_val: int | str = "N/A"
+            has_asn = False
+            if asn.startswith("AS"):
+                try:
+                    asn_val = int(asn[2:])
+                    has_asn = True
+                except ValueError:
+                    pass
+            elif asn:
+                try:
+                    asn_val = int(asn)
+                    has_asn = True
+                except ValueError:
+                    pass
+            tree.insert(network, {
+                "country_code": country_code,
+                "country_name": country,
+                "asn": asn_val,
+                "as_name": as_name or as_domain or "N/A",
+                "has_asn": has_asn,
+            })
+            count += 1
+    return tree, count
 
 
 def _parse_tsv(path: Path) -> tuple[pytricia.PyTricia, int]:
@@ -30,11 +104,10 @@ def _parse_tsv(path: Path) -> tuple[pytricia.PyTricia, int]:
             parts = line.split("\t")
             if len(parts) < 5:
                 continue
-            start_ip, end_ip, asn_str, country, as_name = parts[0], parts[1], parts[2], parts[3], parts[4]
             try:
-                start = ipaddress.IPv4Address(start_ip)
-                end = ipaddress.IPv4Address(end_ip)
-                asn = int(asn_str)
+                start = ipaddress.IPv4Address(parts[0])
+                end = ipaddress.IPv4Address(parts[1])
+                asn = int(parts[2])
             except (ipaddress.AddressValueError, ValueError):
                 continue
             if asn == 0:
@@ -46,84 +119,190 @@ def _parse_tsv(path: Path) -> tuple[pytricia.PyTricia, int]:
             for cidr in cidrs:
                 tree.insert(str(cidr), {
                     "asn": asn,
-                    "country_code": country,
-                    "as_name": as_name,
+                    "country_code": parts[3],
+                    "as_name": parts[4],
                 })
                 count += 1
     return tree, count
 
 
+def _parse_cn_isp() -> tuple[pytricia.PyTricia, int]:
+    tree = pytricia.PyTricia(32)
+    count = 0
+    for isp_name, (country, label) in ISP_FILES.items():
+        path = DATA_DIR / "isp" / f"{isp_name}.txt"
+        if not path.exists():
+            logger.warning(f"Missing ISP file: {path}")
+            continue
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ipaddress.IPv4Network(line, strict=False)
+                except (ipaddress.AddressValueError, ValueError):
+                    continue
+                if line in tree:
+                    existing = tree[line]
+                    # Keep specific carrier, lose "othernet"
+                    if existing["isp"] == "其他" and label != "其他":
+                        tree.insert(line, {"country_code": country, "isp": label})
+                    continue
+                tree.insert(line, {"country_code": country, "isp": label})
+                count += 1
+    return tree, count
+
+
 def load_db() -> None:
-    global _pytree, _record_count, _loaded_at
+    global _lite_tree, _tsv_tree, _cn_tree
+    global _lite_count, _tsv_count, _cn_count, _loaded_at
+
+    if not LITE_PATH.exists():
+        logger.info("No IPinfo Lite data found, downloading...")
+        download_lite()
     if not TSV_PATH.exists():
-        logger.info("No TSV file found, downloading...")
-        download_db()
+        logger.info("No IPtoASN data found, downloading...")
+        download_tsv()
+    cn_dir = DATA_DIR / "isp"
+    if not cn_dir.exists() or not any(cn_dir.iterdir()):
+        logger.info("No Chinese ISP data found, downloading...")
+        download_cn_db()
+
     t0 = time.time()
-    # Parse into local variables first, then assign to globals only on success
-    pytree, record_count = _parse_tsv(TSV_PATH)
-    loaded_at = time.time()
-    _pytree = pytree
-    _record_count = record_count
-    _loaded_at = loaded_at
+
+    lite_tree, lite_count = _parse_lite(LITE_PATH)
+    tsv_tree, tsv_count = _parse_tsv(TSV_PATH)
+    cn_tree, cn_count = _parse_cn_isp()
+
+    _lite_tree = lite_tree
+    _tsv_tree = tsv_tree
+    _cn_tree = cn_tree
+    _lite_count = lite_count
+    _tsv_count = tsv_count
+    _cn_count = cn_count
+    _loaded_at = time.time()
+
     elapsed = _loaded_at - t0
-    logger.info(f"Loaded {_record_count} records in {elapsed:.1f}s")
+    logger.info(
+        f"Loaded {lite_count} Lite + {tsv_count} ASN + {cn_count} CN ISP records in {elapsed:.1f}s"
+    )
 
 
 def lookup(ip: str) -> dict:
-    if _pytree is None:
+    if _lite_tree is None:
         raise RuntimeError("Database not loaded")
     try:
         ipaddress.IPv4Address(ip)
     except (ipaddress.AddressValueError, ValueError):
         return {"ip": ip, "error": "invalid IP format"}
-    try:
-        node = _pytree[ip]
-    except KeyError:
-        return {
-            "ip": ip,
-            "asn": "N/A",
-            "country_code": "N/A",
-            "as_name": "N/A",
-            "ip_range": "N/A",
-        }
-    cidr = str(_pytree.get_key(ip))
-    return {
+
+    result: dict = {
         "ip": ip,
-        "asn": node["asn"],
-        "country_code": node["country_code"],
-        "as_name": node["as_name"],
-        "ip_range": cidr,
+        "asn": "N/A",
+        "country_code": "N/A",
+        "as_name": "N/A",
+        "ip_range": "N/A",
+        "is_isp": False,
+        "is_mobile": False,
+        "is_proxy": False,
+        "is_hosting": False,
     }
+
+    # 1. IPinfo Lite (best country + ASN accuracy)
+    try:
+        node = _lite_tree[ip]
+        result["country_code"] = node["country_code"]
+        if node["has_asn"]:
+            result["asn"] = node["asn"]
+            result["as_name"] = node["as_name"]
+        result["ip_range"] = str(_lite_tree.get_key(ip))
+    except KeyError:
+        pass
+
+    # 2. Fill ASN from IPtoASN if Lite didn't have it
+    if result["asn"] == "N/A" and _tsv_tree is not None:
+        try:
+            node = _tsv_tree[ip]
+            result["asn"] = node["asn"]
+            result["as_name"] = node["as_name"]
+            if result["country_code"] == "N/A":
+                result["country_code"] = node["country_code"]
+            if result["ip_range"] == "N/A":
+                result["ip_range"] = str(_tsv_tree.get_key(ip))
+        except KeyError:
+            pass
+
+    # 3. Chinese ISP lookup → overrides country/as_name + sets is_isp
+    if _cn_tree is not None:
+        try:
+            cn_node = _cn_tree[ip]
+            result["country_code"] = cn_node["country_code"]
+            if cn_node["country_code"] == "CN":
+                result["as_name"] = cn_node["isp"]
+            result["is_isp"] = True
+            result["ip_range"] = str(_cn_tree.get_key(ip))
+        except KeyError:
+            pass
+
+    return result
 
 
 def get_status() -> dict:
-    mtime = TSV_PATH.stat().st_mtime if TSV_PATH.exists() else 0
+    mtime = LITE_PATH.stat().st_mtime if LITE_PATH.exists() else 0
     last_updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))
     age_days = (time.time() - mtime) / 86400 if mtime else float("inf")
     return {
         "last_updated": last_updated,
-        "record_count": _record_count,
+        "record_count": _lite_count,
+        "cn_record_count": _cn_count,
         "is_stale": age_days > STALE_DAYS,
     }
 
 
 def is_db_stale() -> bool:
-    if not TSV_PATH.exists():
-        return True
-    age = time.time() - TSV_PATH.stat().st_mtime
-    return age > STALE_DAYS * 86400
+    for path in [LITE_PATH, TSV_PATH] + [
+        DATA_DIR / "isp" / f"{name}.txt" for name in ISP_FILES
+    ]:
+        if not path.exists():
+            return True
+        if time.time() - path.stat().st_mtime > STALE_DAYS * 86400:
+            return True
+    return False
 
 
-def download_db() -> None:
-    import gzip
-    import urllib.request
+def download_lite() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Downloading IPinfo Lite...")
+    try:
+        req = urllib.request.Request(LITE_URL, headers={"User-Agent": "ip-lookup-tool/1.0"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            with open(LITE_GZ_PATH, "wb") as f:
+                shutil.copyfileobj(resp, f)
+        with gzip.open(LITE_GZ_PATH, "rb") as f_in:
+            with open(LITE_PATH, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        with open(LITE_PATH, "r") as f:
+            line_count = sum(1 for _ in f)
+        if line_count == 0:
+            raise RuntimeError("Downloaded file is empty")
+        LITE_GZ_PATH.unlink(missing_ok=True)
+        logger.info(f"Downloaded IPinfo Lite ({line_count} lines)")
+    except Exception:
+        LITE_PATH.unlink(missing_ok=True)
+        raise
+    finally:
+        if LITE_GZ_PATH.exists():
+            LITE_GZ_PATH.unlink(missing_ok=True)
+
+
+def download_tsv() -> None:
     tmp_path = DATA_DIR / "ip-to-asn.tsv.tmp"
     gz_path = DATA_DIR / "ip-to-asn.tsv.gz"
-    logger.info(f"Downloading {TSV_URL}...")
+    logger.info(f"Downloading IPtoASN...")
     try:
         req = urllib.request.Request(TSV_URL, headers={"User-Agent": "ip-lookup-tool/1.0"})
-        with urllib.request.urlopen(req) as resp, open(gz_path, "wb") as f:
+        with urllib.request.urlopen(req, timeout=120) as resp, open(gz_path, "wb") as f:
             shutil.copyfileobj(resp, f)
         with gzip.open(gz_path, "rb") as f_in:
             with open(tmp_path, "wb") as f_out:
@@ -134,16 +313,95 @@ def download_db() -> None:
             raise RuntimeError("Downloaded file is empty")
         tmp_path.rename(TSV_PATH)
         gz_path.unlink(missing_ok=True)
-        logger.info(f"Downloaded and extracted TSV ({line_count} lines)")
+        logger.info(f"Downloaded IPtoASN ({line_count} lines)")
     finally:
-        # Clean up temporary files on error
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
         if gz_path.exists():
             gz_path.unlink(missing_ok=True)
 
 
+def download_cn_db() -> None:
+    cn_dir = DATA_DIR / "isp"
+    cn_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Downloading Chinese ISP data from {ISP_BASE_URL}...")
+    for isp_name in ISP_FILES:
+        url = f"{ISP_BASE_URL}/{isp_name}.txt"
+        dest = cn_dir / f"{isp_name}.txt"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ip-lookup-tool/1.0"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = resp.read()
+            if not data.strip():
+                logger.warning(f"Empty response for {isp_name}")
+                continue
+            with open(dest, "wb") as f:
+                f.write(data)
+            logger.info(f"Downloaded {isp_name}.txt ({data.count(b'\n')} lines)")
+        except Exception as e:
+            logger.error(f"Failed to download {isp_name}.txt: {e}")
+
+
 def reload_db() -> dict:
-    download_db()
+    download_lite()
+    download_tsv()
+    download_cn_db()
     load_db()
     return get_status()
+
+
+def enrich_with_ipapi(ips: list[str]) -> dict[str, dict]:
+    """
+    Query ip-api.com batch API for mobile/proxy/hosting info.
+    Returns {ip: {"is_mobile": bool, "is_proxy": bool, "is_hosting": bool}}
+    Returns partial results on chunk failure (non-blocking).
+    Note: ip-api.com free tier is HTTP only (HTTPS requires Pro).
+    """
+    if not ips:
+        return {}
+
+    # Free tier is HTTP only; HTTPS is a Pro feature
+    IPAPI_BATCH_URL = "http://ip-api.com/batch?fields=query,mobile,proxy,hosting"
+    CHUNK_SIZE = 100
+    result: dict[str, dict] = {}
+
+    for i in range(0, len(ips), CHUNK_SIZE):
+        chunk = ips[i : i + CHUNK_SIZE]
+        try:
+            data = json.dumps(chunk).encode("utf-8")
+            req = urllib.request.Request(
+                IPAPI_BATCH_URL,
+                data=data,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+                rl = resp.headers.get("X-Rl")
+                ttl = resp.headers.get("X-Ttl")
+
+            for entry in body:
+                ip = entry.get("query", "")
+                if ip:
+                    result[ip] = {
+                        "is_mobile": bool(entry.get("mobile", False)),
+                        "is_proxy": bool(entry.get("proxy", False)),
+                        "is_hosting": bool(entry.get("hosting", False)),
+                    }
+
+            # Rate limit: sleep before next chunk if quota exhausted
+            if rl is not None and ttl is not None:
+                try:
+                    if int(rl.strip()) <= 0:
+                        sleep_secs = int(ttl.strip())
+                        logger.warning(
+                            f"ip-api.com rate limit reached, sleeping {sleep_secs}s"
+                        )
+                        time.sleep(sleep_secs)
+                except ValueError:
+                    pass
+
+        except Exception as e:
+            logger.warning(f"ip-api.com batch enrichment failed for chunk: {e}")
+            continue
+
+    return result

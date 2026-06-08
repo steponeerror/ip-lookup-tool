@@ -4,17 +4,23 @@ export interface LookupResult {
   country_code: string;
   as_name: string;
   ip_range: string;
+  is_isp: boolean;
+  is_mobile: boolean;
+  is_proxy: boolean;
+  is_hosting: boolean;
   error?: string;
 }
 
 export interface DbStatus {
   last_updated: string;
   record_count: number;
+  cn_record_count: number;
   is_stale: boolean;
 }
 
-export async function queryIps(ips: string[]): Promise<LookupResult[]> {
-  const res = await fetch("/api/query", {
+export async function queryIps(ips: string[], enrich?: boolean): Promise<LookupResult[]> {
+  const params = enrich ? "?enrich=true" : "";
+  const res = await fetch(`/api/query${params}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ips }),
@@ -28,10 +34,11 @@ export async function queryIps(ips: string[]): Promise<LookupResult[]> {
   return data.results;
 }
 
-export async function uploadFile(file: File): Promise<LookupResult[]> {
+export async function uploadFile(file: File, enrich?: boolean): Promise<LookupResult[]> {
+  const params = enrich ? "?enrich=true" : "";
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch("/api/upload", {
+  const res = await fetch(`/api/upload${params}`, {
     method: "POST",
     body: form,
   });
