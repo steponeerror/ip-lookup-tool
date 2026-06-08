@@ -86,10 +86,7 @@ def lookup(ip: str) -> dict:
             "as_name": "N/A",
             "ip_range": "N/A",
         }
-    try:
-        cidr = str(_pytree.parent(ip))
-    except KeyError:
-        cidr = "N/A"
+    cidr = str(_pytree.get_key(ip))
     return {
         "ip": ip,
         "asn": node["asn"],
