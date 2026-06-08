@@ -13,7 +13,18 @@ export function FileUpload({ onUpload, loading }: FileUploadProps) {
       e.preventDefault();
       setDragOver(false);
       const file = e.dataTransfer.files[0];
-      if (file) onUpload(file);
+      if (!file) return;
+      const validExtensions = [".txt", ".csv"];
+      const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+      if (!validExtensions.includes(ext)) {
+        alert("Please drop a .txt or .csv file");
+        return;
+      }
+      if (file.size > 50 * 1024 * 1024) {
+        alert("File exceeds 50MB limit");
+        return;
+      }
+      onUpload(file);
     },
     [onUpload]
   );

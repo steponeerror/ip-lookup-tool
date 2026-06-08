@@ -7,17 +7,19 @@ interface ExportCsvProps {
 export function ExportCsv({ results }: ExportCsvProps) {
   if (results.length === 0) return null;
 
+  const csvEscape = (v: string) => /[,"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+
   const handleExport = () => {
     const header = "ip,asn,country_code,as_name,ip_range,error\n";
     const rows = results
       .map((r) =>
         [
-          r.ip,
-          r.asn,
-          r.country_code,
-          `"${(r.as_name ?? "").replace(/"/g, '""')}"`,
-          r.ip_range,
-          r.error ?? "",
+          csvEscape(r.ip),
+          csvEscape(String(r.asn)),
+          csvEscape(r.country_code),
+          csvEscape(r.as_name ?? ""),
+          csvEscape(r.ip_range ?? ""),
+          csvEscape(r.error ?? ""),
         ].join(",")
       )
       .join("\n");

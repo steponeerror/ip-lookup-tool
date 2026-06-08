@@ -20,8 +20,9 @@ export async function queryIps(ips: string[]): Promise<LookupResult[]> {
     body: JSON.stringify({ ips }),
   });
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || "Query failed");
+    let detail: string;
+    try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
+    throw new Error(detail || "Query failed");
   }
   const data = await res.json();
   return data.results;
@@ -35,8 +36,9 @@ export async function uploadFile(file: File): Promise<LookupResult[]> {
     body: form,
   });
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || "Upload failed");
+    let detail: string;
+    try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
+    throw new Error(detail || "Upload failed");
   }
   const data = await res.json();
   return data.results;
@@ -45,8 +47,9 @@ export async function uploadFile(file: File): Promise<LookupResult[]> {
 export async function getDbStatus(): Promise<DbStatus> {
   const res = await fetch("/api/db-status");
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || "Failed to get database status");
+    let detail: string;
+    try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
+    throw new Error(detail || "Failed to get database status");
   }
   return res.json();
 }
@@ -54,8 +57,9 @@ export async function getDbStatus(): Promise<DbStatus> {
 export async function updateDb(): Promise<DbStatus> {
   const res = await fetch("/api/update-db", { method: "POST" });
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || "Database update failed");
+    let detail: string;
+    try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
+    throw new Error(detail || "Database update failed");
   }
   return res.json();
 }

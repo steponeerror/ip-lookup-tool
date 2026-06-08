@@ -5,9 +5,10 @@ import type { DbStatus } from "../api";
 export function DbStatusBar() {
   const [status, setStatus] = useState<DbStatus | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    getDbStatus().then(setStatus);
+    getDbStatus().then(setStatus).catch(() => setError(true));
   }, []);
 
   const handleUpdate = async () => {
@@ -15,11 +16,25 @@ export function DbStatusBar() {
     try {
       const s = await updateDb();
       setStatus(s);
+    } catch {
+      setError(true);
     } finally {
       setUpdating(false);
     }
   };
 
+  if (!status && !error) return null;
+  if (error && !status) {
+    return (
+      <div className="fixed bottom-0 inset-x-0 border-t border-zinc-800 bg-zinc-950/90 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-7xl items-center justify-center px-4 py-2 text-xs font-mono text-zinc-500">
+          Status unavailable
+        </div>
+      </div>
+    );
+  }
+
+  // At this point, status must be non-null (the only way we reach here is if status exists or error is true with status)
   if (!status) return null;
 
   return (
