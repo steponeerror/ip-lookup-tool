@@ -15,13 +15,14 @@ export default function App() {
   const [results, setResults] = useState<LookupResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [enrich, setEnrich] = useState(false);
   const reduce = useReducedMotion();
 
   const handleQuery = async (ips: string[]) => {
     setLoading(true);
     setError(null);
     try {
-      const r = await queryIps(ips);
+      const r = await queryIps(ips, enrich);
       setResults(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Query failed");
@@ -34,7 +35,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const r = await uploadFile(file);
+      const r = await uploadFile(file, enrich);
       setResults(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
@@ -102,11 +103,25 @@ export default function App() {
           {/* Results Section */}
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-zinc-400">
-                {results.length > 0
-                  ? `Results (${results.length})`
-                  : "Results"}
-              </h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-sm font-medium text-zinc-400">
+                  {results.length > 0
+                    ? `Results (${results.length})`
+                    : "Results"}
+                </h2>
+                <label
+                  className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500"
+                  title="Query ip-api.com for mobile/proxy/hosting classification (sends IPs to third-party)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={enrich}
+                    onChange={(e) => setEnrich(e.target.checked)}
+                    className="accent-emerald-500"
+                  />
+                  ip-api.com
+                </label>
+              </div>
               <ExportCsv results={results} />
             </div>
 

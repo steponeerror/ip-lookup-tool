@@ -10,7 +10,7 @@ export function ExportCsv({ results }: ExportCsvProps) {
   const csvEscape = (v: string) => /[,"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 
   const handleExport = () => {
-    const header = "ip,asn,country_code,as_name,ip_range,error\n";
+    const header = "ip,asn,country_code,as_name,is_isp,is_mobile,is_proxy,is_hosting,ip_range,error\n";
     const rows = results
       .map((r) =>
         [
@@ -18,6 +18,10 @@ export function ExportCsv({ results }: ExportCsvProps) {
           csvEscape(String(r.asn)),
           csvEscape(r.country_code),
           csvEscape(r.as_name ?? ""),
+          csvEscape(String(r.is_isp ?? false)),
+          csvEscape(String(r.is_mobile ?? false)),
+          csvEscape(String(r.is_proxy ?? false)),
+          csvEscape(String(r.is_hosting ?? false)),
           csvEscape(r.ip_range ?? ""),
           csvEscape(r.error ?? ""),
         ].join(",")
