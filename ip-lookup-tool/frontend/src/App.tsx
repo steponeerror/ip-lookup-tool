@@ -1,122 +1,133 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { IpInput } from "./components/IpInput";
+import { FileUpload } from "./components/FileUpload";
+import { ResultTable } from "./components/ResultTable";
+import { ExportCsv } from "./components/ExportCsv";
+import { DbStatusBar } from "./components/DbStatusBar";
+import { queryIps, uploadFile } from "./api";
+import type { LookupResult } from "./api";
 
-function App() {
-  const [count, setCount] = useState(0)
+type InputTab = "text" | "file";
+
+export default function App() {
+  const [tab, setTab] = useState<InputTab>("text");
+  const [results, setResults] = useState<LookupResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reduce = useReducedMotion();
+
+  const handleQuery = async (ips: string[]) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await queryIps(ips);
+      setResults(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Query failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpload = async (file: File) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await uploadFile(file);
+      setResults(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
+    <div className="dot-grid min-h-screen pb-14">
+      <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
+        <header className="mb-8">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+            IP Lookup Tool
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            Batch IP to ASN lookup for threat analysis
           </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+        </header>
 
-      <div className="ticks"></div>
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+          {/* Input Section */}
+          <section>
+            <div className="mb-4 flex gap-1 rounded-lg bg-zinc-900 p-1">
+              {(["text", "file"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                    tab === t
+                      ? "bg-zinc-800 text-emerald-400"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  {t === "text" ? "Text Input" : "File Upload"}
+                </button>
+              ))}
+            </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
+            <AnimatePresence mode="wait">
+              {tab === "text" ? (
+                <motion.div
+                  key="text"
+                  initial={reduce ? false : { opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
                 >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
+                  <IpInput onQuery={handleQuery} loading={loading} />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="file"
+                  initial={reduce ? false : { opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
                 >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+                  <FileUpload onUpload={handleUpload} loading={loading} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+          {/* Results Section */}
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-medium text-zinc-400">
+                {results.length > 0
+                  ? `Results (${results.length})`
+                  : "Results"}
+              </h2>
+              <ExportCsv results={results} />
+            </div>
+
+            {error && (
+              <div className="mb-3 rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-400">
+                {error}
+              </div>
+            )}
+
+            {results.length > 0 ? (
+              <ResultTable results={results} />
+            ) : (
+              <div className="flex h-48 items-center justify-center rounded-lg border border-zinc-800 text-sm text-zinc-600">
+                No results yet
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+
+      <DbStatusBar />
+    </div>
+  );
 }
-
-export default App
