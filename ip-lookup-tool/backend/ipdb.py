@@ -1,10 +1,9 @@
 import ipaddress
 import logging
-import os
 import shutil
 import time
 from pathlib import Path
-from typing import Optional, tuple
+from typing import Optional
 
 import pytricia
 
