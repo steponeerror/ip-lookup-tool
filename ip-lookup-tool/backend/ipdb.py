@@ -1,9 +1,10 @@
 import ipaddress
 import logging
 import os
+import shutil
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, tuple
 
 import pytricia
 
@@ -19,7 +20,7 @@ _record_count: int = 0
 _loaded_at: float = 0.0
 
 
-def _parse_tsv(path: Path) -> pytricia.PyTricia:
+def _parse_tsv(path: Path) -> tuple[pytricia.PyTricia, int]:
     tree = pytricia.PyTricia(32)
     count = 0
     with open(path, "r") as f:
@@ -34,9 +35,10 @@ def _parse_tsv(path: Path) -> pytricia.PyTricia:
             try:
                 start = ipaddress.IPv4Address(start_ip)
                 end = ipaddress.IPv4Address(end_ip)
+                asn = int(asn_str)
             except (ipaddress.AddressValueError, ValueError):
                 continue
-            if asn_str == "0":
+            if asn == 0:
                 continue
             cidrs = ipaddress.summarize_address_range(
                 ipaddress.IPv4Network(f"{start}/32").network_address,
@@ -44,7 +46,7 @@ def _parse_tsv(path: Path) -> pytricia.PyTricia:
             )
             for cidr in cidrs:
                 tree.insert(str(cidr), {
-                    "asn": int(asn_str),
+                    "asn": asn,
                     "country_code": country,
                     "as_name": as_name,
                 })
@@ -58,8 +60,12 @@ def load_db() -> None:
         logger.info("No TSV file found, downloading...")
         download_db()
     t0 = time.time()
-    _pytree, _record_count = _parse_tsv(TSV_PATH)
-    _loaded_at = time.time()
+    # Parse into local variables first, then assign to globals only on success
+    pytree, record_count = _parse_tsv(TSV_PATH)
+    loaded_at = time.time()
+    _pytree = pytree
+    _record_count = record_count
+    _loaded_at = loaded_at
     elapsed = _loaded_at - t0
     logger.info(f"Loaded {_record_count} records in {elapsed:.1f}s")
 
@@ -117,16 +123,24 @@ def download_db() -> None:
     tmp_path = DATA_DIR / "ip-to-asn.tsv.tmp"
     gz_path = DATA_DIR / "ip-to-asn.tsv.gz"
     logger.info(f"Downloading {TSV_URL}...")
-    urllib.request.urlretrieve(TSV_URL, gz_path)
-    with gzip.open(gz_path, "rb") as f_in:
-        with open(tmp_path, "wb") as f_out:
-            f_out.write(f_in.read())
-    line_count = sum(1 for _ in open(tmp_path))
-    if line_count == 0:
-        raise RuntimeError("Downloaded file is empty")
-    tmp_path.rename(TSV_PATH)
-    gz_path.unlink(missing_ok=True)
-    logger.info(f"Downloaded and extracted TSV ({line_count} lines)")
+    try:
+        urllib.request.urlretrieve(TSV_URL, gz_path)
+        with gzip.open(gz_path, "rb") as f_in:
+            with open(tmp_path, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        with open(tmp_path, "r") as f:
+            line_count = sum(1 for _ in f)
+        if line_count == 0:
+            raise RuntimeError("Downloaded file is empty")
+        tmp_path.rename(TSV_PATH)
+        gz_path.unlink(missing_ok=True)
+        logger.info(f"Downloaded and extracted TSV ({line_count} lines)")
+    finally:
+        # Clean up temporary files on error
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        if gz_path.exists():
+            gz_path.unlink(missing_ok=True)
 
 
 def reload_db() -> dict:
