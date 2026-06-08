@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import type { LookupResult } from "../api";
 
@@ -22,13 +22,14 @@ export function ResultTable({ results }: ResultTableProps) {
     }
   };
 
-  const sorted = sortKey
-    ? [...results].sort((a, b) => {
-        const va = String(a[sortKey] ?? "");
-        const vb = String(b[sortKey] ?? "");
-        return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
-      })
-    : results;
+  const sorted = useMemo(() => {
+    if (!sortKey) return results;
+    return [...results].sort((a, b) => {
+      const va = String(a[sortKey] ?? "");
+      const vb = String(b[sortKey] ?? "");
+      return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+  }, [results, sortKey, sortAsc]);
 
   const cols: { key: SortKey; label: string }[] = [
     { key: "ip", label: "IP" },
@@ -65,7 +66,7 @@ export function ResultTable({ results }: ResultTableProps) {
               animate={{ opacity: 1, y: 0 }}
               transition={{
                 duration: 0.3,
-                delay: reduce ? 0 : i * 0.03,
+                delay: reduce ? 0 : Math.min(i * 0.03, 0.5),
                 ease: [0.16, 1, 0.3, 1],
               }}
               className={`border-b border-zinc-800/50 font-mono text-xs hover:bg-emerald-500/5 ${
