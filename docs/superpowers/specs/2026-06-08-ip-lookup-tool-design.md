@@ -17,7 +17,7 @@ A web tool for batch IP lookup, designed for network security / threat analysis.
 ## Tech Stack
 
 **Backend**: Python 3.11+, FastAPI, uvicorn, pytricia, python-multipart
-**Frontend**: React 18, TypeScript, Vite, native CSS (no UI library)
+**Frontend**: React 18, TypeScript, Vite, Tailwind v4, Motion (`motion/react`), Geist + Geist Mono
 
 ## Project Structure
 
@@ -118,12 +118,41 @@ Trigger manual database update. Downloads latest TSV from iptoasn.com, validates
 
 ## Frontend
 
-- **Single page** with two input modes:
-  1. Text area: paste IPs (one per line)
-  2. File upload: drag-and-drop or click to upload `.txt`/`.csv`
-- **Result table**: sortable columns, paginated if needed
-- **CSV export**: pure client-side CSV generation + download trigger
-- **DB status bar**: shows last update time, record count, and a manual update button at page bottom
+**Design Read**: Internal security-analysis tool, dark-tech / terminal-inspired aesthetic.
+
+**Dial settings**: DESIGN_VARIANCE 6, MOTION_INTENSITY 5, VISUAL_DENSITY 6
+
+### Visual Identity
+
+- **Theme**: Dark mode only (security tool context)
+- **Background**: `zinc-950` base with subtle CSS grid/dot pattern overlay for technical feel
+- **Text**: `zinc-100` primary, `Geist` for UI, `Geist Mono` for all data cells (IP, ASN, ranges)
+- **Accent**: Single accent `emerald-400` / `emerald-500` - terminal green, fits security context
+- **Borders/dividers**: `zinc-800`
+- **Error states**: `red-400`
+
+### Layout
+
+- **Single page**, max-width `1400px` centered, responsive collapse below `768px`
+- Two input modes via tab switch (text area / file upload):
+  1. **IpInput**: Dark textarea with `zinc-900` fill, emerald focus glow (`ring-emerald-500/30`), mono font
+  2. **FileUpload**: Dashed border drop zone, emerald border pulse on drag-over
+- **ResultTable**: Mono-font data, hover row highlight (`bg-emerald-500/5`), zebra striping (`zinc-900`/`zinc-950`), sortable column headers
+- **ExportCsv**: Emerald filled button, hover `scale(1.02)` + subtle glow
+- **DbStatusBar**: Fixed bottom bar, record count + last update time + manual update button, green pulsing dot for "db loaded"
+
+### Motion (via `motion/react`)
+
+- Result rows: `whileInView` fade-in + translateY, stagger `0.03s` per row, ease `[0.16, 1, 0.3, 1]`
+- Tab switch: crossfade between input modes
+- Buttons: hover `scale(1.02)`, active `scale(0.98)`
+- Loading: skeleton shimmer (emerald tinted), not generic spinner
+- All motion respects `prefers-reduced-motion` via `useReducedMotion()`
+
+### Responsive
+
+- Desktop: two-column layout (input left, results right) above `1024px`
+- Tablet/mobile: stacked single column, full-width sections, `px-4` gutters
 
 ## Auto-Update Mechanism
 
