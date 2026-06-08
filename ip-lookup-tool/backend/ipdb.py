@@ -123,7 +123,9 @@ def download_db() -> None:
     gz_path = DATA_DIR / "ip-to-asn.tsv.gz"
     logger.info(f"Downloading {TSV_URL}...")
     try:
-        urllib.request.urlretrieve(TSV_URL, gz_path)
+        req = urllib.request.Request(TSV_URL, headers={"User-Agent": "ip-lookup-tool/1.0"})
+        with urllib.request.urlopen(req) as resp, open(gz_path, "wb") as f:
+            shutil.copyfileobj(resp, f)
         with gzip.open(gz_path, "rb") as f_in:
             with open(tmp_path, "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
