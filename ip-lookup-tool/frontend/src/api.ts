@@ -44,10 +44,18 @@ export async function uploadFile(file: File): Promise<LookupResult[]> {
 
 export async function getDbStatus(): Promise<DbStatus> {
   const res = await fetch("/api/db-status");
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to get database status");
+  }
   return res.json();
 }
 
 export async function updateDb(): Promise<DbStatus> {
   const res = await fetch("/api/update-db", { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Database update failed");
+  }
   return res.json();
 }
