@@ -8,12 +8,16 @@ from ipdb import load_db, lookup, get_status, is_db_stale, reload_db
 
 logging.basicConfig(level=logging.INFO)
 
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if is_db_stale():
         logging.info("Database is stale, updating...")
-    load_db()
+        reload_db()
+    else:
+        load_db()
     yield
 
 app = FastAPI(title="IP Lookup Tool", lifespan=lifespan)
@@ -33,13 +37,16 @@ async def query_ips(body: dict):
         raise HTTPException(400, "No IPs provided")
     if len(ips) > 100000:
         raise HTTPException(400, "Max 100,000 IPs per request")
-    results = [lookup(ip.strip()) for ip in ips]
+    results = [lookup(str(ip).strip()) for ip in ips]
     return {"results": results}
 
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
-    content = (await file.read()).decode("utf-8", errors="ignore")
+    content = (await file.read())
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "File exceeds 50MB limit")
+    content = content.decode("utf-8", errors="ignore")
     lines = content.strip().splitlines()
     if len(lines) > 100000:
         raise HTTPException(400, "File exceeds 100,000 lines")
