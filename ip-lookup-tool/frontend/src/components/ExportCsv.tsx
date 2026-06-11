@@ -10,23 +10,34 @@ export function ExportCsv({ results }: ExportCsvProps) {
   const csvEscape = (v: string) => /[,"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 
   const handleExport = () => {
-    const header = "ip,asn,country_code,as_name,is_isp,is_mobile,is_proxy,is_hosting,ip_range,error\n";
+    const header =
+      "ip,asn,asn_confidence,country,country_confidence,as_name,as_name_confidence," +
+      "is_isp,is_proxy,is_proxy_confidence,is_mobile,is_mobile_confidence," +
+      "is_hosting,is_hosting_confidence,ip_range,range_confidence\n";
+
     const rows = results
       .map((r) =>
         [
           csvEscape(r.ip),
-          csvEscape(String(r.asn)),
-          csvEscape(r.country_code),
-          csvEscape(r.as_name ?? ""),
-          csvEscape(String(r.is_isp ?? false)),
-          csvEscape(String(r.is_mobile ?? false)),
-          csvEscape(String(r.is_proxy ?? false)),
-          csvEscape(String(r.is_hosting ?? false)),
-          csvEscape(r.ip_range ?? ""),
-          csvEscape(r.error ?? ""),
+          csvEscape(String(r.asn.value)),
+          csvEscape(r.asn.confidence),
+          csvEscape(r.country.value),
+          csvEscape(r.country.confidence),
+          csvEscape(r.as_name.value),
+          csvEscape(r.as_name.confidence),
+          csvEscape(String(r.is_isp)),
+          csvEscape(String(r.threat.value.is_proxy)),
+          csvEscape(r.threat.per_boolean_confidence.is_proxy),
+          csvEscape(String(r.threat.value.is_mobile)),
+          csvEscape(r.threat.per_boolean_confidence.is_mobile),
+          csvEscape(String(r.threat.value.is_hosting)),
+          csvEscape(r.threat.per_boolean_confidence.is_hosting),
+          csvEscape(r.ip_range.value),
+          csvEscape(r.ip_range.confidence),
         ].join(",")
       )
       .join("\n");
+
     const blob = new Blob([header + rows], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
