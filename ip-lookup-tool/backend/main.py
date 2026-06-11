@@ -16,6 +16,7 @@ from ipdb import (
 logging.basicConfig(level=logging.INFO)
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
+LOOKUP_CHUNK = 200
 ENRICH_CHUNK = 100
 
 
@@ -67,14 +68,20 @@ async def _enrich_results(results: list[dict], enrich: bool) -> str | None:
 
 async def _stream_lookup(ips: list[str]) -> AsyncIterator:
     """Stream lookup results with chunked enrichment progress."""
-    results = [lookup(ip) for ip in ips]
+    total = len(ips)
+    yield json.dumps({"type": "start", "total": total}) + "\n"
 
-    # Stream lookup results first (client can render immediately;
-    # final "complete" event re-sends all with enrichment applied)
-    for r in results:
-        yield json.dumps({"type": "result", "data": r}) + "\n"
+    # Chunked lookups with progress
+    results: list[dict] = []
+    for i in range(0, total, LOOKUP_CHUNK):
+        chunk = [str(ip).strip() for ip in ips[i : i + LOOKUP_CHUNK]]
+        chunk_results = await asyncio.to_thread(lambda cs=chunk: [lookup(ip) for ip in cs])
+        results.extend(chunk_results)
+        done = min(i + LOOKUP_CHUNK, total)
+        yield json.dumps({"type": "progress", "done": done, "total": total}) + "\n"
+        await asyncio.sleep(0)
 
-    # Auto-enrich ALL IPs
+    # Multi-source enrichment
     unique_ips = list(dict.fromkeys(r["ip"] for r in results))
     enrich_error = None
 
@@ -153,8 +160,11 @@ async def query_ips(body: dict, enrich: bool = Query(False)):
     if len(ips) > 100000:
         raise HTTPException(400, "Max 100,000 IPs per request")
     results = [lookup(str(ip).strip()) for ip in ips]
-    await _enrich_results(results, enrich)
-    return {"results": results}
+    enrich_error = await _enrich_results(results, enrich)
+    resp = {"results": results}
+    if enrich_error:
+        resp["enrich_error"] = enrich_error
+    return resp
 
 
 @app.post("/api/upload")
@@ -176,19 +186,48 @@ async def upload_file(file: UploadFile = File(...), enrich: bool = Query(False))
             line = parts[0]
         ips.append(line.strip())
     results = [lookup(ip) for ip in ips]
-    await _enrich_results(results, enrich)
-    return {"results": results}
+    enrich_error = await _enrich_results(results, enrich)
+    resp = {"results": results}
+    if enrich_error:
+        resp["enrich_error"] = enrich_error
+    return resp
 
 
-@app.post("/api/stream")
-async def stream_lookup(body: dict):
+@app.post("/api/query/stream")
+async def query_ips_stream(body: dict):
     ips = body.get("ips", [])
     if not ips:
         raise HTTPException(400, "No IPs provided")
     if len(ips) > 100000:
         raise HTTPException(400, "Max 100,000 IPs per request")
-    ips = [str(ip).strip() for ip in ips]
-    return StreamingResponse(_stream_lookup(ips), media_type="text/plain")
+    return StreamingResponse(
+        _stream_lookup(ips),
+        media_type="application/x-ndjson",
+    )
+
+
+@app.post("/api/upload/stream")
+async def upload_file_stream(file: UploadFile = File(...)):
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "File exceeds 50MB limit")
+    content = content.decode("utf-8", errors="ignore")
+    lines = content.strip().splitlines()
+    if len(lines) > 100000:
+        raise HTTPException(400, "File exceeds 100,000 lines")
+    ips = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if file.filename and file.filename.endswith(".csv"):
+            parts = line.split(",")
+            line = parts[0]
+        ips.append(line.strip())
+    return StreamingResponse(
+        _stream_lookup(ips),
+        media_type="application/x-ndjson",
+    )
 
 
 @app.get("/api/db-status")
