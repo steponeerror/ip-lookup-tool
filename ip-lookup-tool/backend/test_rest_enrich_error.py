@@ -16,7 +16,7 @@ def test_query_ips_includes_enrich_error_on_failure(mock_enrich_is, mock_enrich)
 
     from main import query_ips
 
-    response = asyncio.get_event_loop().run_until_complete(
+    response = asyncio.run(
         query_ips({"ips": ["8.8.8.8"]}, enrich=True)
     )
 
@@ -31,7 +31,7 @@ def test_query_ips_no_error_when_not_enriching(mock_enrich_is, mock_enrich):
     """/api/query with enrich=False should have no enrich_error."""
     from main import query_ips
 
-    response = asyncio.get_event_loop().run_until_complete(
+    response = asyncio.run(
         query_ips({"ips": ["8.8.8.8"]}, enrich=False)
     )
 
