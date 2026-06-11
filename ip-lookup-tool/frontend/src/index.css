@@ -15,3 +15,8 @@ body {
   background-image: radial-gradient(circle, #27272a 1px, transparent 1px);
   background-size: 24px 24px;
 }
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}

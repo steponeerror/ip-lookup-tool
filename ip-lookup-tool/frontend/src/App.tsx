@@ -5,8 +5,8 @@ import { FileUpload } from "./components/FileUpload";
 import { ResultTable } from "./components/ResultTable";
 import { ExportCsv } from "./components/ExportCsv";
 import { DbStatusBar } from "./components/DbStatusBar";
-import { queryIps, uploadFile } from "./api";
-import type { LookupResult } from "./api";
+import { queryIpsStream, uploadFileStream } from "./api";
+import type { LookupResult, Progress } from "./api";
 
 type InputTab = "text" | "file";
 
@@ -15,32 +15,41 @@ export default function App() {
   const [results, setResults] = useState<LookupResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [enrich, setEnrich] = useState(false);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const reduce = useReducedMotion();
 
   const handleQuery = async (ips: string[]) => {
     setLoading(true);
     setError(null);
+    setEnrichError(null);
+    setProgress(null);
     try {
-      const r = await queryIps(ips, enrich);
-      setResults(r);
+      const r = await queryIpsStream(ips, setProgress);
+      setResults(r.results);
+      if (r.enrich_error) setEnrichError(r.enrich_error);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Query failed");
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   };
 
   const handleUpload = async (file: File) => {
     setLoading(true);
     setError(null);
+    setEnrichError(null);
+    setProgress(null);
     try {
-      const r = await uploadFile(file, enrich);
-      setResults(r);
+      const r = await uploadFileStream(file, setProgress);
+      setResults(r.results);
+      if (r.enrich_error) setEnrichError(r.enrich_error);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   };
 
@@ -84,7 +93,7 @@ export default function App() {
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.15 }}
                 >
-                  <IpInput onQuery={handleQuery} loading={loading} />
+                  <IpInput onQuery={handleQuery} loading={loading} progress={progress} />
                 </motion.div>
               ) : (
                 <motion.div
@@ -94,7 +103,7 @@ export default function App() {
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.15 }}
                 >
-                  <FileUpload onUpload={handleUpload} loading={loading} />
+                  <FileUpload onUpload={handleUpload} loading={loading} progress={progress} />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -103,27 +112,47 @@ export default function App() {
           {/* Results Section */}
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h2 className="text-sm font-medium text-zinc-400">
-                  {results.length > 0
-                    ? `Results (${results.length})`
-                    : "Results"}
-                </h2>
-                <label
-                  className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500"
-                  title="Query ip-api.com for mobile/proxy/hosting classification (sends IPs to third-party)"
-                >
-                  <input
-                    type="checkbox"
-                    checked={enrich}
-                    onChange={(e) => setEnrich(e.target.checked)}
-                    className="accent-emerald-500"
-                  />
-                  ip-api.com
-                </label>
-              </div>
+              <h2 className="text-sm font-medium text-zinc-400">
+                {results.length > 0
+                  ? `Results (${results.length})`
+                  : "Results"}
+              </h2>
               <ExportCsv results={results} />
             </div>
+
+            {loading && progress && (
+              <div className="mb-3 space-y-1.5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2 text-emerald-400">
+                    <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    {progress.phase === "enrich"
+                      ? "Enriching with ip-api.com..."
+                      : `Looking up ${progress.done.toLocaleString()} / ${progress.total.toLocaleString()} IPs`}
+                  </span>
+                  <span className="text-zinc-500 tabular-nums">
+                    {progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0}%
+                  </span>
+                </div>
+                <div className="h-1 overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all duration-300 ease-out"
+                    style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {loading && !progress && (
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-2 text-sm text-emerald-400">
+                <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Connecting...
+              </div>
+            )}
 
             {error && (
               <div className="mb-3 rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-400">
@@ -131,7 +160,18 @@ export default function App() {
               </div>
             )}
 
-            {results.length > 0 ? (
+            {enrichError && (
+              <div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-400">
+                {enrichError}
+              </div>
+            )}
+
+            {loading && results.length === 0 ? (
+              <div className="flex h-48 flex-col items-center justify-center gap-3 rounded-lg border border-zinc-800">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+                <span className="text-sm text-zinc-500">Waiting for results...</span>
+              </div>
+            ) : results.length > 0 ? (
               <ResultTable results={results} />
             ) : (
               <div className="flex h-48 items-center justify-center rounded-lg border border-zinc-800 text-sm text-zinc-600">
