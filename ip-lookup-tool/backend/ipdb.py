@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+import socket
 import time
 import urllib.request
 from collections import Counter
@@ -12,6 +13,9 @@ from pathlib import Path
 from typing import Optional
 
 import pytricia
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env")
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +24,8 @@ DATA_DIR = Path(__file__).parent / "data"
 # IPinfo Lite (primary: country + ASN)
 LITE_PATH = DATA_DIR / "ipinfo_lite.csv"
 LITE_GZ_PATH = DATA_DIR / "ipinfo_lite.csv.gz"
-LITE_URL = f"https://ipinfo.io/data/ipinfo_lite.csv.gz?token={os.environ.get('IPINFO_TOKEN', '547356ef9543cc')}"
+_token = os.environ.get("IPINFO_TOKEN", "")
+LITE_URL = f"https://ipinfo.io/data/ipinfo_lite.csv.gz?token={_token}" if _token else ""
 
 # IPtoASN (fallback)
 TSV_PATH = DATA_DIR / "ip-to-asn.tsv"
@@ -317,15 +322,21 @@ def load_db() -> None:
     global _lite_count, _tsv_count, _cn_count, _ip2proxy_count, _loaded_at
 
     if not LITE_PATH.exists():
-        logger.info("No IPinfo Lite data found, downloading...")
-        download_lite()
+        try:
+            download_lite()
+        except Exception as e:
+            logger.warning(f"IPinfo Lite download failed: {e}")
     if not TSV_PATH.exists():
-        logger.info("No IPtoASN data found, downloading...")
-        download_tsv()
+        try:
+            download_tsv()
+        except Exception as e:
+            logger.warning(f"IPtoASN download failed: {e}")
     cn_dir = DATA_DIR / "isp"
     if not cn_dir.exists() or not any(cn_dir.iterdir()):
-        logger.info("No Chinese ISP data found, downloading...")
-        download_cn_db()
+        try:
+            download_cn_db()
+        except Exception as e:
+            logger.warning(f"CN ISP download failed: {e}")
     if not IP2PROXY_PATH.exists() and not IP2PROXY_ZIP_PATH.exists():
         try:
             download_ip2proxy()
@@ -334,8 +345,14 @@ def load_db() -> None:
 
     t0 = time.time()
 
-    lite_tree, lite_count = _parse_lite(LITE_PATH)
-    tsv_tree, tsv_count = _parse_tsv(TSV_PATH)
+    if LITE_PATH.exists():
+        lite_tree, lite_count = _parse_lite(LITE_PATH)
+    else:
+        lite_tree, lite_count = pytricia.PyTricia(32), 0
+    if TSV_PATH.exists():
+        tsv_tree, tsv_count = _parse_tsv(TSV_PATH)
+    else:
+        tsv_tree, tsv_count = pytricia.PyTricia(32), 0
     cn_tree, cn_count = _parse_cn_isp()
 
     if IP2PROXY_ZIP_PATH.exists():
@@ -487,21 +504,30 @@ def lookup(ip: str) -> dict:
 
 
 def get_status() -> dict:
-    mtime = LITE_PATH.stat().st_mtime if LITE_PATH.exists() else 0
+    mtimes = []
+    if LITE_PATH.exists():
+        mtimes.append(LITE_PATH.stat().st_mtime)
+    if TSV_PATH.exists():
+        mtimes.append(TSV_PATH.stat().st_mtime)
+    mtime = max(mtimes) if mtimes else 0
     last_updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))
     age_days = (time.time() - mtime) / 86400 if mtime else float("inf")
     return {
         "last_updated": last_updated,
-        "record_count": _lite_count,
+        "record_count": _lite_count + _tsv_count,
         "cn_record_count": _cn_count,
         "is_stale": age_days > STALE_DAYS,
     }
 
 
 def is_db_stale() -> bool:
-    for path in [LITE_PATH, TSV_PATH] + [
-        DATA_DIR / "isp" / f"{name}.txt" for name in ISP_FILES
-    ]:
+    paths = []
+    if _token:
+        paths.append(LITE_PATH)
+    paths.append(TSV_PATH)
+    for name in ISP_FILES:
+        paths.append(DATA_DIR / "isp" / f"{name}.txt")
+    for path in paths:
         if not path.exists():
             return True
         if time.time() - path.stat().st_mtime > STALE_DAYS * 86400:
@@ -510,6 +536,9 @@ def is_db_stale() -> bool:
 
 
 def download_lite() -> None:
+    if not LITE_URL:
+        logger.warning("IPINFO_TOKEN not set, skipping IPinfo Lite download")
+        return
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Downloading IPinfo Lite...")
     try:
@@ -601,67 +630,101 @@ def download_ip2proxy() -> None:
 
 
 def reload_db() -> dict:
-    download_lite()
-    download_tsv()
-    download_cn_db()
-    download_ip2proxy()
+    errors = []
+    for name, fn in [
+        ("IPinfo Lite", download_lite),
+        ("IPtoASN", download_tsv),
+        ("CN ISP", download_cn_db),
+        ("IP2Proxy", download_ip2proxy),
+    ]:
+        try:
+            fn()
+        except Exception as e:
+            logger.warning(f"{name} download failed: {e}")
+            errors.append(name)
     load_db()
-    return get_status()
+    status = get_status()
+    if errors:
+        status["warnings"] = [f"{n} download failed" for n in errors]
+    return status
 
 
 def enrich_with_ipapi(ips: list[str]) -> dict[str, dict]:
     """
     Query ip-api.com batch API for mobile/proxy/hosting info.
-    Returns {ip: {"is_mobile": bool, "is_proxy": bool, "is_hosting": bool}}
-    Returns partial results on chunk failure (non-blocking).
-    Note: ip-api.com free tier is HTTP only (HTTPS requires Pro).
+    Returns {ip: {"is_mobile": bool, ...}}.
+    Retries once on transient DNS/connection failures.
     """
     if not ips:
         return {}
 
-    # Free tier is HTTP only; HTTPS is a Pro feature
-    IPAPI_BATCH_URL = "http://ip-api.com/batch?fields=query,mobile,proxy,hosting"
+    IPAPI_HOST = "ip-api.com"
+    IPAPI_PATH = "/batch?fields=query,mobile,proxy,hosting"
     CHUNK_SIZE = 100
     result: dict[str, dict] = {}
+    any_failure = False
+
+    # Resolve DNS once and use IP directly to avoid repeated DNS failures
+    try:
+        resolved_ip = socket.gethostbyname(IPAPI_HOST)
+        resolved_at = time.time()
+    except socket.gaierror:
+        resolved_ip = IPAPI_HOST
+        resolved_at = 0
 
     for i in range(0, len(ips), CHUNK_SIZE):
         chunk = ips[i : i + CHUNK_SIZE]
-        try:
-            data = json.dumps(chunk).encode("utf-8")
-            req = urllib.request.Request(
-                IPAPI_BATCH_URL,
-                data=data,
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-                rl = resp.headers.get("X-Rl")
-                ttl = resp.headers.get("X-Ttl")
+        for attempt in range(2):
+            try:
+                # Re-resolve DNS if cache is older than 60s
+                if resolved_ip != IPAPI_HOST and time.time() - resolved_at > 60:
+                    try:
+                        resolved_ip = socket.gethostbyname(IPAPI_HOST)
+                        resolved_at = time.time()
+                    except socket.gaierror:
+                        pass
 
-            for entry in body:
-                ip = entry.get("query", "")
-                if ip:
-                    result[ip] = {
-                        "is_mobile": bool(entry.get("mobile", False)),
-                        "is_proxy": bool(entry.get("proxy", False)),
-                        "is_hosting": bool(entry.get("hosting", False)),
-                    }
+                url = f"http://{resolved_ip}{IPAPI_PATH}"
+                data = json.dumps(chunk).encode("utf-8")
+                req = urllib.request.Request(
+                    url,
+                    data=data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Host": IPAPI_HOST,
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    body = json.loads(resp.read().decode("utf-8"))
+                    rl = resp.headers.get("X-Rl")
+                    ttl = resp.headers.get("X-Ttl")
 
-            # Rate limit: sleep before next chunk if quota exhausted
-            if rl is not None and ttl is not None:
-                try:
-                    if int(rl.strip()) <= 0:
-                        sleep_secs = int(ttl.strip())
-                        logger.warning(
-                            f"ip-api.com rate limit reached, sleeping {sleep_secs}s"
-                        )
-                        time.sleep(sleep_secs)
-                except ValueError:
-                    pass
+                for entry in body:
+                    ip = entry.get("query", "")
+                    if ip:
+                        result[ip] = {
+                            "is_mobile": bool(entry.get("mobile", False)),
+                            "is_proxy": bool(entry.get("proxy", False)),
+                            "is_hosting": bool(entry.get("hosting", False)),
+                        }
 
-        except Exception as e:
-            logger.warning(f"ip-api.com batch enrichment failed for chunk: {e}")
-            continue
+                # Proactive rate limit: sleep while quota remains
+                if rl is not None and ttl is not None:
+                    try:
+                        remaining = int(rl.strip())
+                        if remaining <= 1:
+                            wait = int(ttl.strip()) + 3
+                            logger.warning(
+                                f"ip-api.com quota low ({remaining} left), waiting {wait}s"
+                            )
+                            time.sleep(wait)
+                    except ValueError:
+                        pass
+                break  # success, skip retry
+
+            except Exception as e:
+                logger.warning(f"ip-api.com batch enrichment failed for chunk: {e}")
+                continue
 
     return result
 

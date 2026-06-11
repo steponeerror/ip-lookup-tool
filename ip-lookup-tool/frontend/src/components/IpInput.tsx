@@ -1,9 +1,10 @@
 interface IpInputProps {
   onQuery: (ips: string[]) => void;
   loading: boolean;
+  progress?: { done: number; total: number; phase: string } | null;
 }
 
-export function IpInput({ onQuery, loading }: IpInputProps) {
+export function IpInput({ onQuery, loading, progress }: IpInputProps) {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -32,9 +33,18 @@ export function IpInput({ onQuery, loading }: IpInputProps) {
       <button
         type="submit"
         disabled={loading}
-        className="self-end rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+        className="relative self-end overflow-hidden rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
       >
-        {loading ? "Querying..." : "Query"}
+        {loading && (
+          <span className="absolute inset-x-0 bottom-0 h-0.5">
+            <span className="block h-full w-1/3 animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-emerald-300/60" />
+          </span>
+        )}
+        {loading
+          ? progress
+            ? `${progress.done.toLocaleString()} / ${progress.total.toLocaleString()}`
+            : "Querying..."
+          : "Query"}
       </button>
     </form>
   );
