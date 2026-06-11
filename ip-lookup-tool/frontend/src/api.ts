@@ -109,16 +109,6 @@ export async function updateDbStream(
   return finalStatus;
 }
 
-export async function updateDb(): Promise<DbStatus> {
-  const res = await fetch("/api/update-db", { method: "POST" });
-  if (!res.ok) {
-    let detail: string;
-    try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-    throw new Error(detail || "Database update failed");
-  }
-  return res.json();
-}
-
 export interface Progress {
   done: number;
   total: number;

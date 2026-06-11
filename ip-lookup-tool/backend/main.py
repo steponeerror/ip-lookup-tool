@@ -67,7 +67,7 @@ async def _enrich_results(results: list[dict], enrich: bool) -> str | None:
     return "; ".join(errors) if errors else None
 
 
-async def _stream_lookup(ips: list[str]) -> AsyncIterator:
+async def _stream_lookup(ips: list[str], enrich: bool = True) -> AsyncIterator:
     """Stream lookup results with chunked enrichment progress."""
     total = len(ips)
     yield json.dumps({"type": "start", "total": total}) + "\n"
@@ -83,10 +83,10 @@ async def _stream_lookup(ips: list[str]) -> AsyncIterator:
         await asyncio.sleep(0)
 
     # Multi-source enrichment
-    unique_ips = list(dict.fromkeys(r["ip"] for r in results))
     enrich_error = None
 
-    if unique_ips:
+    if enrich and results:
+        unique_ips = list(dict.fromkeys(r["ip"] for r in results))
         enrich_total = len(unique_ips)
         yield json.dumps({"type": "enriching", "done": 0, "total": enrich_total}) + "\n"
 
@@ -265,9 +265,14 @@ async def _stream_update_db() -> AsyncIterator:
         await asyncio.sleep(0)
 
     yield json.dumps({"type": "step", "done": done, "total": total, "name": "Loading DB", "status": "loading"}) + "\n"
-    await asyncio.to_thread(load_db)
-    done += 1
-    yield json.dumps({"type": "step", "done": done, "total": total, "name": "Loading DB", "status": "done"}) + "\n"
+    try:
+        await asyncio.to_thread(load_db)
+        done += 1
+        yield json.dumps({"type": "step", "done": done, "total": total, "name": "Loading DB", "status": "done"}) + "\n"
+    except Exception as e:
+        done += 1
+        errors.append(f"Loading DB: {e}")
+        yield json.dumps({"type": "step", "done": done, "total": total, "name": "Loading DB", "status": "failed", "error": str(e)}) + "\n"
 
     status = get_status()
     if errors:

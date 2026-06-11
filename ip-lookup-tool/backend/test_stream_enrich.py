@@ -30,7 +30,7 @@ def test_stream_enrich_false_skips_enrichment(mock_enrich_is, mock_enrich):
 
     ips = ["8.8.8.8", "1.1.1.1"]
 
-    events = asyncio.get_event_loop().run_until_complete(
+    events = asyncio.run(
         _collect_stream(_stream_lookup(ips, enrich=False))
     )
 
@@ -59,7 +59,7 @@ def test_stream_enrich_true_calls_apis(mock_enrich_is, mock_enrich):
 
     ips = ["8.8.8.8"]
 
-    events = asyncio.get_event_loop().run_until_complete(
+    events = asyncio.run(
         _collect_stream(_stream_lookup(ips, enrich=True))
     )
 
@@ -81,7 +81,7 @@ def test_rest_query_returns_enrich_error(mock_enrich_is, mock_enrich):
     from main import _enrich_results
 
     results = [{"ip": "8.8.8.8"}]
-    error = asyncio.get_event_loop().run_until_complete(
+    error = asyncio.run(
         _enrich_results(results, enrich=True)
     )
     assert error is not None, "Expected error string when enrichment fails"
