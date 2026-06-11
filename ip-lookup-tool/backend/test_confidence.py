@@ -1,5 +1,5 @@
 """Unit tests for confidence scoring functions."""
-from ipdb import _score_factual, _score_naming, _score_threat_boolean, _score_range
+from ipdb import _score_factual, _score_naming, score_threat_boolean, _score_range
 
 
 class TestScoreFactual:
@@ -87,47 +87,47 @@ class TestScoreNaming:
 
 class TestScoreThreatBoolean:
     def test_no_sources(self):
-        val, conf = _score_threat_boolean({})
+        val, conf = score_threat_boolean({})
         assert val is False
         assert conf == "low"
 
     def test_all_none(self):
-        val, conf = _score_threat_boolean({"s1": None, "s2": None})
+        val, conf = score_threat_boolean({"s1": None, "s2": None})
         assert val is False
         assert conf == "low"
 
     def test_single_true_medium(self):
-        val, conf = _score_threat_boolean({"s1": True})
+        val, conf = score_threat_boolean({"s1": True})
         assert val is True
         assert conf == "medium"
 
     def test_multi_true_high(self):
-        val, conf = _score_threat_boolean({"s1": True, "s2": True})
+        val, conf = score_threat_boolean({"s1": True, "s2": True})
         assert val is True
         assert conf == "high"
 
     def test_one_true_overrides_false(self):
-        val, conf = _score_threat_boolean({"s1": True, "s2": False})
+        val, conf = score_threat_boolean({"s1": True, "s2": False})
         assert val is True
         assert conf == "medium"
 
     def test_two_true_among_false_high(self):
-        val, conf = _score_threat_boolean({"s1": True, "s2": True, "s3": False})
+        val, conf = score_threat_boolean({"s1": True, "s2": True, "s3": False})
         assert val is True
         assert conf == "high"
 
     def test_single_false_medium(self):
-        val, conf = _score_threat_boolean({"s1": False})
+        val, conf = score_threat_boolean({"s1": False})
         assert val is False
         assert conf == "medium"
 
     def test_multi_false_high(self):
-        val, conf = _score_threat_boolean({"s1": False, "s2": False})
+        val, conf = score_threat_boolean({"s1": False, "s2": False})
         assert val is False
         assert conf == "high"
 
     def test_none_excluded_from_count(self):
-        val, conf = _score_threat_boolean({"s1": True, "s2": None, "s3": None})
+        val, conf = score_threat_boolean({"s1": True, "s2": None, "s3": None})
         assert val is True
         assert conf == "medium"
 

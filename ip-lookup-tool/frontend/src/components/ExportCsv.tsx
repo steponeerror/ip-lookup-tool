@@ -13,7 +13,7 @@ export function ExportCsv({ results }: ExportCsvProps) {
     const header =
       "ip,asn,asn_confidence,country,country_confidence,as_name,as_name_confidence," +
       "is_isp,is_proxy,is_proxy_confidence,is_mobile,is_mobile_confidence," +
-      "is_hosting,is_hosting_confidence,ip_range,range_confidence\n";
+      "is_hosting,is_hosting_confidence,ip_range,range_confidence,error\n";
 
     const rows = results
       .map((r) =>
@@ -34,6 +34,7 @@ export function ExportCsv({ results }: ExportCsvProps) {
           csvEscape(r.threat.per_boolean_confidence.is_hosting),
           csvEscape(r.ip_range.value),
           csvEscape(r.ip_range.confidence),
+          csvEscape(r.error ?? ""),
         ].join(",")
       )
       .join("\n");
