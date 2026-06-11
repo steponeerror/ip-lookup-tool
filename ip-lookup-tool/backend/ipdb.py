@@ -50,6 +50,12 @@ IP2PROXY_URL = (
     else ""
 )
 
+# ipapi.is enrichment (optional online source)
+IPAPI_IS_ENABLED = os.environ.get("IPAPI_IS_ENABLED", "false").lower() == "true"
+IPAPI_IS_KEY = os.environ.get("IPAPI_IS_KEY", "")
+_daily_ipapi_is_count: int = 0
+_daily_ipapi_is_date: str = ""
+
 STALE_DAYS = 7
 
 
@@ -596,3 +602,65 @@ def enrich_with_ipapi(ips: list[str]) -> dict[str, dict]:
             continue
 
     return result
+
+
+def _check_ipapi_is_quota() -> bool:
+    global _daily_ipapi_is_count, _daily_ipapi_is_date
+    today = time.strftime("%Y-%m-%d")
+    if today != _daily_ipapi_is_date:
+        _daily_ipapi_is_date = today
+        _daily_ipapi_is_count = 0
+    return _daily_ipapi_is_count < 950
+
+
+def enrich_with_ipapi_is(ips: list[str]) -> tuple[dict[str, dict], bool]:
+    """Query ipapi.is batch API for threat enrichment.
+    Returns ({ip: {is_proxy, is_mobile, is_hosting}}, success).
+    """
+    if not ips or not IPAPI_IS_ENABLED:
+        return {}, True
+
+    if not _check_ipapi_is_quota():
+        logger.warning("ipapi.is daily quota exhausted, skipping")
+        return {}, True
+
+    CHUNK_SIZE = 100
+    result: dict[str, dict] = {}
+    any_failure = False
+
+    for i in range(0, len(ips), CHUNK_SIZE):
+        chunk = ips[i : i + CHUNK_SIZE]
+        try:
+            url = "https://api.ipapi.is/"
+            if IPAPI_IS_KEY:
+                url += f"?key={IPAPI_IS_KEY}"
+            body = json.dumps({"ips": chunk})
+            req = urllib.request.Request(
+                url,
+                data=body.encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            entries = data if isinstance(data, list) else [data]
+            for entry in entries:
+                ip = entry.get("ip", "")
+                if not ip:
+                    continue
+                result[ip] = {
+                    "is_proxy": bool(
+                        entry.get("is_proxy", False)
+                        or entry.get("is_tor", False)
+                        or entry.get("is_vpn", False)
+                    ),
+                    "is_mobile": entry.get("is_mobile"),
+                    "is_hosting": bool(entry.get("is_datacenter", False)),
+                }
+                _daily_ipapi_is_count += 1
+
+        except Exception as e:
+            logger.warning(f"ipapi.is batch failed: {e}")
+            any_failure = True
+
+    return result, not any_failure
