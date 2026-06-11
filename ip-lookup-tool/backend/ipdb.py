@@ -7,6 +7,7 @@ import os
 import shutil
 import time
 import urllib.request
+from collections import Counter
 from pathlib import Path
 from typing import Optional
 
@@ -44,11 +45,6 @@ ISP_FILES = {
 IP2PROXY_PATH = DATA_DIR / "ip2proxy_px2.csv"
 IP2PROXY_ZIP_PATH = DATA_DIR / "ip2proxy_px2.zip"
 _ip2proxy_token = os.environ.get("IP2PROXY_TOKEN", "")
-IP2PROXY_URL = (
-    f"https://download.ip2location.com/lite/PX2.CSV.ZIP?token={_ip2proxy_token}"
-    if _ip2proxy_token
-    else ""
-)
 
 # ipapi.is enrichment (optional online source)
 IPAPI_IS_ENABLED = os.environ.get("IPAPI_IS_ENABLED", "false").lower() == "true"
@@ -78,7 +74,6 @@ def _score_factual(sources: dict, default=None) -> tuple:
     if all(v == values[0] for v in values[1:]):
         return values[0], "high"
 
-    from collections import Counter
     counts = Counter(values)
     return counts.most_common(1)[0][0], "medium"
 
@@ -99,7 +94,7 @@ def _score_naming(sources: dict, authoritative_source=None) -> tuple:
     return next(iter(valid.values())), "medium"
 
 
-def _score_threat_boolean(source_values: dict) -> tuple:
+def score_threat_boolean(source_values: dict) -> tuple:
     """Directional union model for threat booleans.
     Returns (result, confidence).
     """
@@ -275,7 +270,7 @@ def _parse_ip2proxy(path: Path) -> tuple[pytricia.PyTricia, int]:
     # Handle ZIP-wrapped CSV
     if zipfile.is_zipfile(path):
         with zipfile.ZipFile(path) as zf:
-            csv_names = [n for n in zf.namelist() if n.endswith(".csv")]
+            csv_names = [n for n in zf.namelist() if n.endswith(".csv") and "/" not in n and "\\" not in n]
             if not csv_names:
                 return tree, 0
             zf.extract(csv_names[0], path.parent)
@@ -452,7 +447,7 @@ def lookup(ip: str) -> dict:
         source_vals = {}
         for src, vals in raw_threat.items():
             source_vals[src] = vals.get(bool_name)
-        val, conf = _score_threat_boolean(source_vals)
+        val, conf = score_threat_boolean(source_vals)
         threat_value[bool_name] = val
         threat_per_bool_conf[bool_name] = conf
         for src, vals in raw_threat.items():
@@ -586,12 +581,13 @@ def download_cn_db() -> None:
 
 
 def download_ip2proxy() -> None:
-    if not IP2PROXY_URL:
+    if not _ip2proxy_token:
         logger.warning("IP2PROXY_TOKEN not set, skipping IP2Proxy download")
         return
+    url = f"https://download.ip2location.com/lite/PX2.CSV.ZIP?token={_ip2proxy_token}"
     logger.info("Downloading IP2Proxy PX2...")
     try:
-        req = urllib.request.Request(IP2PROXY_URL, headers={"User-Agent": "ip-lookup-tool/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "ip-lookup-tool/1.0"})
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = resp.read()
         if not data:

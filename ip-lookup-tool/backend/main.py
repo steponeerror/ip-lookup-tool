@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from ipdb import (
     load_db, lookup, get_status, is_db_stale, reload_db,
-    enrich_with_ipapi, enrich_with_ipapi_is, _score_threat_boolean,
+    enrich_with_ipapi, enrich_with_ipapi_is, score_threat_boolean,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +27,7 @@ def _merge_threat_source(result: dict, source_name: str, data: dict) -> None:
         source_vals = {}
         for src, vals in threat["sources"].items():
             source_vals[src] = vals.get(bool_name)
-        val, conf = _score_threat_boolean(source_vals)
+        val, conf = score_threat_boolean(source_vals)
         threat["value"][bool_name] = val
         threat["per_boolean_confidence"][bool_name] = conf
 
@@ -58,6 +58,8 @@ async def _enrich_results(results: list[dict], enrich: bool) -> str | None:
     errors = []
     if not ipapi_map:
         errors.append(f"ip-api.com enrichment failed, got {enriched_count}/{len(unique_ips)} IPs")
+    elif enriched_count < len(unique_ips):
+        errors.append(f"ip-api.com partial enrichment: {enriched_count}/{len(unique_ips)} IPs")
     if not ipapi_is_ok:
         errors.append("ipapi.is enrichment failed")
     return "; ".join(errors) if errors else None
@@ -67,7 +69,8 @@ async def _stream_lookup(ips: list[str]) -> AsyncIterator:
     """Stream lookup results with chunked enrichment progress."""
     results = [lookup(ip) for ip in ips]
 
-    # Stream lookup results first
+    # Stream lookup results first (client can render immediately;
+    # final "complete" event re-sends all with enrichment applied)
     for r in results:
         yield json.dumps({"type": "result", "data": r}) + "\n"
 
