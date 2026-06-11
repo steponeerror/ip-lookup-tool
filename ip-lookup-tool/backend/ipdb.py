@@ -9,6 +9,7 @@ import socket
 import threading
 import time
 import urllib.request
+import zipfile
 from collections import Counter
 from pathlib import Path
 from typing import Optional
@@ -271,7 +272,6 @@ def _int_to_ip(s: str) -> str | None:
 def _parse_ip2proxy(path: Path) -> tuple[pytricia.PyTricia, int]:
     tree = pytricia.PyTricia(32)
     count = 0
-    import zipfile
 
     file_to_open = path
     # Handle ZIP-wrapped CSV
@@ -748,14 +748,18 @@ def enrich_with_ipapi(ips: list[str]) -> dict[str, dict]:
     return result
 
 
-def _check_ipapi_is_quota() -> bool:
+def _reserve_ipapi_is_quota(n: int) -> bool:
+    """Atomically check and reserve quota for n requests. Returns True if reserved."""
     global _daily_ipapi_is_count, _daily_ipapi_is_date
     with _ipapi_is_quota_lock:
         today = time.strftime("%Y-%m-%d")
         if today != _daily_ipapi_is_date:
             _daily_ipapi_is_date = today
             _daily_ipapi_is_count = 0
-        return _daily_ipapi_is_count < 950
+        if _daily_ipapi_is_count + n > 950:
+            return False
+        _daily_ipapi_is_count += n
+        return True
 
 
 def enrich_with_ipapi_is(ips: list[str]) -> tuple[dict[str, dict], bool]:
@@ -765,7 +769,7 @@ def enrich_with_ipapi_is(ips: list[str]) -> tuple[dict[str, dict], bool]:
     if not ips or not IPAPI_IS_ENABLED:
         return {}, True
 
-    if not _check_ipapi_is_quota():
+    if not _reserve_ipapi_is_quota(0):
         logger.warning("ipapi.is daily quota exhausted, skipping")
         return {}, True
 
@@ -775,6 +779,9 @@ def enrich_with_ipapi_is(ips: list[str]) -> tuple[dict[str, dict], bool]:
 
     for i in range(0, len(ips), CHUNK_SIZE):
         chunk = ips[i : i + CHUNK_SIZE]
+        if not _reserve_ipapi_is_quota(len(chunk)):
+            logger.warning(f"ipapi.is daily quota exhausted at {i}/{len(ips)} IPs, stopping")
+            break
         try:
             url = "https://api.ipapi.is/"
             if IPAPI_IS_KEY:
@@ -802,8 +809,6 @@ def enrich_with_ipapi_is(ips: list[str]) -> tuple[dict[str, dict], bool]:
                     "is_mobile": entry.get("is_mobile"),
                     "is_hosting": bool(entry.get("is_datacenter", False)),
                 }
-                with _ipapi_is_quota_lock:
-                    _daily_ipapi_is_count += 1
 
         except Exception as e:
             logger.warning(f"ipapi.is batch failed: {e}")

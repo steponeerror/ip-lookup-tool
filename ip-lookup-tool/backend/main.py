@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from ipdb import (
     load_db, lookup, get_status, is_db_stale, reload_db,
+    download_lite, download_tsv, download_cn_db, download_ip2proxy,
     enrich_with_ipapi, enrich_with_ipapi_is, score_threat_boolean,
 )
 
@@ -57,8 +58,8 @@ async def _enrich_results(results: list[dict], enrich: bool) -> str | None:
                 _merge_threat_source(r, "ipapi_is", extra)
 
     errors = []
-    if not ipapi_map:
-        errors.append(f"ip-api.com enrichment failed, got {enriched_count}/{len(unique_ips)} IPs")
+    if len(ipapi_map) == 0:
+        errors.append(f"ip-api.com enrichment failed, got 0/{len(unique_ips)} IPs")
     elif enriched_count < len(unique_ips):
         errors.append(f"ip-api.com partial enrichment: {enriched_count}/{len(unique_ips)} IPs")
     if not ipapi_is_ok:
@@ -235,7 +236,45 @@ async def db_status():
     return get_status()
 
 
+_DOWNLOAD_STEPS = [
+    ("IPinfo Lite", download_lite),
+    ("IPtoASN", download_tsv),
+    ("CN ISP", download_cn_db),
+    ("IP2Proxy", download_ip2proxy),
+]
+
+
+async def _stream_update_db() -> AsyncIterator:
+    """Stream database update progress as NDJSON events."""
+    total = len(_DOWNLOAD_STEPS) + 1  # downloads + load
+    errors: list[str] = []
+    done = 0
+
+    yield json.dumps({"type": "start", "total": total}) + "\n"
+
+    for name, fn in _DOWNLOAD_STEPS:
+        yield json.dumps({"type": "step", "done": done, "total": total, "name": name, "status": "downloading"}) + "\n"
+        try:
+            await asyncio.to_thread(fn)
+            done += 1
+            yield json.dumps({"type": "step", "done": done, "total": total, "name": name, "status": "done"}) + "\n"
+        except Exception as e:
+            done += 1
+            errors.append(f"{name}: {e}")
+            yield json.dumps({"type": "step", "done": done, "total": total, "name": name, "status": "failed", "error": str(e)}) + "\n"
+        await asyncio.sleep(0)
+
+    yield json.dumps({"type": "step", "done": done, "total": total, "name": "Loading DB", "status": "loading"}) + "\n"
+    await asyncio.to_thread(load_db)
+    done += 1
+    yield json.dumps({"type": "step", "done": done, "total": total, "name": "Loading DB", "status": "done"}) + "\n"
+
+    status = get_status()
+    if errors:
+        status["warnings"] = errors
+    yield json.dumps({"type": "complete", "status": status}) + "\n"
+
+
 @app.post("/api/update-db")
 async def update_db():
-    status = reload_db()
-    return status
+    return StreamingResponse(_stream_update_db(), media_type="application/x-ndjson")
