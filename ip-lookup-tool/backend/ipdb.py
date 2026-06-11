@@ -40,6 +40,16 @@ ISP_FILES = {
     "tw": ("TW", "台湾"),
 }
 
+# IP2Proxy LITE PX2 (offline proxy/hosting detection)
+IP2PROXY_PATH = DATA_DIR / "ip2proxy_px2.csv"
+IP2PROXY_ZIP_PATH = DATA_DIR / "ip2proxy_px2.zip"
+_ip2proxy_token = os.environ.get("IP2PROXY_TOKEN", "")
+IP2PROXY_URL = (
+    f"https://download.ip2location.com/lite/PX2.CSV.ZIP?token={_ip2proxy_token}"
+    if _ip2proxy_token
+    else ""
+)
+
 STALE_DAYS = 7
 
 
@@ -132,6 +142,8 @@ _cn_tree: Optional[pytricia.PyTricia] = None
 _lite_count: int = 0
 _tsv_count: int = 0
 _cn_count: int = 0
+_ip2proxy_tree: Optional[pytricia.PyTricia] = None
+_ip2proxy_count: int = 0
 _loaded_at: float = 0.0
 
 
@@ -238,9 +250,70 @@ def _parse_cn_isp() -> tuple[pytricia.PyTricia, int]:
     return tree, count
 
 
+def _int_to_ip(s: str) -> str | None:
+    try:
+        n = int(s)
+        if n < 0 or n > 0xFFFFFFFF:
+            return None
+        return str(ipaddress.IPv4Address(n))
+    except (ValueError, ipaddress.AddressValueError):
+        return None
+
+
+def _parse_ip2proxy(path: Path) -> tuple[pytricia.PyTricia, int]:
+    tree = pytricia.PyTricia(32)
+    count = 0
+    import zipfile
+
+    file_to_open = path
+    # Handle ZIP-wrapped CSV
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as zf:
+            csv_names = [n for n in zf.namelist() if n.endswith(".csv")]
+            if not csv_names:
+                return tree, 0
+            zf.extract(csv_names[0], path.parent)
+            file_to_open = path.parent / csv_names[0]
+
+    with open(file_to_open, "r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        next(reader, None)  # skip header
+        for row in reader:
+            if len(row) < 3:
+                continue
+            raw_start, raw_end, proxy_type = row[0].strip(), row[1].strip(), row[2].strip()
+
+            start_str = _int_to_ip(raw_start) or raw_start
+            end_str = _int_to_ip(raw_end) or raw_end
+            try:
+                start_addr = ipaddress.IPv4Address(start_str)
+                end_addr = ipaddress.IPv4Address(end_str)
+            except (ipaddress.AddressValueError, ValueError):
+                continue
+
+            is_proxy = proxy_type in ("VPN", "PUB")
+            is_hosting = proxy_type == "DCH"
+            if not is_proxy and not is_hosting:
+                continue
+
+            for cidr in ipaddress.summarize_address_range(start_addr, end_addr):
+                tree.insert(str(cidr), {
+                    "is_proxy": is_proxy,
+                    "is_hosting": is_hosting,
+                    "proxy_type": proxy_type,
+                })
+                count += 1
+
+    # Clean up extracted CSV if we unzipped
+    if file_to_open != path and file_to_open.exists():
+        file_to_open.unlink()
+
+    return tree, count
+
+
 def load_db() -> None:
-    global _lite_tree, _tsv_tree, _cn_tree
-    global _lite_count, _tsv_count, _cn_count, _loaded_at
+    global _lite_tree, _tsv_tree, _cn_tree, _ip2proxy_tree
+    global _lite_count, _tsv_count, _cn_count, _ip2proxy_count, _loaded_at
 
     if not LITE_PATH.exists():
         logger.info("No IPinfo Lite data found, downloading...")
@@ -252,6 +325,11 @@ def load_db() -> None:
     if not cn_dir.exists() or not any(cn_dir.iterdir()):
         logger.info("No Chinese ISP data found, downloading...")
         download_cn_db()
+    if not IP2PROXY_PATH.exists() and not IP2PROXY_ZIP_PATH.exists():
+        try:
+            download_ip2proxy()
+        except Exception as e:
+            logger.warning(f"IP2Proxy download failed: {e}")
 
     t0 = time.time()
 
@@ -259,17 +337,26 @@ def load_db() -> None:
     tsv_tree, tsv_count = _parse_tsv(TSV_PATH)
     cn_tree, cn_count = _parse_cn_isp()
 
+    if IP2PROXY_ZIP_PATH.exists():
+        ip2proxy_tree, ip2proxy_count = _parse_ip2proxy(IP2PROXY_ZIP_PATH)
+    elif IP2PROXY_PATH.exists():
+        ip2proxy_tree, ip2proxy_count = _parse_ip2proxy(IP2PROXY_PATH)
+    else:
+        ip2proxy_tree, ip2proxy_count = pytricia.PyTricia(32), 0
+
     _lite_tree = lite_tree
     _tsv_tree = tsv_tree
     _cn_tree = cn_tree
+    _ip2proxy_tree = ip2proxy_tree
     _lite_count = lite_count
     _tsv_count = tsv_count
     _cn_count = cn_count
+    _ip2proxy_count = ip2proxy_count
     _loaded_at = time.time()
 
     elapsed = _loaded_at - t0
     logger.info(
-        f"Loaded {lite_count} Lite + {tsv_count} ASN + {cn_count} CN ISP records in {elapsed:.1f}s"
+        f"Loaded {lite_count} Lite + {tsv_count} ASN + {cn_count} CN ISP + {ip2proxy_count} IP2Proxy records in {elapsed:.1f}s"
     )
 
 
@@ -426,10 +513,30 @@ def download_cn_db() -> None:
             logger.error(f"Failed to download {isp_name}.txt: {e}")
 
 
+def download_ip2proxy() -> None:
+    if not IP2PROXY_URL:
+        logger.warning("IP2PROXY_TOKEN not set, skipping IP2Proxy download")
+        return
+    logger.info("Downloading IP2Proxy PX2...")
+    try:
+        req = urllib.request.Request(IP2PROXY_URL, headers={"User-Agent": "ip-lookup-tool/1.0"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = resp.read()
+        if not data:
+            raise RuntimeError("Empty response")
+        with open(IP2PROXY_ZIP_PATH, "wb") as f:
+            f.write(data)
+        logger.info(f"Downloaded IP2Proxy PX2 ({len(data)} bytes)")
+    except Exception:
+        IP2PROXY_ZIP_PATH.unlink(missing_ok=True)
+        raise
+
+
 def reload_db() -> dict:
     download_lite()
     download_tsv()
     download_cn_db()
+    download_ip2proxy()
     load_db()
     return get_status()
 
