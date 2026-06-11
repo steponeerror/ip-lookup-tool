@@ -367,62 +367,128 @@ def load_db() -> None:
 
 
 def lookup(ip: str) -> dict:
-    if _lite_tree is None:
+    if _lite_tree is None and _tsv_tree is None:
         raise RuntimeError("Database not loaded")
     try:
         ipaddress.IPv4Address(ip)
     except (ipaddress.AddressValueError, ValueError):
         return {"ip": ip, "error": "invalid IP format"}
 
-    result: dict = {
-        "ip": ip,
-        "asn": "N/A",
-        "country_code": "N/A",
-        "as_name": "N/A",
-        "ip_range": "N/A",
-        "is_isp": False,
-        "is_mobile": False,
-        "is_proxy": False,
-        "is_hosting": False,
-    }
+    # Collect raw values from all offline sources
+    raw_country: dict[str, str] = {}
+    raw_asn: dict[str, int] = {}
+    raw_as_name: dict[str, str] = {}
+    raw_range: dict[str, str] = {}
+    is_isp = False
+    raw_threat: dict[str, dict] = {}
 
-    # 1. IPinfo Lite (best country + ASN accuracy)
+    # 1. IPinfo Lite
     try:
         node = _lite_tree[ip]
-        result["country_code"] = node["country_code"]
+        raw_country["ipinfo_lite"] = node["country_code"]
         if node["has_asn"]:
-            result["asn"] = node["asn"]
-            result["as_name"] = node["as_name"]
-        result["ip_range"] = str(_lite_tree.get_key(ip))
+            raw_asn["ipinfo_lite"] = node["asn"]
+            raw_as_name["ipinfo_lite"] = node["as_name"]
+        raw_range["ipinfo_lite"] = str(_lite_tree.get_key(ip))
     except KeyError:
         pass
 
-    # 2. Fill ASN from IPtoASN if Lite didn't have it
-    if result["asn"] == "N/A" and _tsv_tree is not None:
+    # 2. IPtoASN
+    if _tsv_tree is not None:
         try:
             node = _tsv_tree[ip]
-            result["asn"] = node["asn"]
-            result["as_name"] = node["as_name"]
-            if result["country_code"] == "N/A":
-                result["country_code"] = node["country_code"]
-            if result["ip_range"] == "N/A":
-                result["ip_range"] = str(_tsv_tree.get_key(ip))
+            if node["asn"] != 0:
+                raw_asn["iptoasn"] = node["asn"]
+                raw_as_name["iptoasn"] = node["as_name"]
+            if node.get("country_code"):
+                raw_country["iptoasn"] = node["country_code"]
+            raw_range["iptoasn"] = str(_tsv_tree.get_key(ip))
         except KeyError:
             pass
 
-    # 3. Chinese ISP lookup → overrides country/as_name + sets is_isp
+    # 3. Chinese ISP
     if _cn_tree is not None:
         try:
             cn_node = _cn_tree[ip]
-            result["country_code"] = cn_node["country_code"]
-            if cn_node["country_code"] == "CN":
-                result["as_name"] = cn_node["isp"]
-            result["is_isp"] = True
-            result["ip_range"] = str(_cn_tree.get_key(ip))
+            raw_country["cn_isp"] = cn_node["country_code"]
+            raw_as_name["cn_isp"] = cn_node["isp"]
+            is_isp = True
+            raw_range["cn_isp"] = str(_cn_tree.get_key(ip))
         except KeyError:
             pass
 
-    return result
+    # 4. IP2Proxy PX2 (offline threat)
+    if _ip2proxy_tree is not None:
+        try:
+            px_node = _ip2proxy_tree[ip]
+            raw_threat["ip2proxy"] = {
+                "is_proxy": px_node["is_proxy"],
+                "is_mobile": None,
+                "is_hosting": px_node["is_hosting"],
+            }
+        except KeyError:
+            pass
+
+    # Determine authoritative source for as_name
+    country_val = raw_country.get("cn_isp") or raw_country.get("ipinfo_lite") or ""
+    if country_val in ("CN", "HK", "MO", "TW") and "cn_isp" in raw_as_name:
+        authoritative = "cn_isp"
+    elif "ipinfo_lite" in raw_as_name:
+        authoritative = "ipinfo_lite"
+    else:
+        authoritative = None
+
+    # Score all fields
+    country_value, country_conf = _score_factual(raw_country, default="N/A")
+    asn_value, asn_conf = _score_factual(raw_asn, default=0)
+    as_name_value, as_name_conf = _score_naming(raw_as_name, authoritative)
+    range_value, range_conf = _score_range(raw_range, ip)
+
+    # Score threat booleans
+    threat_value = {}
+    threat_per_bool_conf = {}
+    threat_source_values = {}
+    for bool_name in ("is_proxy", "is_mobile", "is_hosting"):
+        source_vals = {}
+        for src, vals in raw_threat.items():
+            source_vals[src] = vals.get(bool_name)
+        val, conf = _score_threat_boolean(source_vals)
+        threat_value[bool_name] = val
+        threat_per_bool_conf[bool_name] = conf
+        for src, vals in raw_threat.items():
+            if src not in threat_source_values:
+                threat_source_values[src] = {}
+            threat_source_values[src][bool_name] = vals.get(bool_name)
+
+    return {
+        "ip": ip,
+        "country": {
+            "value": country_value,
+            "confidence": country_conf,
+            "sources": raw_country,
+        },
+        "asn": {
+            "value": asn_value,
+            "confidence": asn_conf,
+            "sources": raw_asn,
+        },
+        "as_name": {
+            "value": as_name_value,
+            "confidence": as_name_conf,
+            "sources": raw_as_name,
+        },
+        "is_isp": is_isp,
+        "threat": {
+            "value": threat_value,
+            "sources": threat_source_values,
+            "per_boolean_confidence": threat_per_bool_conf,
+        },
+        "ip_range": {
+            "value": range_value,
+            "confidence": range_conf,
+            "sources": raw_range,
+        },
+    }
 
 
 def get_status() -> dict:
