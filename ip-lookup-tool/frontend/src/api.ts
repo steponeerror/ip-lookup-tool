@@ -1,13 +1,39 @@
+export interface FieldResult<T> {
+  value: T;
+  confidence: "high" | "medium" | "low";
+  sources: Record<string, T>;
+}
+
+export interface ThreatValue {
+  is_proxy: boolean;
+  is_mobile: boolean;
+  is_hosting: boolean;
+}
+
+export interface ThreatSourceValue {
+  is_proxy: boolean | null;
+  is_mobile: boolean | null;
+  is_hosting: boolean | null;
+}
+
+export interface ThreatFieldResult {
+  value: ThreatValue;
+  sources: Record<string, ThreatSourceValue>;
+  per_boolean_confidence: {
+    is_proxy: "high" | "medium" | "low";
+    is_mobile: "high" | "medium" | "low";
+    is_hosting: "high" | "medium" | "low";
+  };
+}
+
 export interface LookupResult {
   ip: string;
-  asn: number | string;
-  country_code: string;
-  as_name: string;
-  ip_range: string;
+  asn: FieldResult<number | string>;
+  country: FieldResult<string>;
+  as_name: FieldResult<string>;
   is_isp: boolean;
-  is_mobile: boolean;
-  is_proxy: boolean;
-  is_hosting: boolean;
+  threat: ThreatFieldResult;
+  ip_range: FieldResult<string>;
   error?: string;
 }
 
