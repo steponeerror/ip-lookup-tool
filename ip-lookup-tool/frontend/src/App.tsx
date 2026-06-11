@@ -111,7 +111,7 @@ export default function App() {
                 </h2>
                 <label
                   className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500"
-                  title="Query ip-api.com for mobile/proxy/hosting classification (sends IPs to third-party)"
+                  title="Enrich threat data with ip-api.com and ipapi.is (sends IPs to third-party)"
                 >
                   <input
                     type="checkbox"
@@ -119,7 +119,7 @@ export default function App() {
                     onChange={(e) => setEnrich(e.target.checked)}
                     className="accent-emerald-500"
                   />
-                  ip-api.com
+                  enrich
                 </label>
               </div>
               <ExportCsv results={results} />
