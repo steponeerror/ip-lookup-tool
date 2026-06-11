@@ -33,7 +33,7 @@ def test_stream_enrich_all_ips(mock_enrich_is, mock_enrich):
     ips = ["8.8.8.8", "1.1.1.1", "9.9.9.9", "114.114.114.114", "1.2.3.4"]
     from main import _stream_lookup
 
-    events = asyncio.get_event_loop().run_until_complete(
+    events = asyncio.run(
         _collect_stream(_stream_lookup(ips))
     )
 
@@ -66,7 +66,7 @@ def test_stream_results_have_nested_structure(mock_enrich_is, mock_enrich):
     ips = ["8.8.8.8"]
     from main import _stream_lookup
 
-    events = asyncio.get_event_loop().run_until_complete(
+    events = asyncio.run(
         _collect_stream(_stream_lookup(ips))
     )
 

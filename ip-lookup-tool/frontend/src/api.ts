@@ -50,63 +50,6 @@ export interface QueryResponse {
   enrich_error?: string;
 }
 
-export async function queryIps(ips: string[], enrich?: boolean): Promise<QueryResponse> {
-  const params = enrich ? "?enrich=true" : "";
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120_000);
-  try {
-    const res = await fetch(`/api/query${params}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ips }),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      let detail: string;
-      try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-      throw new Error(detail || "Query failed");
-    }
-    const data = await res.json();
-    return data;
-  } catch (e) {
-    if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error("Request timed out (120s)");
-    }
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export async function uploadFile(file: File, enrich?: boolean): Promise<QueryResponse> {
-  const params = enrich ? "?enrich=true" : "";
-  const form = new FormData();
-  form.append("file", file);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120_000);
-  try {
-    const res = await fetch(`/api/upload${params}`, {
-      method: "POST",
-      body: form,
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      let detail: string;
-      try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-      throw new Error(detail || "Upload failed");
-    }
-    const data = await res.json();
-    return data;
-  } catch (e) {
-    if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error("Request timed out (120s)");
-    }
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export async function getDbStatus(): Promise<DbStatus> {
   const res = await fetch("/api/db-status");
   if (!res.ok) {
@@ -115,6 +58,55 @@ export async function getDbStatus(): Promise<DbStatus> {
     throw new Error(detail || "Failed to get database status");
   }
   return res.json();
+}
+
+export interface UpdateProgress {
+  done: number;
+  total: number;
+  currentStep: string;
+  stepStatus: string;
+  errors: string[];
+}
+
+export async function updateDbStream(
+  onProgress: (p: UpdateProgress) => void,
+): Promise<DbStatus> {
+  const res = await fetch("/api/update-db", { method: "POST" });
+  if (!res.ok) {
+    let detail: string;
+    try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
+    throw new Error(detail || "Database update failed");
+  }
+  if (!res.body) throw new Error("Streaming not supported");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalStatus: DbStatus | null = null;
+  const errors: string[] = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop()!;
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let evt: any;
+      try { evt = JSON.parse(line); } catch { continue; }
+      if (evt.type === "start") {
+        onProgress({ done: 0, total: evt.total, currentStep: "", stepStatus: "starting", errors: [] });
+      } else if (evt.type === "step") {
+        if (evt.error) errors.push(evt.error);
+        onProgress({ done: evt.done, total: evt.total, currentStep: evt.name, stepStatus: evt.status, errors: [...errors] });
+      } else if (evt.type === "complete") {
+        finalStatus = evt.status;
+      }
+    }
+  }
+  if (!finalStatus) throw new Error("No status received");
+  return finalStatus;
 }
 
 export async function updateDb(): Promise<DbStatus> {
