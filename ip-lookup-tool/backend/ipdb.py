@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import socket
+import threading
 import time
 import urllib.request
 from collections import Counter
@@ -56,6 +57,7 @@ IPAPI_IS_ENABLED = os.environ.get("IPAPI_IS_ENABLED", "false").lower() == "true"
 IPAPI_IS_KEY = os.environ.get("IPAPI_IS_KEY", "")
 _daily_ipapi_is_count: int = 0
 _daily_ipapi_is_date: str = ""
+_ipapi_is_quota_lock = threading.Lock()
 
 STALE_DAYS = 7
 
@@ -384,7 +386,24 @@ def lookup(ip: str) -> dict:
     try:
         ipaddress.IPv4Address(ip)
     except (ipaddress.AddressValueError, ValueError):
-        return {"ip": ip, "error": "invalid IP format"}
+        return {
+            "ip": ip,
+            "error": "invalid IP format",
+            "country": {"value": "N/A", "confidence": "low", "sources": {}},
+            "asn": {"value": 0, "confidence": "low", "sources": {}},
+            "as_name": {"value": "N/A", "confidence": "low", "sources": {}},
+            "is_isp": False,
+            "threat": {
+                "value": {"is_proxy": False, "is_mobile": False, "is_hosting": False},
+                "sources": {},
+                "per_boolean_confidence": {
+                    "is_proxy": "low",
+                    "is_mobile": "low",
+                    "is_hosting": "low",
+                },
+            },
+            "ip_range": {"value": "N/A", "confidence": "low", "sources": {}},
+        }
 
     # Collect raw values from all offline sources
     raw_country: dict[str, str] = {}
@@ -731,11 +750,12 @@ def enrich_with_ipapi(ips: list[str]) -> dict[str, dict]:
 
 def _check_ipapi_is_quota() -> bool:
     global _daily_ipapi_is_count, _daily_ipapi_is_date
-    today = time.strftime("%Y-%m-%d")
-    if today != _daily_ipapi_is_date:
-        _daily_ipapi_is_date = today
-        _daily_ipapi_is_count = 0
-    return _daily_ipapi_is_count < 950
+    with _ipapi_is_quota_lock:
+        today = time.strftime("%Y-%m-%d")
+        if today != _daily_ipapi_is_date:
+            _daily_ipapi_is_date = today
+            _daily_ipapi_is_count = 0
+        return _daily_ipapi_is_count < 950
 
 
 def enrich_with_ipapi_is(ips: list[str]) -> tuple[dict[str, dict], bool]:
@@ -782,7 +802,8 @@ def enrich_with_ipapi_is(ips: list[str]) -> tuple[dict[str, dict], bool]:
                     "is_mobile": entry.get("is_mobile"),
                     "is_hosting": bool(entry.get("is_datacenter", False)),
                 }
-                _daily_ipapi_is_count += 1
+                with _ipapi_is_quota_lock:
+                    _daily_ipapi_is_count += 1
 
         except Exception as e:
             logger.warning(f"ipapi.is batch failed: {e}")
