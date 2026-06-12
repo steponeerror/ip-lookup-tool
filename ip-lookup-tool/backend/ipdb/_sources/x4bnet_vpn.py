@@ -9,7 +9,7 @@ import pytricia
 
 logger = logging.getLogger(__name__)
 
-_URL = "https://raw.githubusercontent.com/X4BNet/lists_vpn/main/data/vpn.txt"
+_URL = "https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/vpn/ipv4.txt"
 
 
 class X4BNetVPNSource:

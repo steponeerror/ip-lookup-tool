@@ -97,7 +97,7 @@ function FieldDetail<T>({
         <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[field.confidence]}`} />
         <span className="text-[10px] text-zinc-600">{field.confidence}</span>
       </div>
-      {entries.length > 1 && (
+      {entries.length > 0 && (
         <div className="ml-3 flex flex-wrap gap-x-4 gap-y-0.5">
           {entries.map(([src, val]) => (
             <span key={src} className="text-[11px]">

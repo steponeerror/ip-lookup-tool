@@ -65,48 +65,52 @@ export default function App() {
           </p>
         </header>
 
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="space-y-6">
           {/* Input Section */}
           <section>
-            <div className="mb-4 flex gap-1 rounded-lg bg-zinc-900 p-1">
-              {(["text", "file"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-                    tab === t
-                      ? "bg-zinc-800 text-emerald-400"
-                      : "text-zinc-500 hover:text-zinc-300"
-                  }`}
-                >
-                  {t === "text" ? "Text Input" : "File Upload"}
-                </button>
-              ))}
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1 rounded-lg bg-zinc-900 p-1">
+                {(["text", "file"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTab(t)}
+                    className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                      tab === t
+                        ? "bg-zinc-800 text-emerald-400"
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    {t === "text" ? "Text Input" : "File Upload"}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <AnimatePresence mode="wait">
-              {tab === "text" ? (
-                <motion.div
-                  key="text"
-                  initial={reduce ? false : { opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                >
-                  <IpInput onQuery={handleQuery} loading={loading} progress={progress} />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="file"
-                  initial={reduce ? false : { opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                >
-                  <FileUpload onUpload={handleUpload} loading={loading} progress={progress} />
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <div className="mt-3">
+              <AnimatePresence mode="wait">
+                {tab === "text" ? (
+                  <motion.div
+                    key="text"
+                    initial={reduce ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <IpInput onQuery={handleQuery} loading={loading} progress={progress} />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="file"
+                    initial={reduce ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <FileUpload onUpload={handleUpload} loading={loading} progress={progress} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </section>
 
           {/* Results Section */}
@@ -114,7 +118,7 @@ export default function App() {
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-medium text-zinc-400">
                 {results.length > 0
-                  ? `Results (${results.length})`
+                  ? `Results (${results.length.toLocaleString()})`
                   : "Results"}
               </h2>
               <ExportCsv results={results} />
