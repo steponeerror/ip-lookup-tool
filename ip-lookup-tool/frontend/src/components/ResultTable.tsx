@@ -20,18 +20,27 @@ const THREAT_LABELS: Record<string, string> = {
   is_proxy: "代理",
   is_mobile: "基站",
   is_hosting: "机房",
+  is_tor: "Tor",
+  is_vpn: "VPN",
+  is_malicious: "恶意",
 };
 
 const THREAT_ACTIVE: Record<string, string> = {
   is_proxy: "bg-orange-500/20 text-orange-400",
   is_mobile: "bg-blue-500/20 text-blue-400",
   is_hosting: "bg-purple-500/20 text-purple-400",
+  is_tor: "bg-rose-500/20 text-rose-400",
+  is_vpn: "bg-cyan-500/20 text-cyan-400",
+  is_malicious: "bg-red-500/20 text-red-400",
 };
 
 const THREAT_OUTLINED: Record<string, string> = {
   is_proxy: "border border-orange-500/30 text-orange-400",
   is_mobile: "border border-blue-500/30 text-blue-400",
   is_hosting: "border border-purple-500/30 text-purple-400",
+  is_tor: "border border-rose-500/30 text-rose-400",
+  is_vpn: "border border-cyan-500/30 text-cyan-400",
+  is_malicious: "border border-red-500/30 text-red-400",
 };
 
 function ConfidenceDot({ confidence }: { confidence: "high" | "medium" | "low" }) {
@@ -48,7 +57,7 @@ function ConfidenceDot({ confidence }: { confidence: "high" | "medium" | "low" }
 function ThreatBadges({ threat }: { threat: ThreatFieldResult }) {
   return (
     <span className="inline-flex gap-1">
-      {(["is_proxy", "is_mobile", "is_hosting"] as const).map((key) => {
+      {(["is_proxy", "is_mobile", "is_hosting", "is_tor", "is_vpn", "is_malicious"] as const).map((key) => {
         const value = threat.value[key];
         const conf = threat.per_boolean_confidence[key];
         if (!value && conf === "low") return null;
@@ -129,10 +138,13 @@ function FieldDetail<T>({
 }
 
 function ThreatDetail({ threat }: { threat: ThreatFieldResult }) {
-  const bools: ("is_proxy" | "is_mobile" | "is_hosting")[] = [
+  const bools: ("is_proxy" | "is_mobile" | "is_hosting" | "is_tor" | "is_vpn" | "is_malicious")[] = [
     "is_proxy",
     "is_mobile",
     "is_hosting",
+    "is_tor",
+    "is_vpn",
+    "is_malicious",
   ];
   const sourceNames = Object.keys(threat.sources);
   return (
