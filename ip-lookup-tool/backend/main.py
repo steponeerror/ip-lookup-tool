@@ -24,6 +24,8 @@ ENRICH_CHUNK = 100
 
 def _merge_threat_source(result: dict, source_name: str, data: dict) -> None:
     """Merge enrichment data into threat field and recompute confidence."""
+    for b in THREAT_BOOLS:
+        data.setdefault(b, None)
     threat = result["threat"]
     threat["sources"][source_name] = data
     for bool_name in THREAT_BOOLS:
@@ -50,13 +52,19 @@ async def _enrich_results(results: list[dict], enrich: bool) -> str | None:
                 _merge_threat_source(r, "ip_api", extra)
                 enriched_count += 1
 
-    # ipapi.is (optional)
-    ipapi_is_map, ipapi_is_ok = await asyncio.to_thread(enrich_with_ipapi_is, unique_ips)
+    # ipapi.is — only for IPs that ip_api missed
+    missed_ips = [ip for ip in unique_ips if ip not in ipapi_map]
+    ipapi_is_map = {}
+    ipapi_is_ok = True
+    if missed_ips:
+        ipapi_is_map, ipapi_is_ok = await asyncio.to_thread(enrich_with_ipapi_is, missed_ips)
     if ipapi_is_map:
         for r in results:
-            extra = ipapi_is_map.get(r["ip"])
-            if extra:
-                _merge_threat_source(r, "ipapi_is", extra)
+            if r["ip"] not in ipapi_map:
+                extra = ipapi_is_map.get(r["ip"])
+                if extra:
+                    _merge_threat_source(r, "ipapi_is", extra)
+                    enriched_count += 1
 
     errors = []
     if len(ipapi_map) == 0:
@@ -105,11 +113,12 @@ async def _stream_lookup(ips: list[str], enrich: bool = True) -> AsyncIterator:
             yield json.dumps({"type": "enriching", "done": done, "total": enrich_total}) + "\n"
             await asyncio.sleep(0)
 
-        # ipapi.is enrichment (optional, single batch)
+        # ipapi.is enrichment — only for IPs that ip_api missed
         ipapi_is_map: dict[str, dict] = {}
         ipapi_is_ok = True
-        if unique_ips:
-            ipapi_is_map, ipapi_is_ok = await asyncio.to_thread(enrich_with_ipapi_is, unique_ips)
+        missed_ips = [ip for ip in unique_ips if ip not in ipapi_map]
+        if missed_ips:
+            ipapi_is_map, ipapi_is_ok = await asyncio.to_thread(enrich_with_ipapi_is, missed_ips)
 
         enriched_count = 0
         for r in results:
@@ -117,9 +126,11 @@ async def _stream_lookup(ips: list[str], enrich: bool = True) -> AsyncIterator:
             if extra:
                 _merge_threat_source(r, "ip_api", extra)
                 enriched_count += 1
-            extra_is = ipapi_is_map.get(r["ip"])
-            if extra_is:
-                _merge_threat_source(r, "ipapi_is", extra_is)
+            else:
+                extra_is = ipapi_is_map.get(r["ip"])
+                if extra_is:
+                    _merge_threat_source(r, "ipapi_is", extra_is)
+                    enriched_count += 1
 
         if any_failure:
             enrich_error = f"ip-api.com enrichment failed, got {enriched_count}/{enrich_total} IPs"
