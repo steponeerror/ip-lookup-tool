@@ -6,7 +6,7 @@ import urllib.request
 
 logger = logging.getLogger(__name__)
 
-_DAILY_LIMIT = 950
+_DAILY_LIMIT = 1000
 _CHUNK_SIZE = 100
 
 
@@ -75,8 +75,10 @@ class IPApiIsEnricher:
                             or entry.get("is_tor", False)
                             or entry.get("is_vpn", False)
                         ),
-                        "is_mobile": entry.get("is_mobile"),
+                        "is_mobile": bool(entry.get("is_mobile", False)),
                         "is_hosting": bool(entry.get("is_datacenter", False)),
+                        "is_tor": bool(entry.get("is_tor", False)),
+                        "is_vpn": bool(entry.get("is_vpn", False)),
                     }
 
             except Exception as e:

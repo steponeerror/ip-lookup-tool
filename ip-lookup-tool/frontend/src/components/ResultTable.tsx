@@ -1,5 +1,5 @@
 import { useState, useMemo, Fragment } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import type { LookupResult, ThreatFieldResult, FieldResult } from "../api";
 
 interface ResultTableProps {
@@ -8,13 +8,11 @@ interface ResultTableProps {
 
 type SortKey = "ip" | "asn" | "country" | "as_name" | "is_isp" | "threat" | "ip_range";
 
-const CONF_STYLES: Record<string, string> = {
-  high: "bg-emerald-500 text-white",
-  medium: "bg-amber-500 text-white",
-  low: "bg-red-500 text-white",
+const CONF_DOT: Record<string, string> = {
+  high: "bg-emerald-500",
+  medium: "bg-amber-500",
+  low: "bg-red-500",
 };
-
-const CONF_LABELS: Record<string, string> = { high: "H", medium: "M", low: "L" };
 
 const THREAT_LABELS: Record<string, string> = {
   is_proxy: "代理",
@@ -26,47 +24,37 @@ const THREAT_LABELS: Record<string, string> = {
 };
 
 const THREAT_ACTIVE: Record<string, string> = {
-  is_proxy: "bg-orange-500/20 text-orange-400",
-  is_mobile: "bg-blue-500/20 text-blue-400",
-  is_hosting: "bg-purple-500/20 text-purple-400",
-  is_tor: "bg-rose-500/20 text-rose-400",
-  is_vpn: "bg-cyan-500/20 text-cyan-400",
-  is_malicious: "bg-red-500/20 text-red-400",
+  is_proxy: "bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/25",
+  is_mobile: "bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/25",
+  is_hosting: "bg-purple-500/15 text-purple-400 ring-1 ring-purple-500/25",
+  is_tor: "bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/25",
+  is_vpn: "bg-cyan-500/15 text-cyan-400 ring-1 ring-cyan-500/25",
+  is_malicious: "bg-red-500/15 text-red-400 ring-1 ring-red-500/25",
 };
 
 const THREAT_OUTLINED: Record<string, string> = {
-  is_proxy: "border border-orange-500/30 text-orange-400",
-  is_mobile: "border border-blue-500/30 text-blue-400",
-  is_hosting: "border border-purple-500/30 text-purple-400",
-  is_tor: "border border-rose-500/30 text-rose-400",
-  is_vpn: "border border-cyan-500/30 text-cyan-400",
-  is_malicious: "border border-red-500/30 text-red-400",
+  is_proxy: "text-orange-400/60 ring-1 ring-orange-500/15",
+  is_mobile: "text-blue-400/60 ring-1 ring-blue-500/15",
+  is_hosting: "text-purple-400/60 ring-1 ring-purple-500/15",
+  is_tor: "text-rose-400/60 ring-1 ring-rose-500/15",
+  is_vpn: "text-cyan-400/60 ring-1 ring-cyan-500/15",
+  is_malicious: "text-red-400/60 ring-1 ring-red-500/15",
 };
 
-function ConfidenceDot({ confidence }: { confidence: "high" | "medium" | "low" }) {
-  return (
-    <span
-      className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${CONF_STYLES[confidence]}`}
-      title={confidence}
-    >
-      {CONF_LABELS[confidence]}
-    </span>
-  );
-}
+const THREAT_KEYS = ["is_proxy", "is_mobile", "is_hosting", "is_tor", "is_vpn", "is_malicious"] as const;
 
 function ThreatBadges({ threat }: { threat: ThreatFieldResult }) {
   return (
-    <span className="inline-flex gap-1">
-      {(["is_proxy", "is_mobile", "is_hosting", "is_tor", "is_vpn", "is_malicious"] as const).map((key) => {
+    <span className="inline-flex flex-wrap gap-1">
+      {THREAT_KEYS.map((key) => {
         const value = threat.value[key];
         const conf = threat.per_boolean_confidence[key];
         if (!value && conf === "low") return null;
-
         const label = THREAT_LABELS[key];
         if (value) {
           const cls = conf === "high" ? THREAT_ACTIVE[key] : THREAT_OUTLINED[key];
           return (
-            <span key={key} className={`rounded px-2 py-0.5 text-xs ${cls}`}>
+            <span key={key} className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${cls}`}>
               {label}
             </span>
           );
@@ -90,22 +78,6 @@ function lowestConfidence(r: LookupResult): "high" | "medium" | "low" {
   return "high";
 }
 
-function ExpandableDetail({ r }: { r: LookupResult }) {
-  return (
-    <tr className="border-b border-zinc-800/50 bg-zinc-950/80">
-      <td colSpan={7} className="px-6 py-3 text-xs font-mono">
-        <div className="grid gap-3">
-          <FieldDetail label="Country" field={r.country} format={String} />
-          <FieldDetail label="ASN" field={r.asn} format={(v) => String(v)} />
-          <FieldDetail label="ISP/Org" field={r.as_name} format={String} />
-          <ThreatDetail threat={r.threat} />
-          <FieldDetail label="Range" field={r.ip_range} format={String} />
-        </div>
-      </td>
-    </tr>
-  );
-}
-
 function FieldDetail<T>({
   label,
   field,
@@ -119,67 +91,157 @@ function FieldDetail<T>({
   if (entries.length === 0) return null;
   return (
     <div>
-      <span className="text-zinc-300">
-        {label}: {format(field.value)}
-      </span>{" "}
-      <span className="text-zinc-500">({field.confidence})</span>
-      <div className="ml-4 text-zinc-500">
-        {entries.map(([src, val], i) => (
-          <div key={src}>
-            <span className="text-zinc-600">
-              {i === entries.length - 1 ? "└" : "├"}
-            </span>{" "}
-            <span className="text-zinc-400">{src}:</span> {format(val)}
-          </div>
-        ))}
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-xs font-medium text-zinc-300">{label}</span>
+        <span className="text-[10px] text-zinc-500">{format(field.value)}</span>
+        <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[field.confidence]}`} />
+        <span className="text-[10px] text-zinc-600">{field.confidence}</span>
       </div>
+      {entries.length > 1 && (
+        <div className="ml-3 flex flex-wrap gap-x-4 gap-y-0.5">
+          {entries.map(([src, val]) => (
+            <span key={src} className="text-[11px]">
+              <span className="text-zinc-500">{src}</span>
+              <span className="text-zinc-700 mx-1">:</span>
+              <span className="text-zinc-400">{format(val)}</span>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 function ThreatDetail({ threat }: { threat: ThreatFieldResult }) {
-  const bools: ("is_proxy" | "is_mobile" | "is_hosting" | "is_tor" | "is_vpn" | "is_malicious")[] = [
-    "is_proxy",
-    "is_mobile",
-    "is_hosting",
-    "is_tor",
-    "is_vpn",
-    "is_malicious",
-  ];
   const sourceNames = Object.keys(threat.sources);
   return (
     <div>
-      <span className="text-zinc-300">Threat:</span>
-      <div className="ml-4">
-        {bools.map((b, bi) => {
+      <span className="text-xs font-medium text-zinc-300">Threat</span>
+      <div className="ml-3 mt-1 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3">
+        {THREAT_KEYS.map((b) => {
           const val = threat.value[b];
           const conf = threat.per_boolean_confidence[b];
-          const srcEntries = sourceNames.filter((s) => threat.sources[s][b] !== null);
+          const srcEntries = sourceNames.filter((s) => threat.sources[s][b] != null);
+          if (!val && conf === "low" && srcEntries.length === 0) return null;
           return (
             <div key={b}>
-              <span className="text-zinc-600">
-                {bi === bools.length - 1 ? "└" : "├"}
-              </span>{" "}
-              <span className="text-zinc-400">{THREAT_LABELS[b]}:</span>{" "}
-              <span className={val ? "text-orange-400" : "text-zinc-300"}>
-                {String(val)}
-              </span>{" "}
-              <span className="text-zinc-500">({conf})</span>
-              <div className="ml-6 text-zinc-500">
-                {srcEntries.map((s, si) => (
-                  <div key={s}>
-                    <span className="text-zinc-600">
-                      {si === srcEntries.length - 1 ? "└" : "├"}
-                    </span>{" "}
-                    <span className="text-zinc-400">{s}:</span>{" "}
-                    {String(threat.sources[s][b])}
-                  </div>
-                ))}
+              <div className="flex items-center gap-1.5">
+                <span className={`inline-block h-1.5 w-1.5 rounded-full ${val ? "bg-orange-400" : "bg-zinc-600"}`} />
+                <span className="text-[11px] text-zinc-400">{THREAT_LABELS[b]}</span>
+                <span className="text-[10px] text-zinc-600">{conf}</span>
               </div>
+              {srcEntries.length > 0 && (
+                <div className="ml-3 flex flex-wrap gap-x-3">
+                  {srcEntries.map((s) => (
+                    <span key={s} className="text-[10px]">
+                      <span className="text-zinc-600">{s}</span>
+                      <span className="text-zinc-700 mx-0.5">:</span>
+                      <span className={threat.sources[s][b] ? "text-orange-400" : "text-zinc-500"}>
+                        {String(threat.sources[s][b] ?? "N/A")}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function ExpandableDetail({ r }: { r: LookupResult }) {
+  return (
+    <td colSpan={7} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
+      <div className="grid gap-2.5">
+        <FieldDetail label="Country" field={r.country} format={String} />
+        <FieldDetail label="ASN" field={r.asn} format={(v) => String(v)} />
+        <FieldDetail label="ISP / Org" field={r.as_name} format={String} />
+        <ThreatDetail threat={r.threat} />
+        <FieldDetail label="Range" field={r.ip_range} format={String} />
+      </div>
+    </td>
+  );
+}
+
+function SummaryBar({ results }: { results: LookupResult[] }) {
+  const stats = useMemo(() => {
+    const threats: Record<string, number> = {};
+    for (const k of THREAT_KEYS) threats[k] = 0;
+    let ispCount = 0;
+    let lowConf = 0;
+    let medConf = 0;
+    let highConf = 0;
+
+    for (const r of results) {
+      for (const k of THREAT_KEYS) {
+        if (r.threat.value[k]) threats[k]++;
+      }
+      if (r.is_isp) ispCount++;
+      const c = lowestConfidence(r);
+      if (c === "low") lowConf++;
+      else if (c === "medium") medConf++;
+      else highConf++;
+    }
+
+    return { threats, ispCount, lowConf, medConf, highConf };
+  }, [results]);
+
+  const activeThreats = THREAT_KEYS.filter((k) => stats.threats[k] > 0);
+  if (activeThreats.length === 0 && stats.ispCount === 0 && stats.lowConf === 0 && stats.medConf === 0) {
+    return (
+      <div className="flex items-center gap-3 text-xs text-zinc-500">
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          All {results.length.toLocaleString()} results high confidence
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400">
+      {stats.lowConf > 0 && (
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500" />
+          {stats.lowConf} low
+        </span>
+      )}
+      {stats.medConf > 0 && (
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+          {stats.medConf} medium
+        </span>
+      )}
+      {stats.highConf > 0 && (
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          {stats.highConf} high
+        </span>
+      )}
+      {activeThreats.length > 0 && (
+        <span className="text-zinc-600">|</span>
+      )}
+      {activeThreats.map((k) => (
+        <span key={k} className="flex items-center gap-1">
+          <span className={`rounded px-1 py-0.5 text-[10px] font-medium ${THREAT_ACTIVE[k]}`}>
+            {THREAT_LABELS[k]}
+          </span>
+          <span className="text-zinc-500">{stats.threats[k]}</span>
+        </span>
+      ))}
+      {stats.ispCount > 0 && (
+        <>
+          <span className="text-zinc-600">|</span>
+          <span className="flex items-center gap-1">
+            <span className="rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] font-medium text-emerald-400 ring-1 ring-emerald-500/25">
+              ISP
+            </span>
+            <span className="text-zinc-500">{stats.ispCount}</span>
+          </span>
+        </>
+      )}
     </div>
   );
 }
@@ -189,7 +251,19 @@ export function ResultTable({ results }: ResultTableProps) {
   const [sortAsc, setSortAsc] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [disagreementsFirst, setDisagreementsFirst] = useState(false);
+  const [filter, setFilter] = useState("");
   const reduce = useReducedMotion();
+
+  const filtered = useMemo(() => {
+    if (!filter.trim()) return results;
+    const q = filter.trim().toLowerCase();
+    return results.filter((r) =>
+      r.ip.toLowerCase().includes(q) ||
+      r.as_name.value.toLowerCase().includes(q) ||
+      r.country.value.toLowerCase().includes(q) ||
+      r.ip_range.value.toLowerCase().includes(q)
+    );
+  }, [results, filter]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -216,7 +290,7 @@ export function ResultTable({ results }: ResultTableProps) {
   };
 
   const sorted = useMemo(() => {
-    let arr = [...results];
+    let arr = [...filtered];
     if (disagreementsFirst) {
       const order: Record<string, number> = { low: 0, medium: 1, high: 2 };
       arr.sort((a, b) => order[lowestConfidence(a)] - order[lowestConfidence(b)]);
@@ -233,7 +307,7 @@ export function ResultTable({ results }: ResultTableProps) {
         ? String(va).localeCompare(String(vb))
         : String(vb).localeCompare(String(va));
     });
-  }, [results, sortKey, sortAsc, disagreementsFirst]);
+  }, [filtered, sortKey, sortAsc, disagreementsFirst]);
 
   const toggleRow = (ip: string) => {
     setExpanded((prev) => {
@@ -245,55 +319,71 @@ export function ResultTable({ results }: ResultTableProps) {
   };
 
   const expandDisagreements = () => {
-    const ips = results
+    const ips = filtered
       .filter((r) => lowestConfidence(r) !== "high")
       .map((r) => r.ip);
     setExpanded(new Set(ips));
   };
 
-  const cols: { key: SortKey; label: string }[] = [
+  const cols: { key: SortKey; label: string; className?: string }[] = [
     { key: "ip", label: "IP" },
-    { key: "asn", label: "ASN" },
-    { key: "country", label: "Country" },
+    { key: "asn", label: "ASN", className: "w-24" },
+    { key: "country", label: "Country", className: "w-24" },
     { key: "as_name", label: "ISP / Org" },
-    { key: "is_isp", label: "ISP IP" },
+    { key: "is_isp", label: "ISP", className: "w-16 text-center" },
     { key: "threat", label: "Type" },
-    { key: "ip_range", label: "Range" },
+    { key: "ip_range", label: "Range", className: "w-44" },
   ];
 
   return (
-    <div>
-      <div className="mb-2 flex gap-2">
+    <div className="space-y-3">
+      <SummaryBar results={results} />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          placeholder="Filter by IP, org, country, range..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="flex-1 min-w-48 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-600 focus:border-emerald-500/40 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"
+        />
         <button
           onClick={() => setDisagreementsFirst(!disagreementsFirst)}
-          className={`rounded px-3 py-1 text-xs transition-colors ${
+          className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${
             disagreementsFirst
-              ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-              : "bg-zinc-800 text-zinc-400 hover:text-zinc-300"
+              ? "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25"
+              : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
           }`}
         >
           Disagreements first
         </button>
         <button
           onClick={expandDisagreements}
-          className="rounded bg-zinc-800 px-3 py-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+          className="rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
         >
           Expand disagreements
         </button>
+        {filter && (
+          <span className="text-xs text-zinc-500">
+            {filtered.length.toLocaleString()} of {results.length.toLocaleString()}
+          </span>
+        )}
       </div>
 
       <div className="overflow-auto rounded-lg border border-zinc-800">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-zinc-800 bg-zinc-900 text-zinc-400">
+            <tr className="border-b border-zinc-800 bg-zinc-900/80">
               {cols.map((col) => (
                 <th
                   key={col.key}
                   onClick={() => handleSort(col.key)}
-                  className="cursor-pointer px-4 py-3 font-mono text-xs uppercase tracking-wider hover:text-emerald-400 transition-colors"
+                  className={`cursor-pointer px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-zinc-500 hover:text-emerald-400 transition-colors select-none ${col.className ?? ""}`}
                 >
                   {col.label}
-                  {sortKey === col.key && (sortAsc ? " ↑" : " ↓")}
+                  {sortKey === col.key && (
+                    <span className="ml-1 text-emerald-500">{sortAsc ? "↑" : "↓"}</span>
+                  )}
                 </th>
               ))}
             </tr>
@@ -302,64 +392,83 @@ export function ResultTable({ results }: ResultTableProps) {
             {sorted.map((r, i) => (
               <Fragment key={r.ip + i}>
                 <motion.tr
-                  initial={reduce ? false : { opacity: 0, y: 8 }}
+                  initial={reduce ? false : { opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{
-                    duration: 0.3,
-                    delay: reduce ? 0 : Math.min(i * 0.03, 0.5),
+                    duration: 0.25,
+                    delay: reduce ? 0 : Math.min(i * 0.02, 0.4),
                     ease: [0.16, 1, 0.3, 1],
                   }}
                   onClick={() => toggleRow(r.ip)}
-                  className={`cursor-pointer border-b border-zinc-800/50 font-mono text-xs hover:bg-emerald-500/5 ${
-                    i % 2 === 0 ? "bg-zinc-950" : "bg-zinc-900/50"
-                  } ${expanded.has(r.ip) ? "bg-emerald-500/5" : ""}`}
+                  className={`cursor-pointer border-b border-zinc-800/40 font-mono text-xs transition-colors hover:bg-zinc-800/60 ${
+                    expanded.has(r.ip) ? "bg-zinc-800/40" : ""
+                  }`}
                 >
-                  <td className="px-4 py-2 text-zinc-100">{r.ip}</td>
-                  <td className="px-4 py-2">
-                    <span className="flex items-center gap-1.5">
-                      <ConfidenceDot confidence={r.asn.confidence} />
+                  <td className="px-3 py-2 text-zinc-100 font-semibold">{r.ip}</td>
+                  <td className="px-3 py-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[r.asn.confidence]}`} />
                       <span className="text-zinc-300">{r.asn.value}</span>
                     </span>
                   </td>
-                  <td className="px-4 py-2">
-                    <span className="flex items-center gap-1.5">
-                      <ConfidenceDot confidence={r.country.confidence} />
+                  <td className="px-3 py-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[r.country.confidence]}`} />
                       <span className="text-zinc-300">{r.country.value}</span>
                     </span>
                   </td>
-                  <td className="px-4 py-2">
-                    <span className="flex items-center gap-1.5">
-                      <ConfidenceDot confidence={r.as_name.confidence} />
+                  <td className="px-3 py-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[r.as_name.confidence]}`} />
                       <span className="text-zinc-300">{r.as_name.value}</span>
                       {r.is_isp && (
-                        <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-400">
+                        <span className="rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">
                           ISP
                         </span>
                       )}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-center">
+                  <td className="px-3 py-2 text-center">
                     {r.is_isp ? (
-                      <span className="inline-block rounded bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-400">
+                      <span className="inline-block rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">
                         ISP
                       </span>
                     ) : (
-                      <span className="text-zinc-600">-</span>
+                      <span className="text-zinc-700">-</span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-center">
+                  <td className="px-3 py-2">
                     <ThreatBadges threat={r.threat} />
                   </td>
-                  <td className="px-4 py-2">
-                    <span className="flex items-center gap-1.5">
-                      <ConfidenceDot confidence={r.ip_range.confidence} />
+                  <td className="px-3 py-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[r.ip_range.confidence]}`} />
                       <span className="text-zinc-500">{r.ip_range.value}</span>
                     </span>
                   </td>
                 </motion.tr>
-                {expanded.has(r.ip) && <ExpandableDetail r={r} />}
+                <AnimatePresence>
+                  {expanded.has(r.ip) && (
+                    <motion.tr
+                      key={"detail-" + r.ip}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                    >
+                      <ExpandableDetail r={r} />
+                    </motion.tr>
+                  )}
+                </AnimatePresence>
               </Fragment>
             ))}
+            {sorted.length === 0 && filter && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-xs text-zinc-600">
+                  No results matching "{filter}"
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
