@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from ipdb import (
     load_db, lookup, get_status, is_db_stale, reload_db,
-    download_lite, download_tsv, download_cn_db, download_ip2proxy,
+    get_download_steps,
     enrich_with_ipapi, enrich_with_ipapi_is, score_threat_boolean,
 )
 
@@ -236,12 +236,7 @@ async def db_status():
     return get_status()
 
 
-_DOWNLOAD_STEPS = [
-    ("IPinfo Lite", download_lite),
-    ("IPtoASN", download_tsv),
-    ("CN ISP", download_cn_db),
-    ("IP2Proxy", download_ip2proxy),
-]
+_DOWNLOAD_STEPS = get_download_steps()
 
 
 async def _stream_update_db() -> AsyncIterator:
