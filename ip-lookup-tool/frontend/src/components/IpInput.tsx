@@ -25,9 +25,9 @@ export function IpInput({ onQuery, loading, progress }: IpInputProps) {
       <textarea
         id="ips"
         name="ips"
-        rows={10}
+        rows={4}
         placeholder={"1.1.1.1\n8.8.8.8\n114.114.114.114"}
-        className="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-3 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none"
+        className="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-3 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-y"
         disabled={loading}
       />
       <button
