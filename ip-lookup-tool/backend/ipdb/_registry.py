@@ -23,6 +23,10 @@ from ._sources.ipinfo_lite import IPinfoLiteSource
 from ._sources.iptoasn import IPtoASNSource
 from ._sources.cn_isp import ChineseISPSource
 from ._sources.ip2proxy import IP2ProxySource
+from ._sources.ipsum import IPsumSource
+from ._sources.firehol import FireholBlocklistSource
+from ._sources.tor_exits import TorExitSource
+from ._sources.x4bnet_vpn import X4BNetVPNSource
 from ._enrichers.ip_api import IPApiEnricher
 from ._enrichers.ipapi_is import IPApiIsEnricher
 
@@ -48,6 +52,13 @@ _sources = [
     IPtoASNSource(data_dir=DATA_DIR),
     ChineseISPSource(data_dir=DATA_DIR),
     IP2ProxySource(data_dir=DATA_DIR, token=os.environ.get("IP2PROXY_TOKEN", "")),
+    IPsumSource(data_dir=DATA_DIR),
+    FireholBlocklistSource(
+        data_dir=DATA_DIR,
+        selected_lists=["firehol_level1", "firehol_level2"],
+    ),
+    TorExitSource(data_dir=DATA_DIR),
+    X4BNetVPNSource(data_dir=DATA_DIR),
 ]
 
 # --- Enricher instances ---
