@@ -1,0 +1,153 @@
+import csv
+import gzip
+import ipaddress
+import logging
+import shutil
+import time
+import urllib.request
+from pathlib import Path
+from typing import Any, Optional
+
+import pytricia
+
+logger = logging.getLogger(__name__)
+
+
+class IPinfoLiteSource:
+    name = "ipinfo_lite"
+    fields = ("country_code", "asn", "as_name", "ip_range")
+    stale_days = 7
+
+    def __init__(self, data_dir: Path, token: str = ""):
+        self._token = token
+        self._path = data_dir / "ipinfo_lite.csv"
+        self._gz_path = data_dir / "ipinfo_lite.csv.gz"
+        self._data_dir = data_dir
+        self._tree: Optional[pytricia.PyTricia] = None
+        self._count: int = 0
+        self._loaded_at: float = 0.0
+
+    @property
+    def _url(self) -> str:
+        return (
+            f"https://ipinfo.io/data/ipinfo_lite.csv.gz?token={self._token}"
+            if self._token
+            else ""
+        )
+
+    def download(self) -> None:
+        from .._types import SourceHealth
+
+        if not self._url:
+            logger.warning("IPINFO_TOKEN not set, skipping IPinfo Lite download")
+            return
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Downloading IPinfo Lite...")
+        try:
+            req = urllib.request.Request(
+                self._url, headers={"User-Agent": "ip-lookup-tool/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                with open(self._gz_path, "wb") as f:
+                    shutil.copyfileobj(resp, f)
+            with gzip.open(self._gz_path, "rb") as f_in:
+                with open(self._path, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            with open(self._path, "r") as f:
+                line_count = sum(1 for _ in f)
+            if line_count == 0:
+                raise RuntimeError("Downloaded file is empty")
+            self._gz_path.unlink(missing_ok=True)
+            logger.info(f"Downloaded IPinfo Lite ({line_count} lines)")
+        except Exception:
+            self._path.unlink(missing_ok=True)
+            raise
+        finally:
+            if self._gz_path.exists():
+                self._gz_path.unlink(missing_ok=True)
+
+    def load(self) -> int:
+        tree = pytricia.PyTricia(32)
+        count = 0
+        if not self._path.exists():
+            self._tree = tree
+            return 0
+        with open(self._path, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            next(reader, None)
+            for row in reader:
+                if len(row) < 8:
+                    continue
+                network, country_code, asn, as_name, as_domain = (
+                    row[0],
+                    row[2],
+                    row[5],
+                    row[6],
+                    row[7],
+                )
+                try:
+                    ipaddress.IPv4Network(network, strict=False)
+                except (ipaddress.AddressValueError, ValueError):
+                    continue
+                asn_val: int | str = "N/A"
+                has_asn = False
+                if asn.startswith("AS"):
+                    try:
+                        asn_val = int(asn[2:])
+                        has_asn = True
+                    except ValueError:
+                        pass
+                elif asn:
+                    try:
+                        asn_val = int(asn)
+                        has_asn = True
+                    except ValueError:
+                        pass
+                tree.insert(
+                    network,
+                    {
+                        "country_code": country_code,
+                        "asn": asn_val,
+                        "as_name": as_name or as_domain or "N/A",
+                        "has_asn": has_asn,
+                    },
+                )
+                count += 1
+        self._tree = tree
+        self._count = count
+        self._loaded_at = time.time()
+        return count
+
+    def query(self, ip: str) -> dict[str, Any]:
+        if self._tree is None:
+            return {}
+        try:
+            node = self._tree[ip]
+            result: dict[str, Any] = {
+                "country_code": node["country_code"],
+                "ip_range": str(self._tree.get_key(ip)),
+            }
+            if node["has_asn"]:
+                result["asn"] = node["asn"]
+                result["as_name"] = node["as_name"]
+            return result
+        except KeyError:
+            return {}
+
+    def health(self):
+        from .._types import SourceHealth
+
+        last_updated = None
+        if self._path.exists():
+            mtime = self._path.stat().st_mtime
+            last_updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))
+        return SourceHealth(
+            name=self.name,
+            loaded=self._tree is not None,
+            record_count=self._count,
+            last_updated=last_updated,
+            is_stale=(
+                self._loaded_at == 0
+                or (time.time() - self._loaded_at > self.stale_days * 86400)
+            ),
+        )
