@@ -3,6 +3,7 @@ import logging
 import os
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional
 
@@ -199,8 +200,7 @@ def _error_result(ip: str) -> dict:
 def get_status() -> dict:
     healths = [s.health() for s in _sources]
     mtimes = [h.last_updated for h in healths if h.last_updated]
-    mtime = max(mtimes) if mtimes else 0
-    last_updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))
+    last_updated = max(mtimes) if mtimes else "N/A"
     lite_h = _sources[0].health()
     tsv_h = _sources[1].health()
     cn_h = _sources[2].health()
@@ -231,7 +231,7 @@ def reload_db() -> dict:
     return status
 
 
-def get_download_steps() -> list[tuple[str, callable]]:
+def get_download_steps() -> list[tuple[str, Callable]]:
     return [(s.name, s.download) for s in _sources]
 
 
