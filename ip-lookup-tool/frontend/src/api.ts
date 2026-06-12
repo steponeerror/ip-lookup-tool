@@ -8,12 +8,18 @@ export interface ThreatValue {
   is_proxy: boolean;
   is_mobile: boolean;
   is_hosting: boolean;
+  is_tor: boolean;
+  is_vpn: boolean;
+  is_malicious: boolean;
 }
 
 export interface ThreatSourceValue {
   is_proxy: boolean | null;
   is_mobile: boolean | null;
   is_hosting: boolean | null;
+  is_tor: boolean | null;
+  is_vpn: boolean | null;
+  is_malicious: boolean | null;
 }
 
 export interface ThreatFieldResult {
@@ -23,6 +29,9 @@ export interface ThreatFieldResult {
     is_proxy: "high" | "medium" | "low";
     is_mobile: "high" | "medium" | "low";
     is_hosting: "high" | "medium" | "low";
+    is_tor: "high" | "medium" | "low";
+    is_vpn: "high" | "medium" | "low";
+    is_malicious: "high" | "medium" | "low";
   };
 }
 
