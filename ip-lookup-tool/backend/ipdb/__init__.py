@@ -7,6 +7,7 @@ from ipdb._registry import (
     enrich_with_ipapi,
     enrich_with_ipapi_is,
     get_download_steps,
+    THREAT_BOOLS,
 )
 from ipdb._merge import (
     FactualVoting,

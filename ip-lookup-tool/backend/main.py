@@ -12,6 +12,7 @@ from ipdb import (
     load_db, lookup, get_status, is_db_stale, reload_db,
     get_download_steps,
     enrich_with_ipapi, enrich_with_ipapi_is, score_threat_boolean,
+    THREAT_BOOLS,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +26,7 @@ def _merge_threat_source(result: dict, source_name: str, data: dict) -> None:
     """Merge enrichment data into threat field and recompute confidence."""
     threat = result["threat"]
     threat["sources"][source_name] = data
-    for bool_name in ("is_proxy", "is_mobile", "is_hosting"):
+    for bool_name in THREAT_BOOLS:
         source_vals = {}
         for src, vals in threat["sources"].items():
             source_vals[src] = vals.get(bool_name)
