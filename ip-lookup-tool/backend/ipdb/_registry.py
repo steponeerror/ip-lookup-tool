@@ -143,7 +143,11 @@ def lookup(ip: str) -> LookupResult:
     # Collect raw field values from all sources
     field_values: dict[str, dict[str, Any]] = defaultdict(dict)
     for source in _sources:
-        raw = source.query(ip)
+        try:
+            raw = source.query(ip)
+        except Exception as e:
+            logger.warning(f"{source.name} query failed for {ip}: {e}")
+            continue
         for key, value in raw.items():
             field_values[key][source.name] = value
 
@@ -182,7 +186,6 @@ def lookup(ip: str) -> LookupResult:
 
 
 def _error_result(ip: str) -> LookupResult:
-    empty_mf = MergedField("N/A", 0, "voting", [])
     empty_ta = {
         b.removeprefix("is_"): ThreatAssessment(False, 0, "voting", [])
         for b in THREAT_BOOLS
@@ -204,13 +207,18 @@ def get_status() -> dict:
     healths = [s.health() for s in _sources]
     mtimes = [h.last_updated for h in healths if h.last_updated]
     last_updated = max(mtimes) if mtimes else "N/A"
-    lite_h = by_name["ipinfo_lite"].health()
-    tsv_h = by_name["iptoasn"].health()
-    cn_h = by_name["cn_isp"].health()
+    # Defensive: these three are expected, but auto-discovery may skip a source
+    # whose constructor failed — fall back rather than 500.
+    lite_h = by_name.get("ipinfo_lite")
+    tsv_h = by_name.get("iptoasn")
+    cn_h = by_name.get("cn_isp")
+    lite_count = lite_h.health().record_count if lite_h else 0
+    tsv_count = tsv_h.health().record_count if tsv_h else 0
+    cn_count = cn_h.health().record_count if cn_h else 0
     return {
         "last_updated": last_updated,
-        "record_count": lite_h.record_count + tsv_h.record_count,
-        "cn_record_count": cn_h.record_count,
+        "record_count": lite_count + tsv_count,
+        "cn_record_count": cn_count,
         "is_stale": any(h.is_stale for h in healths),
     }
 

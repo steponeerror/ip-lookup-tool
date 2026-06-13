@@ -314,6 +314,9 @@ def apply_enrichment(
         ta = result.threats.get(name)
         if ta is None:
             continue
+        # Idempotent: skip if this enricher already contributed to this threat.
+        if any(s.source == enricher_name for s in ta.sources):
+            continue
         ta.sources = list(ta.sources) + [
             SourceAttribution(enricher_name, val, rel, False)
         ]
