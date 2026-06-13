@@ -332,3 +332,28 @@ async def _stream_update_db() -> AsyncIterator:
 async def update_db():
     return StreamingResponse(
         _stream_update_db(), media_type="application/x-ndjson")
+
+
+@app.get("/api/lookup/{ip}")
+async def lookup_single(ip: str):
+    """Single IP lookup — same shape as POST /api/query results[0]."""
+    result = lookup(ip)
+    return result.to_dict()
+
+
+@app.get("/api/lookup/{ip}/stix")
+async def lookup_stix(ip: str):
+    """Single IP STIX 2.1 Bundle export."""
+    from ipdb._stix_export import to_stix_bundle
+
+    result = lookup(ip)
+    if result.error:
+        raise HTTPException(400, result.error)
+
+    bundle = to_stix_bundle(result)
+    if bundle is None:
+        raise HTTPException(
+            501,
+            "STIX export unavailable: install stix2 package (pip install stix2)",
+        )
+    return bundle
