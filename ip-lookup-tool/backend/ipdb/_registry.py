@@ -31,11 +31,12 @@ from ._sources.x4bnet_vpn import X4BNetVPNSource
 from ._enrichers.ip_api import IPApiEnricher
 from ._enrichers.ipapi_is import IPApiIsEnricher
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+_app_dir = Path(__file__).parent.parent
+load_dotenv(_app_dir / ".env")
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(os.environ.get("IP_RADAR_DATA_DIR", str(_app_dir / "data")))
 
 THREAT_BOOLS = [
     "is_proxy",
