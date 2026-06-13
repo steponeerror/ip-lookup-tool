@@ -12,10 +12,5 @@ from ipdb._registry import (
 from ipdb._merge import (
     FactualVoting,
     NamingAuthority,
-    BooleanUnion,
     RangeSpecificity,
-    _score_factual,
-    _score_naming,
-    score_threat_boolean,
-    _score_range,
 )

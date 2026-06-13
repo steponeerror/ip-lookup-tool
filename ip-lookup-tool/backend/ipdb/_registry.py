@@ -13,12 +13,7 @@ from ._types import SourceHealth
 from ._merge import (
     FactualVoting,
     NamingAuthority,
-    BooleanUnion,
     RangeSpecificity,
-    _score_factual,
-    _score_naming,
-    _score_range,
-    score_threat_boolean,
 )
 from ._sources.ipinfo_lite import IPinfoLiteSource
 from ._sources.iptoasn import IPtoASNSource
@@ -77,13 +72,14 @@ _strategies = {
     "country_code": FactualVoting(default="N/A"),
     "asn": FactualVoting(default=0),
     "as_name": NamingAuthority(),
-    "is_proxy": BooleanUnion(),
-    "is_mobile": BooleanUnion(),
-    "is_hosting": BooleanUnion(),
-    "is_tor": BooleanUnion(),
-    "is_vpn": BooleanUnion(),
-    "is_isp": BooleanUnion(),
-    "is_malicious": BooleanUnion(),
+    # BooleanUnion entries removed — will be restored in a later task
+    # "is_proxy": BooleanUnion(),
+    # "is_mobile": BooleanUnion(),
+    # "is_hosting": BooleanUnion(),
+    # "is_tor": BooleanUnion(),
+    # "is_vpn": BooleanUnion(),
+    # "is_isp": BooleanUnion(),
+    # "is_malicious": BooleanUnion(),
     "ip_range": RangeSpecificity(),
 }
 

@@ -48,109 +48,131 @@ def pcr6_combine(bbas: list[dict[str, float]]) -> dict[str, float]:
     return result
 
 
-def _score_factual(sources: dict, default=None) -> tuple:
-    """Voting model for factual fields (country, ASN)."""
-    valid = {}
-    for src, val in sources.items():
-        if val is None or val == "" or val == "N/A" or val == 0:
-            continue
-        valid[src] = val
+# ── Threat bools (kept here to avoid circular imports) ──
 
-    if not valid:
-        return default, "low"
-    if len(valid) == 1:
-        return next(iter(valid.values())), "medium"
+THREAT_BOOLS = [
+    "is_proxy", "is_mobile", "is_hosting",
+    "is_tor", "is_vpn", "is_malicious",
+]
 
-    values = list(valid.values())
-    if all(v == values[0] for v in values[1:]):
-        return values[0], "high"
+# ── Source reliability and authority maps ──
 
-    counts = Counter(values)
-    return counts.most_common(1)[0][0], "medium"
+SOURCE_RELIABILITY: dict[str, float] = {
+    "ipinfo_lite": 0.95,
+    "iptoasn":     0.90,
+    "cn_isp":      0.85,
+    "ip2proxy":    0.80,
+    "tor_exits":   0.95,
+    "x4bnet_vpn":  0.70,
+    "ipsum":       0.55,
+    "firehol":     0.50,
+    "ip_api":      0.45,
+    "ipapi_is":    0.50,
+    # Phase 4 new sources
+    "spamhaus":    0.90,
+    "threatfox":   0.85,
+    "blocklist_de":0.65,
+    "shadowserver":0.90,
+}
 
-
-def _score_naming(sources: dict, authoritative_source=None) -> tuple:
-    """Authority model for naming fields (as_name)."""
-    valid = {k: v for k, v in sources.items() if v and v != "N/A"}
-
-    if not valid:
-        return "N/A", "low"
-    if len(valid) == 1:
-        return next(iter(valid.values())), "medium"
-    if authoritative_source and authoritative_source in valid:
-        return valid[authoritative_source], "high"
-
-    return next(iter(valid.values())), "medium"
-
-
-def score_threat_boolean(source_values: dict) -> tuple:
-    """Directional union model for threat booleans."""
-    participating = {k: v for k, v in source_values.items() if v is not None}
-
-    if not participating:
-        return False, "low"
-
-    true_count = sum(1 for v in participating.values() if v)
-
-    if true_count > 0:
-        return True, "high" if true_count >= 2 else "medium"
-    return False, "high" if len(participating) >= 2 else "medium"
+AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
+    "is_proxy":     ["ip2proxy"],
+    "is_tor":       ["tor_exits"],
+    "is_vpn":       ["x4bnet_vpn"],
+    "is_malicious": ["threatfox", "shadowserver", "spamhaus"],
+    "is_hosting":   ["ipinfo_lite"],
+    "is_mobile":    ["ipinfo_lite"],
+}
 
 
-def _score_range(sources: dict, ip: str) -> tuple:
-    """Specificity model for CIDR ranges."""
-    import ipaddress
+# ── Attribution builder ──
 
-    valid = {}
-    for src, cidr in sources.items():
-        if not cidr or cidr == "N/A":
-            continue
-        try:
-            network = ipaddress.IPv4Network(cidr, strict=False)
-            if ipaddress.IPv4Address(ip) in network:
-                valid[src] = cidr
-        except (ipaddress.AddressValueError, ValueError):
-            continue
+def _to_attributions(
+    source_values: dict[str, Any], field: str
+) -> list[SourceAttribution]:
+    """Build SourceAttribution list from raw {source_name: value} dict."""
+    attributions = []
+    auth_list = AUTHORITATIVE_SOURCES.get(field, [])
+    for src, value in source_values.items():
+        rel = SOURCE_RELIABILITY.get(src, 0.5)
+        auth = src in auth_list
+        attributions.append(SourceAttribution(src, value, rel, auth))
+    return attributions
 
-    if not valid:
-        return "N/A", "low"
-    if len(valid) == 1:
-        return next(iter(valid.values())), "medium"
 
-    most_specific = max(
-        valid.values(),
-        key=lambda c: ipaddress.IPv4Network(c, strict=False).prefixlen,
-    )
-    return most_specific, "high"
+# ── Confidence helpers ──
 
+def _weighted_confidence(
+    true_sources: list[SourceAttribution],
+    all_sources: list[SourceAttribution],
+) -> int:
+    """Authoritative veto confidence = Σ reliability of true-auth sources / Σ all reliability."""
+    tw = sum(s.reliability for s in true_sources)
+    total = sum(s.reliability for s in all_sources if s.value is not None)
+    if total == 0:
+        return 0
+    return min(100, round(tw / total * 100))
+
+
+def _apply_coverage_penalty(confidence: int, participating: int, expected: int) -> int:
+    """Reduce confidence when too few sources participate (< 50% of expected)."""
+    if expected > 0 and participating / expected < 0.5:
+        return round(confidence * 0.7)
+    return confidence
+
+
+def _majority_confidence(top_count: int, total: int) -> int:
+    """Factual majority confidence: 50–70 based on agreement fraction.
+
+    Formula: 50 + (top_count - 1) / (total - 1) * 20
+    One-source case returns 50 via caller, not this function.
+    """
+    if total <= 1:
+        return 50
+    return round(50 + (top_count - 1) / (total - 1) * 20)
+
+
+# ── Scalar merge strategies (return MergedField) ──
 
 class FactualVoting:
     """Voting model for factual fields (country, ASN)."""
 
     def __init__(self, default=None):
-        self.field = ""
+        self.field = "country_code"
         self.default = default
 
-    def merge(self, source_values: dict[str, Any], context: dict) -> tuple[Any, str]:
-        return _score_factual(source_values, default=self.default)
+    def merge(self, source_values: dict[str, Any], context: dict) -> MergedField:
+        attributions = _to_attributions(source_values, self.field)
+        valid = [
+            a for a in attributions
+            if a.value is not None and a.value != "" and a.value != "N/A" and a.value != 0
+        ]
+        if not valid:
+            return MergedField(self.default, 0, "voting", attributions)
+        if len(valid) == 1:
+            return MergedField(valid[0].value, 50, "voting", attributions)
+        values = [a.value for a in valid]
+        if all(v == values[0] for v in values[1:]):
+            return MergedField(values[0], 85, "voting", attributions)
+        counts = Counter(values)
+        top_val, top_count = counts.most_common(1)[0]
+        conf = _majority_confidence(top_count, len(valid))
+        return MergedField(top_val, conf, "voting", attributions)
 
 
 class NamingAuthority:
-    """Authority model for naming fields (as_name).
-    Uses context['country'] to determine authoritative source.
-    """
+    """Authority model for naming fields (as_name)."""
 
     def __init__(self):
-        self.field = ""
+        self.field = "as_name"
 
-    def merge(self, source_values: dict[str, Any], context: dict) -> tuple[Any, str]:
-        import ipaddress as _ipa
-
-        valid = {k: v for k, v in source_values.items() if v and v != "N/A"}
+    def merge(self, source_values: dict[str, Any], context: dict) -> MergedField:
+        attributions = _to_attributions(source_values, self.field)
+        valid = [a for a in attributions if a.value and a.value != "N/A"]
         if not valid:
-            return "N/A", "low"
+            return MergedField("N/A", 0, "authority", attributions)
         if len(valid) == 1:
-            return next(iter(valid.values())), "medium"
+            return MergedField(valid[0].value, 50, "authority", attributions)
 
         country_sources = context.get("country", {})
         cn_country = country_sources.get("cn_isp", "")
@@ -158,31 +180,46 @@ class NamingAuthority:
         country_val = cn_country or lite_country
 
         authoritative = None
-        if country_val in ("CN", "HK", "MO", "TW") and "cn_isp" in valid:
-            authoritative = "cn_isp"
-        elif "ipinfo_lite" in valid:
-            authoritative = "ipinfo_lite"
+        if country_val in ("CN", "HK", "MO", "TW"):
+            cn_vals = [a.value for a in valid if a.source == "cn_isp"]
+            if cn_vals:
+                authoritative = cn_vals[0]
 
         if authoritative:
-            return valid[authoritative], "high"
-        return next(iter(valid.values())), "medium"
-
-
-class BooleanUnion:
-    """Directional union model for boolean fields."""
-
-    def __init__(self):
-        self.field = ""
-
-    def merge(self, source_values: dict[str, Any], context: dict) -> tuple[bool, str]:
-        return score_threat_boolean(source_values)
+            return MergedField(authoritative, 90, "authority", attributions)
+        return MergedField(valid[0].value, 50, "authority", attributions)
 
 
 class RangeSpecificity:
     """Specificity model for CIDR ranges."""
 
     def __init__(self):
-        self.field = ""
+        self.field = "ip_range"
 
-    def merge(self, source_values: dict[str, Any], context: dict) -> tuple[Any, str]:
-        return _score_range(source_values, context.get("ip", ""))
+    def merge(self, source_values: dict[str, Any], context: dict) -> MergedField:
+        import ipaddress as _ipa
+
+        attributions = _to_attributions(source_values, self.field)
+        ip = context.get("ip", "")
+
+        valid: list[SourceAttribution] = []
+        for a in attributions:
+            if not a.value or a.value == "N/A":
+                continue
+            try:
+                net = _ipa.IPv4Network(a.value, strict=False)
+                if _ipa.IPv4Address(ip) in net:
+                    valid.append(a)
+            except (_ipa.AddressValueError, ValueError):
+                continue
+
+        if not valid:
+            return MergedField("N/A", 0, "specificity", attributions)
+        if len(valid) == 1:
+            return MergedField(valid[0].value, 50, "specificity", attributions)
+
+        most_specific = max(
+            valid,
+            key=lambda a: _ipa.IPv4Network(a.value, strict=False).prefixlen,
+        )
+        return MergedField(most_specific.value, 85, "specificity", attributions)
