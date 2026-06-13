@@ -1,11 +1,19 @@
 """Tests for /api/stream enrich parameter and REST enrich_error response."""
 import asyncio
 import json
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from ipdb import load_db
 
 load_db()
+
+
+class FakeResult:
+    """Minimal mock that mimics LookupResult interface for enrichment tests."""
+    def __init__(self, ip):
+        self.ip = ip
+    def to_dict(self):
+        return {"ip": self.ip}
 
 
 async def _collect_stream(generator):
@@ -34,15 +42,12 @@ def test_stream_enrich_false_skips_enrichment(mock_enrich_is, mock_enrich):
         _collect_stream(_stream_lookup(ips, enrich=False))
     )
 
-    # Should NOT have enriching events
     enrich_events = [e for e in events if e.get("type") == "enriching"]
     assert len(enrich_events) == 0, f"Expected no enriching events, got {enrich_events}"
 
-    # External APIs should not have been called
     mock_enrich.assert_not_called()
     mock_enrich_is.assert_not_called()
 
-    # Should still have complete event with results
     complete = [e for e in events if e.get("type") == "complete"]
     assert complete, "Expected complete event"
     assert len(complete[0]["results"]) == 2
@@ -63,7 +68,6 @@ def test_stream_enrich_true_calls_apis(mock_enrich_is, mock_enrich):
         _collect_stream(_stream_lookup(ips, enrich=True))
     )
 
-    # Should have enriching events
     enrich_events = [e for e in events if e.get("type") == "enriching"]
     assert len(enrich_events) > 0, "Expected enriching events"
 
@@ -80,7 +84,7 @@ def test_rest_query_returns_enrich_error(mock_enrich_is, mock_enrich):
 
     from main import _enrich_results
 
-    results = [{"ip": "8.8.8.8"}]
+    results = [FakeResult("8.8.8.8")]
     error = asyncio.run(
         _enrich_results(results, enrich=True)
     )
