@@ -1,5 +1,51 @@
+"""Merge strategies, PCR6 evidence fusion, source attribution, and enrichment."""
+
 from collections import Counter
 from typing import Any
+
+from ._types import (
+    SourceAttribution, MergedField, ThreatAssessment, LookupResult,
+)
+
+
+# ── PCR6 Evidence Fusion (zero-dependency, self-contained ~50 lines) ──
+
+
+def _build_bba(vote: bool | None, reliability: float) -> dict[str, float]:
+    """Map a source vote + reliability → Basic Belief Assignment."""
+    if vote is None:
+        return {"true": 0.0, "false": 0.0, "uncertain": 1.0}
+    if vote:
+        return {"true": reliability, "false": 0.0, "uncertain": 1.0 - reliability}
+    return {"true": 0.0, "false": reliability, "uncertain": 1.0 - reliability}
+
+
+def _pcr6_pair(a: dict[str, float], b: dict[str, float]) -> dict[str, float]:
+    """PCR6 fusion of two BBAs.
+
+    Conjunction: m(X) = Σ a(A)*b(B) for A∩B=X
+    Conflict redistribution: proportional to each source's original mass.
+    """
+    m_t = a["true"] * b["true"] + a["true"] * b["uncertain"] + a["uncertain"] * b["true"]
+    m_f = a["false"] * b["false"] + a["false"] * b["uncertain"] + a["uncertain"] * b["false"]
+    m_u = a["uncertain"] * b["uncertain"]
+
+    dt = a["true"] + b["true"]
+    df = a["false"] + b["false"]
+    if dt > 0:
+        m_t += a["true"] ** 2 * b["false"] / dt + b["true"] ** 2 * a["false"] / dt
+    if df > 0:
+        m_f += a["false"] ** 2 * b["true"] / df + b["false"] ** 2 * a["true"] / df
+
+    return {"true": m_t, "false": m_f, "uncertain": m_u}
+
+
+def pcr6_combine(bbas: list[dict[str, float]]) -> dict[str, float]:
+    """Iterated pairwise PCR6 fusion over N BBAs."""
+    result = bbas[0]
+    for bba in bbas[1:]:
+        result = _pcr6_pair(result, bba)
+    return result
 
 
 def _score_factual(sources: dict, default=None) -> tuple:
