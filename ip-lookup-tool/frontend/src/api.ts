@@ -1,48 +1,32 @@
-export interface FieldResult<T> {
+export interface SourceAttribution {
+  source: string;
+  value: any;
+  reliability: number;
+  authoritative: boolean;
+}
+
+export interface MergedField<T = any> {
   value: T;
-  confidence: "high" | "medium" | "low";
-  sources: Record<string, T>;
+  confidence: number;           // 0–100 integer
+  algorithm: string;            // "cascade" | "voting" | "pcr6" | "authority" | "specificity"
+  sources: SourceAttribution[];
 }
 
-export interface ThreatValue {
-  is_proxy: boolean;
-  is_mobile: boolean;
-  is_hosting: boolean;
-  is_tor: boolean;
-  is_vpn: boolean;
-  is_malicious: boolean;
-}
-
-export interface ThreatSourceValue {
-  is_proxy: boolean | null;
-  is_mobile: boolean | null;
-  is_hosting: boolean | null;
-  is_tor: boolean | null;
-  is_vpn: boolean | null;
-  is_malicious: boolean | null;
-}
-
-export interface ThreatFieldResult {
-  value: ThreatValue;
-  sources: Record<string, ThreatSourceValue>;
-  per_boolean_confidence: {
-    is_proxy: "high" | "medium" | "low";
-    is_mobile: "high" | "medium" | "low";
-    is_hosting: "high" | "medium" | "low";
-    is_tor: "high" | "medium" | "low";
-    is_vpn: "high" | "medium" | "low";
-    is_malicious: "high" | "medium" | "low";
-  };
+export interface ThreatAssessment {
+  detected: boolean;
+  confidence: number;           // 0–100 integer
+  algorithm: string;
+  sources: SourceAttribution[];
 }
 
 export interface LookupResult {
   ip: string;
-  asn: FieldResult<number | string>;
-  country: FieldResult<string>;
-  as_name: FieldResult<string>;
+  country: MergedField<string>;
+  asn: MergedField<number | string>;
+  as_name: MergedField<string>;
+  ip_range: MergedField<string>;
   is_isp: boolean;
-  threat: ThreatFieldResult;
-  ip_range: FieldResult<string>;
+  threats: Record<string, ThreatAssessment>;   // key = "proxy", "tor", "vpn", "malicious", "hosting", "mobile"
   error?: string;
 }
 
