@@ -64,7 +64,7 @@ class IP2ProxySource(CsvSource):
             with zipfile.ZipFile(actual) as zf:
                 csv_names = [
                     n for n in zf.namelist()
-                    if n.endswith(".csv") and "/" not in n and "\\" not in n
+                    if n.lower().endswith(".csv") and "/" not in n and "\\" not in n
                 ]
                 if not csv_names:
                     self._tree = pytricia.PyTricia(32)
