@@ -11,8 +11,8 @@ from fastapi.responses import StreamingResponse
 from ipdb import (
     load_db, lookup, get_status, is_db_stale, reload_db,
     get_download_steps,
-    enrich_with_ipapi, enrich_with_ipapi_is, score_threat_boolean,
-    THREAT_BOOLS,
+    enrich_with_ipapi, enrich_with_ipapi_is,
+    THREAT_BOOLS, expected_counts, apply_enrichment,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -22,82 +22,85 @@ LOOKUP_CHUNK = 200
 ENRICH_CHUNK = 100
 
 
-def _merge_threat_source(result: dict, source_name: str, data: dict) -> None:
-    """Merge enrichment data into threat field and recompute confidence."""
-    for b in THREAT_BOOLS:
-        data.setdefault(b, None)
-    threat = result["threat"]
-    threat["sources"][source_name] = data
-    for bool_name in THREAT_BOOLS:
-        source_vals = {}
-        for src, vals in threat["sources"].items():
-            source_vals[src] = vals.get(bool_name)
-        val, conf = score_threat_boolean(source_vals)
-        threat["value"][bool_name] = val
-        threat["per_boolean_confidence"][bool_name] = conf
+async def _enrich_results(
+    results: list, enrich: bool
+) -> str | None:
+    """Enrich results from external APIs. results elements are LookupResult.
 
-
-async def _enrich_results(results: list[dict], enrich: bool) -> str | None:
+    Returns error string or None.
+    """
     if not enrich:
         return None
-    unique_ips = list({r["ip"] for r in results})
+    unique_ips = list({r.ip for r in results})
+    expected = expected_counts()
 
     # ip-api.com
     ipapi_map = await asyncio.to_thread(enrich_with_ipapi, unique_ips)
     enriched_count = 0
     if ipapi_map:
         for r in results:
-            extra = ipapi_map.get(r["ip"])
-            if extra:
-                _merge_threat_source(r, "ip_api", extra)
-                enriched_count += 1
+            r = apply_enrichment(
+                r, ipapi_map, "ip_api",
+                ("is_proxy", "is_mobile", "is_hosting"), expected,
+            )
+            enriched_count += 1
 
     # ipapi.is — only for IPs that ip_api missed
     missed_ips = [ip for ip in unique_ips if ip not in ipapi_map]
     ipapi_is_map = {}
     ipapi_is_ok = True
     if missed_ips:
-        ipapi_is_map, ipapi_is_ok = await asyncio.to_thread(enrich_with_ipapi_is, missed_ips)
+        ipapi_is_map, ipapi_is_ok = await asyncio.to_thread(
+            enrich_with_ipapi_is, missed_ips)
     if ipapi_is_map:
         for r in results:
-            if r["ip"] not in ipapi_map:
-                extra = ipapi_is_map.get(r["ip"])
-                if extra:
-                    _merge_threat_source(r, "ipapi_is", extra)
-                    enriched_count += 1
+            if r.ip not in ipapi_map:
+                r = apply_enrichment(
+                    r, ipapi_is_map, "ipapi_is",
+                    ("is_proxy", "is_mobile", "is_hosting",
+                     "is_tor", "is_vpn"), expected,
+                )
 
     errors = []
     if len(ipapi_map) == 0:
-        errors.append(f"ip-api.com enrichment failed, got 0/{len(unique_ips)} IPs")
+        errors.append(
+            f"ip-api.com enrichment failed, got 0/{len(unique_ips)} IPs")
     elif enriched_count < len(unique_ips):
-        errors.append(f"ip-api.com partial enrichment: {enriched_count}/{len(unique_ips)} IPs")
+        errors.append(
+            f"ip-api.com partial enrichment: {enriched_count}/{len(unique_ips)} IPs")
     if not ipapi_is_ok:
         errors.append("ipapi.is enrichment failed")
     return "; ".join(errors) if errors else None
 
 
-async def _stream_lookup(ips: list[str], enrich: bool = True) -> AsyncIterator:
-    """Stream lookup results with chunked enrichment progress."""
+async def _stream_lookup(
+    ips: list[str], enrich: bool = True
+) -> AsyncIterator:
+    """Stream lookup results with chunked enrichment progress as NDJSON."""
     total = len(ips)
     yield json.dumps({"type": "start", "total": total}) + "\n"
 
-    # Chunked lookups with progress
-    results: list[dict] = []
+    results = []
     for i in range(0, total, LOOKUP_CHUNK):
         chunk = [str(ip).strip() for ip in ips[i : i + LOOKUP_CHUNK]]
-        chunk_results = await asyncio.to_thread(lambda cs=chunk: [lookup(ip) for ip in cs])
+        chunk_results = await asyncio.to_thread(
+            lambda cs=chunk: [lookup(ip) for ip in cs])
         results.extend(chunk_results)
         done = min(i + LOOKUP_CHUNK, total)
-        yield json.dumps({"type": "progress", "done": done, "total": total}) + "\n"
+        yield json.dumps({
+            "type": "progress", "done": done, "total": total,
+        }) + "\n"
         await asyncio.sleep(0)
 
-    # Multi-source enrichment
     enrich_error = None
+    expected = expected_counts()
 
     if enrich and results:
-        unique_ips = list(dict.fromkeys(r["ip"] for r in results))
+        unique_ips = list(dict.fromkeys(r.ip for r in results))
         enrich_total = len(unique_ips)
-        yield json.dumps({"type": "enriching", "done": 0, "total": enrich_total}) + "\n"
+        yield json.dumps({
+            "type": "enriching", "done": 0, "total": enrich_total,
+        }) + "\n"
 
         # ip-api.com enrichment in chunks
         ipapi_map: dict[str, dict] = {}
@@ -110,38 +113,56 @@ async def _stream_lookup(ips: list[str], enrich: bool = True) -> AsyncIterator:
             else:
                 any_failure = True
             done = min(i + ENRICH_CHUNK, enrich_total)
-            yield json.dumps({"type": "enriching", "done": done, "total": enrich_total}) + "\n"
+            yield json.dumps({
+                "type": "enriching", "done": done, "total": enrich_total,
+            }) + "\n"
             await asyncio.sleep(0)
 
-        # ipapi.is enrichment — only for IPs that ip_api missed
+        # ipapi.is enrichment — only for missed IPs
         ipapi_is_map: dict[str, dict] = {}
         ipapi_is_ok = True
         missed_ips = [ip for ip in unique_ips if ip not in ipapi_map]
         if missed_ips:
-            ipapi_is_map, ipapi_is_ok = await asyncio.to_thread(enrich_with_ipapi_is, missed_ips)
+            ipapi_is_map, ipapi_is_ok = await asyncio.to_thread(
+                enrich_with_ipapi_is, missed_ips,
+            )
 
         enriched_count = 0
         for r in results:
-            extra = ipapi_map.get(r["ip"])
+            extra = ipapi_map.get(r.ip)
             if extra:
-                _merge_threat_source(r, "ip_api", extra)
+                r = apply_enrichment(
+                    r, ipapi_map, "ip_api",
+                    ("is_proxy", "is_mobile", "is_hosting"),
+                    expected,
+                )
                 enriched_count += 1
             else:
-                extra_is = ipapi_is_map.get(r["ip"])
+                extra_is = ipapi_is_map.get(r.ip)
                 if extra_is:
-                    _merge_threat_source(r, "ipapi_is", extra_is)
+                    r = apply_enrichment(
+                        r, ipapi_is_map, "ipapi_is",
+                        ("is_proxy", "is_mobile", "is_hosting",
+                         "is_tor", "is_vpn"),
+                        expected,
+                    )
                     enriched_count += 1
 
         if any_failure:
-            enrich_error = f"ip-api.com enrichment failed, got {enriched_count}/{enrich_total} IPs"
+            enrich_error = (
+                f"ip-api.com enrichment failed, "
+                f"got {enriched_count}/{enrich_total} IPs"
+            )
         elif not ipapi_map and not ipapi_is_map:
             enrich_error = "Enrichment returned no data"
         elif enriched_count < len(unique_ips):
-            enrich_error = f"Enriched {enriched_count}/{enrich_total} IPs (partial data)"
+            enrich_error = (
+                f"Enriched {enriched_count}/{enrich_total} IPs (partial data)"
+            )
 
     yield json.dumps({
         "type": "complete",
-        "results": results,
+        "results": [r.to_dict() for r in results],
         "enrich_error": enrich_error,
     }) + "\n"
 
@@ -174,15 +195,17 @@ async def query_ips(body: dict, enrich: bool = Query(False)):
         raise HTTPException(400, "Max 100,000 IPs per request")
     results = [lookup(str(ip).strip()) for ip in ips]
     enrich_error = await _enrich_results(results, enrich)
-    resp = {"results": results}
+    resp = {"results": [r.to_dict() for r in results]}
     if enrich_error:
         resp["enrich_error"] = enrich_error
     return resp
 
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...), enrich: bool = Query(False)):
-    content = (await file.read())
+async def upload_file(
+    file: UploadFile = File(...), enrich: bool = Query(False)
+):
+    content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(400, "File exceeds 50MB limit")
     content = content.decode("utf-8", errors="ignore")
@@ -200,7 +223,7 @@ async def upload_file(file: UploadFile = File(...), enrich: bool = Query(False))
         ips.append(line.strip())
     results = [lookup(ip) for ip in ips]
     enrich_error = await _enrich_results(results, enrich)
-    resp = {"results": results}
+    resp = {"results": [r.to_dict() for r in results]}
     if enrich_error:
         resp["enrich_error"] = enrich_error
     return resp
@@ -253,33 +276,51 @@ _DOWNLOAD_STEPS = get_download_steps()
 
 async def _stream_update_db() -> AsyncIterator:
     """Stream database update progress as NDJSON events."""
-    total = len(_DOWNLOAD_STEPS) + 1  # downloads + load
+    total = len(_DOWNLOAD_STEPS) + 1
     errors: list[str] = []
     done = 0
 
     yield json.dumps({"type": "start", "total": total}) + "\n"
 
     for name, fn in _DOWNLOAD_STEPS:
-        yield json.dumps({"type": "step", "done": done, "total": total, "name": name, "status": "downloading"}) + "\n"
+        yield json.dumps({
+            "type": "step", "done": done, "total": total,
+            "name": name, "status": "downloading",
+        }) + "\n"
         try:
             await asyncio.to_thread(fn)
             done += 1
-            yield json.dumps({"type": "step", "done": done, "total": total, "name": name, "status": "done"}) + "\n"
+            yield json.dumps({
+                "type": "step", "done": done, "total": total,
+                "name": name, "status": "done",
+            }) + "\n"
         except Exception as e:
             done += 1
             errors.append(f"{name}: {e}")
-            yield json.dumps({"type": "step", "done": done, "total": total, "name": name, "status": "failed", "error": str(e)}) + "\n"
+            yield json.dumps({
+                "type": "step", "done": done, "total": total,
+                "name": name, "status": "failed", "error": str(e),
+            }) + "\n"
         await asyncio.sleep(0)
 
-    yield json.dumps({"type": "step", "done": done, "total": total, "name": "Loading DB", "status": "loading"}) + "\n"
+    yield json.dumps({
+        "type": "step", "done": done, "total": total,
+        "name": "Loading DB", "status": "loading",
+    }) + "\n"
     try:
         await asyncio.to_thread(load_db)
         done += 1
-        yield json.dumps({"type": "step", "done": done, "total": total, "name": "Loading DB", "status": "done"}) + "\n"
+        yield json.dumps({
+            "type": "step", "done": done, "total": total,
+            "name": "Loading DB", "status": "done",
+        }) + "\n"
     except Exception as e:
         done += 1
         errors.append(f"Loading DB: {e}")
-        yield json.dumps({"type": "step", "done": done, "total": total, "name": "Loading DB", "status": "failed", "error": str(e)}) + "\n"
+        yield json.dumps({
+            "type": "step", "done": done, "total": total,
+            "name": "Loading DB", "status": "failed", "error": str(e),
+        }) + "\n"
 
     status = get_status()
     if errors:
@@ -289,4 +330,5 @@ async def _stream_update_db() -> AsyncIterator:
 
 @app.post("/api/update-db")
 async def update_db():
-    return StreamingResponse(_stream_update_db(), media_type="application/x-ndjson")
+    return StreamingResponse(
+        _stream_update_db(), media_type="application/x-ndjson")
