@@ -391,6 +391,17 @@ export function ResultTable({ results }: ResultTableProps) {
         >
           Expand disagreements
         </button>
+        <button
+          onClick={() => {
+            const ip = results[0]?.ip;
+            if (ip) window.open(`/api/lookup/${ip}/stix`, "_blank");
+          }}
+          disabled={results.length !== 1}
+          className="rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          title={results.length !== 1 ? "STIX export works on single-IP lookups" : "Export STIX 2.1 Bundle"}
+        >
+          Export STIX
+        </button>
         {filter && (
           <span className="text-xs text-zinc-500">
             {filtered.length.toLocaleString()} of {results.length.toLocaleString()}
