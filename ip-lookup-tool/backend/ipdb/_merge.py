@@ -137,8 +137,8 @@ def _majority_confidence(top_count: int, total: int) -> int:
 class FactualVoting:
     """Voting model for factual fields (country, ASN)."""
 
-    def __init__(self, default=None):
-        self.field = "country_code"
+    def __init__(self, field="country_code", default=None):
+        self.field = field
         self.default = default
 
     def merge(self, source_values: dict[str, Any], context: dict) -> MergedField:
