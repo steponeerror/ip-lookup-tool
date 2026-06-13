@@ -1,5 +1,6 @@
 """Source registry — composition root for sources, strategies, public API."""
 
+import importlib
 import ipaddress
 import logging
 import os
@@ -21,14 +22,6 @@ from ._merge import (
     THREAT_BOOLS,         # re-exported via __init__
     SOURCE_RELIABILITY,   # needed for get_status names
 )
-from ._sources.ipinfo_lite import IPinfoLiteSource
-from ._sources.iptoasn import IPtoASNSource
-from ._sources.cn_isp import ChineseISPSource
-from ._sources.ip2proxy import IP2ProxySource
-from ._sources.ipsum import IPsumSource
-from ._sources.firehol import FireholBlocklistSource
-from ._sources.tor_exits import TorExitSource
-from ._sources.x4bnet_vpn import X4BNetVPNSource
 from ._enrichers.ip_api import IPApiEnricher
 from ._enrichers.ipapi_is import IPApiIsEnricher
 
@@ -39,21 +32,64 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(os.environ.get("IP_RADAR_DATA_DIR", str(_app_dir / "data")))
 
-# --- Source instances ---
 
-_sources = [
-    IPinfoLiteSource(data_dir=DATA_DIR, token=os.environ.get("IPINFO_TOKEN", "")),
-    IPtoASNSource(data_dir=DATA_DIR),
-    ChineseISPSource(data_dir=DATA_DIR),
-    IP2ProxySource(data_dir=DATA_DIR, token=os.environ.get("IP2PROXY_TOKEN", "")),
-    IPsumSource(data_dir=DATA_DIR),
-    FireholBlocklistSource(
-        data_dir=DATA_DIR,
-        selected_lists=["firehol_level1", "firehol_level2"],
-    ),
-    TorExitSource(data_dir=DATA_DIR),
-    X4BNetVPNSource(data_dir=DATA_DIR),
-]
+def _discover_sources(data_dir: Path) -> list:
+    """Auto-discover source classes in _sources/ directory.
+
+    Each .py file (not starting with _) is imported; classes with
+    name+fields attributes are instantiated with data_dir.
+    """
+    sources = []
+    sources_dir = Path(__file__).parent / "_sources"
+    for module_path in sorted(sources_dir.glob("*.py")):
+        stem = module_path.stem
+        if stem.startswith("_"):
+            continue
+        mod = importlib.import_module(
+            f"._sources.{stem}", "ipdb")
+        for attr_name in dir(mod):
+            obj = getattr(mod, attr_name)
+            if (isinstance(obj, type)
+                    and hasattr(obj, "name")
+                    and hasattr(obj, "fields")
+                    and obj.__module__ == mod.__name__):
+                try:
+                    instances = _instantiate_source(obj, data_dir)
+                    sources.extend(instances)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to instantiate {obj.__name__}: {e}")
+    return sources
+
+
+def _instantiate_source(cls, data_dir: Path) -> list:
+    """Instantiate a source class. Handles special constructor signatures."""
+    import inspect
+
+    sig = inspect.signature(cls.__init__)
+    params = list(sig.parameters.keys())[1:]  # skip 'self'
+
+    kwargs = {}
+    if "data_dir" in params:
+        kwargs["data_dir"] = data_dir
+    if "token" in params:
+        kwargs["token"] = os.environ.get("IPINFO_TOKEN", "")
+        if cls.__name__ == "IP2ProxySource":
+            kwargs["token"] = os.environ.get("IP2PROXY_TOKEN", "")
+    if "key" in params:
+        kwargs["key"] = os.environ.get("IPAPI_IS_KEY", "")
+    if "enabled" in params:
+        kwargs["enabled"] = os.environ.get(
+            "IPAPI_IS_ENABLED", "false").lower() == "true"
+    if "selected_lists" in params:
+        kwargs["selected_lists"] = ["firehol_level1", "firehol_level2"]
+    if "min_count" in params:
+        kwargs["min_count"] = 3
+
+    return [cls(**kwargs)]
+
+
+_sources = _discover_sources(DATA_DIR)
 
 # --- Enricher instances ---
 
