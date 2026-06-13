@@ -69,7 +69,7 @@ function ThreatBadges({ threats }: { threats: Record<string, ThreatAssessment> }
         if (ta.detected) {
           const cls = ta.confidence >= 70 ? THREAT_ACTIVE[key] : THREAT_OUTLINED[key];
           return (
-            <span key={key} className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${cls}`}>
+            <span key={key} title={`${label}: confidence ${ta.confidence} (${ta.algorithm})`} className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${cls}`}>
               {label}
             </span>
           );
@@ -445,20 +445,23 @@ export function ResultTable({ results }: ResultTableProps) {
                 >
                   <td className="px-3 py-2 text-zinc-100 font-semibold">{r.ip}</td>
                   <td className="px-3 py-2">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(r.asn.confidence)}`} />
+                    <span className="flex items-center gap-1.5">
+                      <span className={`h-1 rounded-full ${confColor(r.asn.confidence)}`}
+                            style={{ width: `${Math.max(r.asn.confidence, 2)}px` }} />
                       <span className="text-zinc-300">{r.asn.value}</span>
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(r.country.confidence)}`} />
+                    <span className="flex items-center gap-1.5">
+                      <span className={`h-1 rounded-full ${confColor(r.country.confidence)}`}
+                            style={{ width: `${Math.max(r.country.confidence, 2)}px` }} />
                       <span className="text-zinc-300">{r.country.value}</span>
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(r.as_name.confidence)}`} />
+                    <span className="flex items-center gap-1.5">
+                      <span className={`h-1 rounded-full ${confColor(r.as_name.confidence)}`}
+                            style={{ width: `${Math.max(r.as_name.confidence, 2)}px` }} />
                       <span className="text-zinc-300">{r.as_name.value}</span>
                       {r.is_isp && (
                         <span className="rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">
@@ -480,8 +483,9 @@ export function ResultTable({ results }: ResultTableProps) {
                     <ThreatBadges threats={r.threats} />
                   </td>
                   <td className="px-3 py-2">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(r.ip_range.confidence)}`} />
+                    <span className="flex items-center gap-1.5">
+                      <span className={`h-1 rounded-full ${confColor(r.ip_range.confidence)}`}
+                            style={{ width: `${Math.max(r.ip_range.confidence, 2)}px` }} />
                       <span className="text-zinc-500">{r.ip_range.value}</span>
                     </span>
                   </td>
