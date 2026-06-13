@@ -1,6 +1,6 @@
 import { useState, useMemo, Fragment } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
-import type { LookupResult, ThreatFieldResult, FieldResult } from "../api";
+import type { LookupResult, MergedField, ThreatAssessment } from "../api";
 
 interface ResultTableProps {
   results: LookupResult[];
@@ -8,51 +8,66 @@ interface ResultTableProps {
 
 type SortKey = "ip" | "asn" | "country" | "as_name" | "is_isp" | "threat" | "ip_range";
 
-const CONF_DOT: Record<string, string> = {
-  high: "bg-emerald-500",
-  medium: "bg-amber-500",
-  low: "bg-red-500",
-};
+// Confidence color: continuous from red (0) → amber (50) → emerald (95+)
+function confColor(conf: number): string {
+  if (conf >= 70) return "bg-emerald-500";
+  if (conf >= 30) return "bg-amber-500";
+  return "bg-red-500";
+}
+
+function confTextColor(conf: number): string {
+  if (conf >= 70) return "text-emerald-400";
+  if (conf >= 30) return "text-amber-400";
+  return "text-red-400";
+}
 
 const THREAT_LABELS: Record<string, string> = {
-  is_proxy: "代理",
-  is_mobile: "基站",
-  is_hosting: "机房",
-  is_tor: "Tor",
-  is_vpn: "VPN",
-  is_malicious: "恶意",
+  proxy: "代理",
+  mobile: "基站",
+  hosting: "机房",
+  tor: "Tor",
+  vpn: "VPN",
+  malicious: "恶意",
 };
 
 const THREAT_ACTIVE: Record<string, string> = {
-  is_proxy: "bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/25",
-  is_mobile: "bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/25",
-  is_hosting: "bg-purple-500/15 text-purple-400 ring-1 ring-purple-500/25",
-  is_tor: "bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/25",
-  is_vpn: "bg-cyan-500/15 text-cyan-400 ring-1 ring-cyan-500/25",
-  is_malicious: "bg-red-500/15 text-red-400 ring-1 ring-red-500/25",
+  proxy: "bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/25",
+  mobile: "bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/25",
+  hosting: "bg-purple-500/15 text-purple-400 ring-1 ring-purple-500/25",
+  tor: "bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/25",
+  vpn: "bg-cyan-500/15 text-cyan-400 ring-1 ring-cyan-500/25",
+  malicious: "bg-red-500/15 text-red-400 ring-1 ring-red-500/25",
 };
 
 const THREAT_OUTLINED: Record<string, string> = {
-  is_proxy: "text-orange-400/60 ring-1 ring-orange-500/15",
-  is_mobile: "text-blue-400/60 ring-1 ring-blue-500/15",
-  is_hosting: "text-purple-400/60 ring-1 ring-purple-500/15",
-  is_tor: "text-rose-400/60 ring-1 ring-rose-500/15",
-  is_vpn: "text-cyan-400/60 ring-1 ring-cyan-500/15",
-  is_malicious: "text-red-400/60 ring-1 ring-red-500/15",
+  proxy: "text-orange-400/60 ring-1 ring-orange-500/15",
+  mobile: "text-blue-400/60 ring-1 ring-blue-500/15",
+  hosting: "text-purple-400/60 ring-1 ring-purple-500/15",
+  tor: "text-rose-400/60 ring-1 ring-rose-500/15",
+  vpn: "text-cyan-400/60 ring-1 ring-cyan-500/15",
+  malicious: "text-red-400/60 ring-1 ring-red-500/15",
 };
 
-const THREAT_KEYS = ["is_proxy", "is_mobile", "is_hosting", "is_tor", "is_vpn", "is_malicious"] as const;
+const ALGORITHM_ICONS: Record<string, string> = {
+  cascade: "🔑",
+  voting: "📊",
+  pcr6: "⚠️",
+  authority: "🏛️",
+  specificity: "🎯",
+};
 
-function ThreatBadges({ threat }: { threat: ThreatFieldResult }) {
+const THREAT_KEYS = ["proxy", "mobile", "hosting", "tor", "vpn", "malicious"] as const;
+
+function ThreatBadges({ threats }: { threats: Record<string, ThreatAssessment> }) {
   return (
     <span className="inline-flex flex-wrap gap-1">
       {THREAT_KEYS.map((key) => {
-        const value = threat.value[key];
-        const conf = threat.per_boolean_confidence[key];
-        if (!value && conf === "low") return null;
+        const ta = threats[key];
+        if (!ta) return null;
+        if (!ta.detected && ta.confidence === 0) return null;
         const label = THREAT_LABELS[key];
-        if (value) {
-          const cls = conf === "high" ? THREAT_ACTIVE[key] : THREAT_OUTLINED[key];
+        if (ta.detected) {
+          const cls = ta.confidence >= 70 ? THREAT_ACTIVE[key] : THREAT_OUTLINED[key];
           return (
             <span key={key} className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${cls}`}>
               {label}
@@ -65,17 +80,15 @@ function ThreatBadges({ threat }: { threat: ThreatFieldResult }) {
   );
 }
 
-function lowestConfidence(r: LookupResult): "high" | "medium" | "low" {
+function lowestConfidence(r: LookupResult): number {
   const confs = [
     r.country.confidence,
     r.asn.confidence,
     r.as_name.confidence,
     r.ip_range.confidence,
-    ...Object.values(r.threat.per_boolean_confidence),
+    ...Object.values(r.threats).map((t) => t.confidence),
   ];
-  if (confs.includes("low")) return "low";
-  if (confs.includes("medium")) return "medium";
-  return "high";
+  return Math.min(...confs);
 }
 
 function FieldDetail<T>({
@@ -84,26 +97,34 @@ function FieldDetail<T>({
   format,
 }: {
   label: string;
-  field: FieldResult<T>;
+  field: MergedField<T>;
   format: (v: T) => string;
 }) {
-  const entries = Object.entries(field.sources);
+  const entries = field.sources;
   if (entries.length === 0) return null;
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
         <span className="text-xs font-medium text-zinc-300">{label}</span>
         <span className="text-[10px] text-zinc-500">{format(field.value)}</span>
-        <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[field.confidence]}`} />
-        <span className="text-[10px] text-zinc-600">{field.confidence}</span>
+        <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(field.confidence)}`} />
+        <span className={`text-[10px] ${confTextColor(field.confidence)}`}>
+          {field.confidence}
+        </span>
+        <span className="text-[10px] text-zinc-600">
+          {ALGORITHM_ICONS[field.algorithm] ?? field.algorithm}
+        </span>
       </div>
       {entries.length > 0 && (
         <div className="ml-3 flex flex-wrap gap-x-4 gap-y-0.5">
-          {entries.map(([src, val]) => (
-            <span key={src} className="text-[11px]">
-              <span className="text-zinc-500">{src}</span>
+          {entries.map((s) => (
+            <span key={s.source} className="text-[11px]">
+              <span className="text-zinc-500">{s.source}</span>
+              {s.authoritative && (
+                <span className="text-amber-400 ml-0.5" title="authoritative">★</span>
+              )}
               <span className="text-zinc-700 mx-1">:</span>
-              <span className="text-zinc-400">{format(val)}</span>
+              <span className="text-zinc-400">{format(s.value)}</span>
             </span>
           ))}
         </div>
@@ -112,32 +133,42 @@ function FieldDetail<T>({
   );
 }
 
-function ThreatDetail({ threat }: { threat: ThreatFieldResult }) {
-  const sourceNames = Object.keys(threat.sources);
+function ThreatDetail({ threats }: { threats: Record<string, ThreatAssessment> }) {
   return (
     <div>
       <span className="text-xs font-medium text-zinc-300">Threat</span>
       <div className="ml-3 mt-1 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3">
-        {THREAT_KEYS.map((b) => {
-          const val = threat.value[b];
-          const conf = threat.per_boolean_confidence[b];
-          const srcEntries = sourceNames.filter((s) => threat.sources[s][b] != null);
-          if (!val && conf === "low" && srcEntries.length === 0) return null;
+        {THREAT_KEYS.map((key) => {
+          const ta = threats[key];
+          if (!ta) return null;
+          if (!ta.detected && ta.confidence === 0 && ta.sources.length === 0) return null;
           return (
-            <div key={b}>
+            <div key={key}>
               <div className="flex items-center gap-1.5">
-                <span className={`inline-block h-1.5 w-1.5 rounded-full ${val ? "bg-orange-400" : "bg-zinc-600"}`} />
-                <span className="text-[11px] text-zinc-400">{THREAT_LABELS[b]}</span>
-                <span className="text-[10px] text-zinc-600">{conf}</span>
+                <span
+                  className={`inline-block h-1.5 w-1.5 rounded-full ${
+                    ta.detected ? "bg-orange-400" : "bg-zinc-600"
+                  }`}
+                />
+                <span className="text-[11px] text-zinc-400">{THREAT_LABELS[key]}</span>
+                <span className={`text-[10px] ${confTextColor(ta.confidence)}`}>
+                  {ta.confidence}
+                </span>
+                <span className="text-[10px] text-zinc-600">
+                  {ALGORITHM_ICONS[ta.algorithm] ?? ta.algorithm}
+                </span>
               </div>
-              {srcEntries.length > 0 && (
+              {ta.sources.length > 0 && (
                 <div className="ml-3 flex flex-wrap gap-x-3">
-                  {srcEntries.map((s) => (
-                    <span key={s} className="text-[10px]">
-                      <span className="text-zinc-600">{s}</span>
+                  {ta.sources.map((s) => (
+                    <span key={s.source} className="text-[10px]">
+                      <span className="text-zinc-600">{s.source}</span>
+                      {s.authoritative && (
+                        <span className="text-amber-400" title="authoritative">★</span>
+                      )}
                       <span className="text-zinc-700 mx-0.5">:</span>
-                      <span className={threat.sources[s][b] ? "text-orange-400" : "text-zinc-500"}>
-                        {String(threat.sources[s][b] ?? "N/A")}
+                      <span className={s.value ? "text-orange-400" : "text-zinc-500"}>
+                        {String(s.value ?? "N/A")}
                       </span>
                     </span>
                   ))}
@@ -158,7 +189,7 @@ function ExpandableDetail({ r }: { r: LookupResult }) {
         <FieldDetail label="Country" field={r.country} format={String} />
         <FieldDetail label="ASN" field={r.asn} format={(v) => String(v)} />
         <FieldDetail label="ISP / Org" field={r.as_name} format={String} />
-        <ThreatDetail threat={r.threat} />
+        <ThreatDetail threats={r.threats} />
         <FieldDetail label="Range" field={r.ip_range} format={String} />
       </div>
     </td>
@@ -176,12 +207,12 @@ function SummaryBar({ results }: { results: LookupResult[] }) {
 
     for (const r of results) {
       for (const k of THREAT_KEYS) {
-        if (r.threat.value[k]) threats[k]++;
+        if (r.threats[k]?.detected) threats[k]++;
       }
       if (r.is_isp) ispCount++;
       const c = lowestConfidence(r);
-      if (c === "low") lowConf++;
-      else if (c === "medium") medConf++;
+      if (c < 30) lowConf++;
+      else if (c < 70) medConf++;
       else highConf++;
     }
 
@@ -205,24 +236,22 @@ function SummaryBar({ results }: { results: LookupResult[] }) {
       {stats.lowConf > 0 && (
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500" />
-          {stats.lowConf} low
+          {stats.lowConf} low confidence
         </span>
       )}
       {stats.medConf > 0 && (
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
-          {stats.medConf} medium
+          {stats.medConf} medium confidence
         </span>
       )}
       {stats.highConf > 0 && (
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          {stats.highConf} high
+          {stats.highConf} high confidence
         </span>
       )}
-      {activeThreats.length > 0 && (
-        <span className="text-zinc-600">|</span>
-      )}
+      {activeThreats.length > 0 && <span className="text-zinc-600">|</span>}
       {activeThreats.map((k) => (
         <span key={k} className="flex items-center gap-1">
           <span className={`rounded px-1 py-0.5 text-[10px] font-medium ${THREAT_ACTIVE[k]}`}>
@@ -282,8 +311,8 @@ export function ResultTable({ results }: ResultTableProps) {
       case "as_name": return r.as_name.value;
       case "is_isp": return r.is_isp ? 1 : 0;
       case "threat": {
-        const t = r.threat.value;
-        return (t.is_proxy ? 4 : 0) + (t.is_mobile ? 2 : 0) + (t.is_hosting ? 1 : 0);
+        const t = r.threats;
+        return (t.proxy?.detected ? 4 : 0) + (t.mobile?.detected ? 2 : 0) + (t.hosting?.detected ? 1 : 0);
       }
       case "ip_range": return r.ip_range.value;
     }
@@ -292,8 +321,7 @@ export function ResultTable({ results }: ResultTableProps) {
   const sorted = useMemo(() => {
     let arr = [...filtered];
     if (disagreementsFirst) {
-      const order: Record<string, number> = { low: 0, medium: 1, high: 2 };
-      arr.sort((a, b) => order[lowestConfidence(a)] - order[lowestConfidence(b)]);
+      arr.sort((a, b) => lowestConfidence(a) - lowestConfidence(b));
       return arr;
     }
     if (!sortKey) return arr;
@@ -320,7 +348,7 @@ export function ResultTable({ results }: ResultTableProps) {
 
   const expandDisagreements = () => {
     const ips = filtered
-      .filter((r) => lowestConfidence(r) !== "high")
+      .filter((r) => lowestConfidence(r) < 70)
       .map((r) => r.ip);
     setExpanded(new Set(ips));
   };
@@ -407,19 +435,19 @@ export function ResultTable({ results }: ResultTableProps) {
                   <td className="px-3 py-2 text-zinc-100 font-semibold">{r.ip}</td>
                   <td className="px-3 py-2">
                     <span className="inline-flex items-center gap-1.5">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[r.asn.confidence]}`} />
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(r.asn.confidence)}`} />
                       <span className="text-zinc-300">{r.asn.value}</span>
                     </span>
                   </td>
                   <td className="px-3 py-2">
                     <span className="inline-flex items-center gap-1.5">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[r.country.confidence]}`} />
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(r.country.confidence)}`} />
                       <span className="text-zinc-300">{r.country.value}</span>
                     </span>
                   </td>
                   <td className="px-3 py-2">
                     <span className="inline-flex items-center gap-1.5">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[r.as_name.confidence]}`} />
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(r.as_name.confidence)}`} />
                       <span className="text-zinc-300">{r.as_name.value}</span>
                       {r.is_isp && (
                         <span className="rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">
@@ -438,11 +466,11 @@ export function ResultTable({ results }: ResultTableProps) {
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    <ThreatBadges threat={r.threat} />
+                    <ThreatBadges threats={r.threats} />
                   </td>
                   <td className="px-3 py-2">
                     <span className="inline-flex items-center gap-1.5">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${CONF_DOT[r.ip_range.confidence]}`} />
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(r.ip_range.confidence)}`} />
                       <span className="text-zinc-500">{r.ip_range.value}</span>
                     </span>
                   </td>
