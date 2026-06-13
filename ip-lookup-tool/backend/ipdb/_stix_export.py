@@ -2,6 +2,7 @@
 
 stix2 is an OPTIONAL dependency. If not installed, to_stix_bundle() returns None.
 """
+import json
 import logging
 from uuid import UUID
 
@@ -118,10 +119,11 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
         )
         objs.append(ind)
 
-    # 6. Bundle
+    # 6. Bundle — return a JSON-serializable dict (not the stix2 object, which
+    # FastAPI's jsonable_encoder cannot serialize).
     all_objects = list(identities.values()) + objs
     bundle = Bundle(objects=all_objects, allow_custom=True)
-    return bundle
+    return json.loads(bundle.serialize())
 
 
 def _get_src_reliability(name: str) -> float:

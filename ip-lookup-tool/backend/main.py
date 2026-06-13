@@ -39,6 +39,8 @@ async def _enrich_results(
     enriched_count = 0
     if ipapi_map:
         for r in results:
+            if r.ip not in ipapi_map:
+                continue
             r = apply_enrichment(
                 r, ipapi_map, "ip_api",
                 ("is_proxy", "is_mobile", "is_hosting"), expected,
