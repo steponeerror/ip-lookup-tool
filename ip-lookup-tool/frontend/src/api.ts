@@ -127,6 +127,7 @@ export interface Progress {
 async function readStream(
   res: Response,
   onProgress: (p: Progress) => void,
+  keepAlive?: () => void,
 ): Promise<QueryResponse> {
   if (!res.body) throw new Error("Streaming not supported");
   const reader = res.body.getReader();
@@ -137,6 +138,7 @@ async function readStream(
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    keepAlive?.();
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
     buffer = lines.pop()!;
@@ -161,12 +163,25 @@ async function readStream(
   return finalResult;
 }
 
+function streamFetchTimeout(controller: AbortController, connectMs = 30_000, idleMs = 120_000) {
+  let timer = setTimeout(() => controller.abort(), connectMs);
+  return {
+    resetIdle() {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), idleMs);
+    },
+    clear() {
+      clearTimeout(timer);
+    },
+  };
+}
+
 export async function queryIpsStream(
   ips: string[],
   onProgress: (p: Progress) => void,
 ): Promise<QueryResponse> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120_000);
+  const { resetIdle, clear } = streamFetchTimeout(controller);
   try {
     const res = await fetch(`/api/query/stream`, {
       method: "POST",
@@ -179,14 +194,15 @@ export async function queryIpsStream(
       try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
       throw new Error(detail || "Query failed");
     }
-    return await readStream(res, onProgress);
+    resetIdle();
+    return await readStream(res, onProgress, resetIdle);
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error("Request timed out (120s)");
+      throw new Error("Request timed out (120s idle)");
     }
     throw e;
   } finally {
-    clearTimeout(timer);
+    clear();
   }
 }
 
@@ -197,7 +213,7 @@ export async function uploadFileStream(
   const form = new FormData();
   form.append("file", file);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120_000);
+  const { resetIdle, clear } = streamFetchTimeout(controller);
   try {
     const res = await fetch(`/api/upload/stream`, {
       method: "POST",
@@ -209,13 +225,14 @@ export async function uploadFileStream(
       try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
       throw new Error(detail || "Upload failed");
     }
-    return await readStream(res, onProgress);
+    resetIdle();
+    return await readStream(res, onProgress, resetIdle);
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error("Request timed out (120s)");
+      throw new Error("Request timed out (120s idle)");
     }
     throw e;
   } finally {
-    clearTimeout(timer);
+    clear();
   }
 }
