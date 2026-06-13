@@ -1,64 +1,82 @@
 """Tests for undefined/null leak bugs found by parallel audit."""
-from ipdb._registry import THREAT_BOOLS
-from main import _merge_threat_source
-
-
-def _empty_result():
-    return {
-        "threat": {
-            "sources": {},
-            "value": {b: False for b in THREAT_BOOLS},
-            "per_boolean_confidence": {b: "low" for b in THREAT_BOOLS},
-        }
-    }
 
 
 class TestMergeThreatSourcePartialData:
-    """Enricher data missing some THREAT_BOOLS keys should be filled with None.
+    """apply_enrichment fills missing keys via SourceAttribution.
 
-    Bug: ip_api returns {is_proxy, is_mobile, is_hosting} but NOT is_tor/is_vpn/is_malicious.
-    Without filling missing keys, frontend sees JS undefined (not null), which passes !== null
-    and renders as literal "undefined" text.
+    apply_enrichment only appends to threat fields the enricher provides.
+    Missing keys no longer cause undefined — the enricher's fields tuple
+    determines what gets enriched.
     """
+    import ipdb._merge as _merge
 
-    def test_partial_data_fills_missing_keys_with_none(self):
-        result = _empty_result()
+    def test_partial_data_only_enriches_known_fields(self, monkeypatch):
+        monkeypatch.setattr("ipdb._merge.SOURCE_RELIABILITY",
+                            {"ip_api": 0.45})
+        monkeypatch.setattr("ipdb._merge.AUTHORITATIVE_SOURCES", {})
+        from ipdb._types import LookupResult, MergedField, ThreatAssessment
+        from ipdb._merge import apply_enrichment, THREAT_BOOLS
+
+        r = LookupResult(
+            ip="test",
+            country=MergedField("N/A", 0, "voting", []),
+            asn=MergedField(0, 0, "voting", []),
+            as_name=MergedField("N/A", 0, "voting", []),
+            ip_range=MergedField("N/A", 0, "voting", []),
+            is_isp=False,
+            threats={
+                b.removeprefix("is_"): ThreatAssessment(False, 0, "voting", [])
+                for b in THREAT_BOOLS
+            },
+        )
         partial = {"is_proxy": False, "is_mobile": False, "is_hosting": True}
-        _merge_threat_source(result, "ip_api", partial)
+        result = apply_enrichment(
+            r, {"test": partial}, "ip_api",
+            ("is_proxy", "is_mobile", "is_hosting"),
+            {b: 1 for b in THREAT_BOOLS},
+        )
 
-        stored = result["threat"]["sources"]["ip_api"]
-        for b in THREAT_BOOLS:
-            assert b in stored, f"missing key {b} in source data"
+        # ip_api fields tuple doesn't include is_tor/is_vpn/is_malicious → not enriched
+        assert len(result.threats["proxy"].sources) == 1
+        assert result.threats["proxy"].sources[0].source == "ip_api"
+        # is_tor should NOT have ip_api attribution (ip_api doesn't provide it)
+        assert result.threats["tor"].sources == []
+        assert result.threats["vpn"].sources == []
+        assert result.threats["malicious"].sources == []
 
-    def test_missing_is_tor_is_none(self):
-        result = _empty_result()
-        _merge_threat_source(result, "ip_api", {"is_proxy": False, "is_mobile": False, "is_hosting": False})
-        assert result["threat"]["sources"]["ip_api"]["is_tor"] is None
+    def test_ipapi_is_enriches_tor_and_vpn(self, monkeypatch):
+        """ipapi_is fields include is_tor and is_vpn → those get enriched."""
+        monkeypatch.setattr("ipdb._merge.SOURCE_RELIABILITY",
+                            {"ipapi_is": 0.50})
+        monkeypatch.setattr("ipdb._merge.AUTHORITATIVE_SOURCES", {})
+        from ipdb._types import LookupResult, MergedField, ThreatAssessment
+        from ipdb._merge import apply_enrichment, THREAT_BOOLS
 
-    def test_missing_is_vpn_is_none(self):
-        result = _empty_result()
-        _merge_threat_source(result, "ip_api", {"is_proxy": False, "is_mobile": False, "is_hosting": False})
-        assert result["threat"]["sources"]["ip_api"]["is_vpn"] is None
-
-    def test_missing_is_malicious_is_none(self):
-        result = _empty_result()
-        _merge_threat_source(result, "ip_api", {"is_proxy": False, "is_mobile": False, "is_hosting": False})
-        assert result["threat"]["sources"]["ip_api"]["is_malicious"] is None
-
-    def test_present_keys_preserved(self):
-        result = _empty_result()
-        _merge_threat_source(result, "ip_api", {"is_proxy": True, "is_mobile": False, "is_hosting": True})
-        stored = result["threat"]["sources"]["ip_api"]
-        assert stored["is_proxy"] is True
-        assert stored["is_mobile"] is False
-        assert stored["is_hosting"] is True
-
-    def test_ipapi_is_partial_data_also_filled(self):
-        result = _empty_result()
-        _merge_threat_source(result, "ipapi_is", {"is_proxy": False, "is_mobile": True, "is_hosting": False})
-        stored = result["threat"]["sources"]["ipapi_is"]
-        for b in THREAT_BOOLS:
-            assert b in stored, f"missing key {b} in ipapi_is source data"
+        r = LookupResult(
+            ip="test",
+            country=MergedField("N/A", 0, "voting", []),
+            asn=MergedField(0, 0, "voting", []),
+            as_name=MergedField("N/A", 0, "voting", []),
+            ip_range=MergedField("N/A", 0, "voting", []),
+            is_isp=False,
+            threats={
+                b.removeprefix("is_"): ThreatAssessment(False, 0, "voting", [])
+                for b in THREAT_BOOLS
+            },
+        )
+        data = {
+            "is_proxy": False, "is_mobile": True, "is_hosting": False,
+            "is_tor": True, "is_vpn": False,
+        }
+        result = apply_enrichment(
+            r, {"test": data}, "ipapi_is",
+            ("is_proxy", "is_mobile", "is_hosting", "is_tor", "is_vpn"),
+            {b: 1 for b in THREAT_BOOLS},
+        )
+        assert result.threats["tor"].sources[0].value is True
+        assert result.threats["vpn"].sources[0].value is False
+        assert result.threats["mobile"].sources[0].value is True
+        assert result.threats["tor"].detected is True
 
 
 class TestIpapiIsReturnsTorVpn:
