@@ -11,40 +11,49 @@ export function ExportCsv({ results }: ExportCsvProps) {
 
   const handleExport = () => {
     const header =
-      "ip,asn,asn_confidence,country,country_confidence,as_name,as_name_confidence," +
-      "is_isp,is_proxy,is_proxy_confidence,is_mobile,is_mobile_confidence," +
-      "is_hosting,is_hosting_confidence,is_tor,is_tor_confidence," +
-      "is_vpn,is_vpn_confidence,is_malicious,is_malicious_confidence," +
-      "ip_range,range_confidence,error\n";
+      "ip,asn,asn_confidence,asn_algorithm,country,country_confidence,country_algorithm," +
+      "as_name,as_name_confidence,as_name_algorithm,is_isp," +
+      "proxy_detected,proxy_confidence,proxy_algorithm," +
+      "mobile_detected,mobile_confidence,mobile_algorithm," +
+      "hosting_detected,hosting_confidence,hosting_algorithm," +
+      "tor_detected,tor_confidence,tor_algorithm," +
+      "vpn_detected,vpn_confidence,vpn_algorithm," +
+      "malicious_detected,malicious_confidence,malicious_algorithm," +
+      "ip_range,range_confidence,range_algorithm,error\n";
 
     const rows = results
-      .map((r) =>
-        [
+      .map((r) => {
+        const p = r.threats.proxy ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
+        const m = r.threats.mobile ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
+        const h = r.threats.hosting ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
+        const t = r.threats.tor ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
+        const v = r.threats.vpn ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
+        const mal = r.threats.malicious ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
+
+        return [
           csvEscape(r.ip),
           csvEscape(String(r.asn.value)),
-          csvEscape(r.asn.confidence),
+          String(r.asn.confidence),
+          csvEscape(r.asn.algorithm),
           csvEscape(r.country.value),
-          csvEscape(r.country.confidence),
+          String(r.country.confidence),
+          csvEscape(r.country.algorithm),
           csvEscape(r.as_name.value),
-          csvEscape(r.as_name.confidence),
-          csvEscape(String(r.is_isp)),
-          csvEscape(String(r.threat.value.is_proxy ?? false)),
-          csvEscape(r.threat.per_boolean_confidence.is_proxy ?? "low"),
-          csvEscape(String(r.threat.value.is_mobile ?? false)),
-          csvEscape(r.threat.per_boolean_confidence.is_mobile ?? "low"),
-          csvEscape(String(r.threat.value.is_hosting ?? false)),
-          csvEscape(r.threat.per_boolean_confidence.is_hosting ?? "low"),
-          csvEscape(String(r.threat.value.is_tor ?? false)),
-          csvEscape(r.threat.per_boolean_confidence.is_tor ?? "low"),
-          csvEscape(String(r.threat.value.is_vpn ?? false)),
-          csvEscape(r.threat.per_boolean_confidence.is_vpn ?? "low"),
-          csvEscape(String(r.threat.value.is_malicious ?? false)),
-          csvEscape(r.threat.per_boolean_confidence.is_malicious ?? "low"),
+          String(r.as_name.confidence),
+          csvEscape(r.as_name.algorithm),
+          String(r.is_isp),
+          String(p.detected), String(p.confidence), csvEscape(p.algorithm),
+          String(m.detected), String(m.confidence), csvEscape(m.algorithm),
+          String(h.detected), String(h.confidence), csvEscape(h.algorithm),
+          String(t.detected), String(t.confidence), csvEscape(t.algorithm),
+          String(v.detected), String(v.confidence), csvEscape(v.algorithm),
+          String(mal.detected), String(mal.confidence), csvEscape(mal.algorithm),
           csvEscape(r.ip_range.value),
-          csvEscape(r.ip_range.confidence),
+          String(r.ip_range.confidence),
+          csvEscape(r.ip_range.algorithm),
           csvEscape(r.error ?? ""),
-        ].join(",")
-      )
+        ].join(",");
+      })
       .join("\n");
 
     const blob = new Blob([header + rows], { type: "text/csv" });
