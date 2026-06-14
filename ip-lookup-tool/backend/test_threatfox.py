@@ -31,7 +31,7 @@ class TestThreatFoxParseRow:
 
         assert parsed is not None
         assert parsed["_ip"] == "1.2.3.4"
-        assert parsed["classification_type"] == "c2-server"
+        assert parsed["classification_type"] == "malware-distribution"
         assert parsed["verdict"] == "malicious"
         assert parsed["malware_name"] == "win.vidar"
         assert parsed["confidence"] == 75
@@ -112,4 +112,26 @@ class TestThreatFoxDownloadUnzips:
         count = src.load()
 
         assert count == 1
-        assert src.query("1.2.3.4")[0]["classification_type"] == "c2-server"
+        assert src.query("1.2.3.4")[0]["classification_type"] == "malware-distribution"
+
+
+from ipdb._sources.threatfox import ThreatFoxSource, _clean
+
+
+def test_parse_row_maps_threat_type(tmp_path):
+    src = ThreatFoxSource(data_dir=tmp_path)
+    # columns: first_seen, ioc_id, ioc_value, ioc_type, threat_type, fk_malware, ...
+    row = ["2026-06-14", "1", "5.6.7.8:443", "ip:port", "payload_delivery", "win.vidar",
+           "", "", "", "100"]
+    parsed = src.parse_row(row)
+    assert parsed["classification_type"] == "malware-distribution"
+    assert parsed["malware_name"] == "win.vidar"
+    assert parsed["_ip"] == "5.6.7.8"
+
+
+def test_parse_row_botnet_cc(tmp_path):
+    src = ThreatFoxSource(data_dir=tmp_path)
+    row = ["2026-06-14", "2", "9.9.9.9:80", "ip:port", "botnet_cc", "trickbot",
+           "", "", "", "90"]
+    parsed = src.parse_row(row)
+    assert parsed["classification_type"] == "c2-server"

@@ -13,6 +13,7 @@ import urllib.request
 import zipfile
 
 from ._base import CsvSource
+from .._classification import normalize, THREATFOX_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ class ThreatFoxSource(CsvSource):
             confidence_pct = 50
         return {
             "_ip": ip,
-            "classification_type": "c2-server",
+            "classification_type": normalize(_clean(row[4]), THREATFOX_MAP),
             "verdict": "malicious",
             "malware_name": _clean(row[5]),       # fk_malware, e.g. win.vidar
             "confidence": confidence_pct,
