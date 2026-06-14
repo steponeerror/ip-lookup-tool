@@ -160,14 +160,15 @@ class CsvSource(IpListSource):
     def load(self) -> int:
         import ipaddress as _ipa
         import csv as _csv
-        import io
 
         tree = pytricia.PyTricia(32)
-        count = 0
         if not self._path.exists():
             self._tree = tree
             return 0
 
+        # cidr_str -> list[evidence dict], deduped by (classification_type, verdict, malware_name)
+        acc: dict[str, list[dict]] = {}
+        count = 0
         with open(self._path, "r", encoding="utf-8") as f:
             for _ in range(self.skip_lines):
                 next(f, None)
@@ -190,8 +191,23 @@ class CsvSource(IpListSource):
                         net = _ipa.IPv4Network(f"{ip_str}/32", strict=False)
                 except (_ipa.AddressValueError, ValueError):
                     continue
-                tree.insert(str(net), parsed)
-                count += 1
+                key = str(net)
+                bucket = acc.setdefault(key, [])
+                dedup = (
+                    parsed.get("classification_type"),
+                    parsed.get("verdict"),
+                    parsed.get("malware_name"),
+                )
+                if any(
+                    (o.get("classification_type"), o.get("verdict"), o.get("malware_name")) == dedup
+                    for o in bucket
+                ):
+                    continue
+                bucket.append(parsed)
+
+        for key, bucket in acc.items():
+            tree.insert(key, bucket)
+            count += len(bucket)
 
         self._tree = tree
         self._count = count
