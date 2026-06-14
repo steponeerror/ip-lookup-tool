@@ -25,10 +25,11 @@ def test_proxy_evidence_dch_is_hosting():
     assert e["extra"]["native_type"] == "DCH"
 
 
-def test_proxy_evidence_mapped_types_carry_no_extra():
-    # Mapped values (VPN/PUB/TOR) land in the vocab; no raw needs preserving.
-    for pt in ("VPN", "PUB", "TOR"):
-        assert "extra" not in _proxy_evidence(pt)
+def test_proxy_evidence_all_types_carry_native_type():
+    # All accepted types (VPN/PUB/TOR/DCH) now preserve native_type in extra.
+    for pt, expected_native in [("VPN", "VPN"), ("PUB", "PUB"), ("DCH", "DCH")]:
+        e = _proxy_evidence(pt)
+        assert e["extra"]["native_type"] == expected_native, f"{pt=}"
 
 
 def test_proxy_evidence_drops_uninteresting_types():
