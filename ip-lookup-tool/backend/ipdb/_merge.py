@@ -5,7 +5,41 @@ from typing import Any
 
 from ._types import (
     SourceAttribution, MergedField, ThreatAssessment, LookupResult,
+    EvidenceObservation,
 )
+
+
+def to_observation(
+    source: str,
+    raw: dict,
+    *,
+    classification_type: str,
+    verdict: str,
+    reliability: float,
+) -> EvidenceObservation:
+    """Normalize a source's raw evidence dict into an EvidenceObservation.
+
+    `raw` may override `classification_type`/`verdict` (e.g. a source whose
+    type/verdict varies per entry). Unknown keys are ignored.
+    """
+    def _opt(key):
+        return raw.get(key)
+
+    mal = _opt("malware_name")
+    return EvidenceObservation(
+        source=source,
+        classification_type=_opt("classification_type") or classification_type,
+        verdict=_opt("verdict") or verdict,
+        reliability=reliability,
+        first_seen=_opt("first_seen"),
+        confidence=_opt("confidence"),
+        malware_name=(mal.lower() if isinstance(mal, str) else mal),
+        comment=_opt("comment"),
+        reporter_count=_opt("reporter_count"),
+        tags=list(_opt("tags") or []),
+        source_refs=dict(_opt("source_refs") or {}),
+        extra=dict(_opt("extra") or {}),
+    )
 
 
 # ── PCR6 Evidence Fusion (zero-dependency, self-contained ~50 lines) ──
