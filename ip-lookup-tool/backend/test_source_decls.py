@@ -7,6 +7,7 @@ from ipdb._sources.blocklist_de import BlocklistDeSource
 from ipdb._sources.ip2proxy import IP2ProxySource
 from ipdb._sources.tor_exits import TorExitSource
 from ipdb._sources.x4bnet_vpn import X4BNetVPNSource
+from ipdb._sources.otx import OtxSource
 from ipdb._sources.firehol import FireholBlocklistSource
 from ipdb._sources.ipsum import IPsumSource
 
@@ -14,6 +15,7 @@ from ipdb._sources.ipsum import IPsumSource
 # (source_cls, expected_type, expected_verdict, min_reliability)
 DECLS = [
     (ThreatFoxSource, "c2-server", "malicious", 0.85),
+    (OtxSource, "c2-server", "malicious", 0.75),
     (SpamhausSource, "blacklist", "malicious", 0.90),
     (EmergingThreatsSource, "blacklist", "malicious", 0.90),
     (BlocklistDeSource, "blacklist", "malicious", 0.65),
