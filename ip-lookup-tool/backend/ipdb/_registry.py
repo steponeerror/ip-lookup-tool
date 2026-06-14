@@ -63,30 +63,12 @@ def _discover_sources(data_dir: Path) -> list:
 
 
 def _instantiate_source(cls, data_dir: Path) -> list:
-    """Instantiate a source class. Handles special constructor signatures."""
-    import inspect
+    """Instantiate a source class.
 
-    sig = inspect.signature(cls.__init__)
-    params = list(sig.parameters.keys())[1:]  # skip 'self'
-
-    kwargs = {}
-    if "data_dir" in params:
-        kwargs["data_dir"] = data_dir
-    if "token" in params:
-        kwargs["token"] = os.environ.get("IPINFO_TOKEN", "")
-        if cls.__name__ == "IP2ProxySource":
-            kwargs["token"] = os.environ.get("IP2PROXY_TOKEN", "")
-    if "key" in params:
-        kwargs["key"] = os.environ.get("IPAPI_IS_KEY", "")
-    if "enabled" in params:
-        kwargs["enabled"] = os.environ.get(
-            "IPAPI_IS_ENABLED", "false").lower() == "true"
-    if "selected_lists" in params:
-        kwargs["selected_lists"] = ["firehol_level1", "firehol_level2"]
-    if "min_count" in params:
-        kwargs["min_count"] = 3
-
-    return [cls(**kwargs)]
+    Each source reads its own configuration from environment variables in
+    __init__.  The registry provides only the data directory.
+    """
+    return [cls(data_dir=data_dir)]
 
 
 _sources = _discover_sources(DATA_DIR)

@@ -2,6 +2,7 @@ import csv
 import gzip
 import ipaddress
 import logging
+import os
 import shutil
 import time
 import urllib.request
@@ -18,8 +19,8 @@ class IPinfoLiteSource:
     fields = ("country_code", "asn", "as_name", "ip_range")
     stale_days = 7
 
-    def __init__(self, data_dir: Path, token: str = ""):
-        self._token = token
+    def __init__(self, data_dir: Path):
+        self._token = os.environ.get("IPINFO_TOKEN", "").strip()
         self._path = data_dir / "ipinfo_lite.csv"
         self._gz_path = data_dir / "ipinfo_lite.csv.gz"
         self._data_dir = data_dir

@@ -1,6 +1,7 @@
 """IP2Proxy PX2 LITE source — CsvSource subclass with ZIP handling."""
 import ipaddress
 import logging
+import os
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -21,8 +22,8 @@ class IP2ProxySource(CsvSource):
     reliability = 0.80
     authoritative_for = ["is_proxy"]
 
-    def __init__(self, data_dir: Path, token: str = ""):
-        self._token = token
+    def __init__(self, data_dir: Path):
+        self._token = os.environ.get("IP2PROXY_TOKEN", "").strip()
         self._zip_path = data_dir / "ip2proxy_px2.zip"
         super().__init__(data_dir=data_dir)
 
