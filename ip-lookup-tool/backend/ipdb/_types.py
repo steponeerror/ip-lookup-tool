@@ -66,6 +66,36 @@ class ThreatAssessment:
 
 
 @dataclass
+class EvidenceObservation:
+    """Single source's raw observation of one IP (MISP Attribute analog)."""
+    source: str
+    classification_type: str                 # IntelMQ classification.type
+    verdict: str = "malicious"               # malicious|suspicious|benign|informational
+    reliability: float = 0.5
+    first_seen: Optional[str] = None         # ISO-8601 +00:00; ordinal across sources
+    confidence: Optional[int] = None         # source-native (threatfox %, abuseipdb score)
+    malware_name: Optional[str] = None       # raw lowercase, NOT normalized
+    comment: Optional[str] = None
+    reporter_count: Optional[int] = None     # intra-source reporters (abuseipdb)
+    tags: list = field(default_factory=list)
+    source_refs: dict = field(default_factory=dict)   # scalar refs only
+    extra: dict = field(default_factory=dict)         # arbitrary structured -> STIX x_*
+
+
+@dataclass
+class ClassificationAssessment:
+    """Corroboration result for one (classification.type, verdict) group."""
+    type: str
+    verdict: str
+    detected: bool
+    confidence: int                          # 0-100, post corroboration + decay
+    algorithm: str
+    sources: list  # list[SourceAttribution]
+    corroborated: bool                       # >=2 independent sources
+    reporter_total: int = 0
+
+
+@dataclass
 class LookupResult:
     """Complete IP lookup result."""
     ip: str
