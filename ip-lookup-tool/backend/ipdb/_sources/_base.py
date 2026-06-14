@@ -49,7 +49,15 @@ class IpListSource:
         ]
 
     def get_insert_data(self) -> dict:
-        """Value to store in pytricia for each CIDR. Default: {fields[0]: True}."""
+        """Value to store in pytricia for each CIDR.
+
+        If the source declares a fusion `classification_type`, emit the evidence
+        dict {classification_type, verdict}; otherwise fall back to the legacy
+        single-boolean shape {fields[0]: True}.
+        """
+        if getattr(self, "classification_type", None):
+            return {"classification_type": self.classification_type,
+                    "verdict": getattr(self, "verdict", "malicious")}
         return {self.fields[0]: True}
 
     # ── Standard lifecycle ──

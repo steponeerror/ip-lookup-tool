@@ -68,7 +68,8 @@ class FireholBlocklistSource(IpListSource):
                         net = _ipa.IPv4Network(line, strict=False)
                     except (_ipa.AddressValueError, ValueError):
                         continue
-                    tree.insert(str(net), {"is_malicious": True})
+                    tree.insert(str(net), {"classification_type": self.classification_type,
+                                          "verdict": self.verdict})
                     count += 1
         self._tree = tree
         self._count = count

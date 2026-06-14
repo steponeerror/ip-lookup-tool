@@ -31,8 +31,10 @@ class TestThreatFoxParseRow:
 
         assert parsed is not None
         assert parsed["_ip"] == "1.2.3.4"
-        assert parsed["is_malicious"] is True
-        assert parsed["_threatfox_confidence"] == 75
+        assert parsed["classification_type"] == "c2-server"
+        assert parsed["verdict"] == "malicious"
+        assert parsed["malware_name"] == "win.vidar"
+        assert parsed["confidence"] == 75
 
     def test_skips_non_ip_rows(self, tmp_path):
         src = _make_source(tmp_path)
@@ -110,4 +112,4 @@ class TestThreatFoxDownloadUnzips:
         count = src.load()
 
         assert count == 1
-        assert src.query("1.2.3.4")["is_malicious"] is True
+        assert src.query("1.2.3.4")["classification_type"] == "c2-server"

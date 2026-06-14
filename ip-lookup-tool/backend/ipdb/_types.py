@@ -57,15 +57,6 @@ class MergedField:
 
 
 @dataclass
-class ThreatAssessment:
-    """Merged result for a single threat boolean."""
-    detected: bool
-    confidence: int
-    algorithm: str
-    sources: list[SourceAttribution]
-
-
-@dataclass
 class EvidenceObservation:
     """Single source's raw observation of one IP (MISP Attribute analog)."""
     source: str
@@ -104,7 +95,9 @@ class LookupResult:
     as_name: MergedField
     ip_range: MergedField
     is_isp: bool
-    threats: dict[str, ThreatAssessment]   # key = "proxy", "tor", "vpn"... (no "is_" prefix)
+    classifications: dict   # dict[str, ClassificationAssessment]
+    is_whitelisted: bool = False
+    whitelist_notes: list = field(default_factory=list)
     error: str | None = None
 
     def to_dict(self) -> dict:
@@ -115,17 +108,23 @@ class LookupResult:
             "as_name": _field_to_dict(self.as_name),
             "ip_range": _field_to_dict(self.ip_range),
             "is_isp": self.is_isp,
-            "threats": {
-                name: {
-                    "detected": t.detected,
-                    "confidence": t.confidence,
-                    "algorithm": t.algorithm,
+            "classifications": {
+                k: {
+                    "type": v.type,
+                    "verdict": v.verdict,
+                    "detected": v.detected,
+                    "confidence": v.confidence,
+                    "algorithm": v.algorithm,
+                    "corroborated": v.corroborated,
+                    "reporter_total": v.reporter_total,
                     "sources": [
-                        _attribution_to_dict(s) for s in t.sources
+                        _attribution_to_dict(s) for s in v.sources
                     ],
                 }
-                for name, t in self.threats.items()
+                for k, v in self.classifications.items()
             },
+            "is_whitelisted": self.is_whitelisted,
+            "whitelist_notes": self.whitelist_notes,
             **({"error": self.error} if self.error else {}),
         }
 

@@ -1,6 +1,5 @@
 """Tests for main.py routes returning new response shape."""
 import json
-from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 
@@ -29,10 +28,8 @@ class TestLookupResponseShape:
         assert "ip" in r
         assert isinstance(r["country"]["confidence"], int)
         assert isinstance(r["asn"]["confidence"], int)
-        assert "threats" in r
-        assert "value" not in r["threats"]  # no more ThreatFieldResult
-        assert "proxy" in r["threats"]
-        assert "detected" in r["threats"]["proxy"]
+        assert "classifications" in r
+        assert isinstance(r["classifications"], dict)
 
     def test_invalid_ip_has_error(self):
         resp = self.client.post(
@@ -43,17 +40,8 @@ class TestLookupResponseShape:
         r = resp.json()["results"][0]
         assert "invalid" in r["error"]
 
-    @patch("main.apply_enrichment")
-    @patch("main.enrich_with_ipapi")
-    @patch("main.enrich_with_ipapi_is")
-    def test_stream_complete_event_shape(
-        self, mock_is, mock_api, mock_apply
-    ):
+    def test_stream_complete_event_shape(self):
         """Stream complete event should serialize via to_dict()."""
-        mock_api.return_value = {}
-        mock_is.return_value = ({}, True)
-        mock_apply.side_effect = lambda r, *a, **kw: r
-
         resp = self.client.post(
             "/api/query/stream",
             json={"ips": ["8.8.8.8"]},
@@ -73,4 +61,4 @@ class TestLookupResponseShape:
         r = complete[0]["results"][0]
         assert "country" in r
         assert isinstance(r["country"]["confidence"], int)
-        assert "threats" in r
+        assert "classifications" in r

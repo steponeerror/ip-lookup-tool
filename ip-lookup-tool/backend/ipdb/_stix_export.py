@@ -13,14 +13,18 @@ logger = logging.getLogger(__name__)
 # UUIDv5 namespace for deterministic ipv4-addr IDs
 _NS = UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
-# Mapping from threat key → indicator_type (open vocab)
-_THREAT_INDICATOR_TYPES = {
-    "proxy":     "anonymization",
-    "mobile":    "unknown",
-    "hosting":   "benign",
-    "tor":       "anonymization",
-    "vpn":       "anonymization",
-    "malicious": "malicious-activity",
+# Mapping from classification.type → STIX indicator_type (open vocab)
+_CLASSIFICATION_INDICATOR_TYPES = {
+    "c2-server":           "malicious-activity",
+    "blacklist":           "malicious-activity",
+    "proxy":               "anonymization",
+    "tor":                 "anonymization",
+    "scanner":             "anomalous-activity",
+    "brute-force":         "brute-force",
+    "malware-distribution": "malicious-activity",
+    "phishing":            "phishing",
+    "vulnerable-system":   "anomalous-activity",
+    "undetermined":        "unknown",
 }
 
 
@@ -44,8 +48,8 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
     for mf in [lr.country, lr.asn, lr.as_name, lr.ip_range]:
         for s in mf.sources:
             seen_sources.add(s.source)
-    for ta in lr.threats.values():
-        for s in ta.sources:
+    for ca in lr.classifications.values():
+        for s in ca.sources:
             seen_sources.add(s.source)
 
     for src_name in seen_sources:
@@ -91,28 +95,32 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
             target_ref=as_obj.id,
         ))
 
-    # 5. Indicator SDOs — one per detected threat
-    for key, ta in lr.threats.items():
-        if not ta.detected:
+    # 5. Indicator SDOs — one per detected classification
+    for ctype, ca in lr.classifications.items():
+        if not ca.detected:
             continue
-        indicator_type = _THREAT_INDICATOR_TYPES.get(key, "unknown")
+        indicator_type = _CLASSIFICATION_INDICATOR_TYPES.get(ctype, "unknown")
         ind = Indicator(
-            name=f"IP {lr.ip} — {key} ({ta.algorithm})",
+            name=f"IP {lr.ip} — {ctype}/{ca.verdict} ({ca.algorithm})",
             pattern=f"[ipv4-addr:value = '{lr.ip}']",
             indicator_types=[indicator_type],
-            confidence=ta.confidence,
-            x_algorithm=ta.algorithm,
-            x_threat_type=key,
+            confidence=ca.confidence,
+            x_algorithm=ca.algorithm,
+            x_classification_type=ctype,
+            x_verdict=ca.verdict,
+            x_corroborated=ca.corroborated,
             extensions={
                 "extension-definition--ip-radar-threat": {
                     "extension_type": "toplevel-property-extension",
-                    "detected": ta.detected,
-                    "confidence": ta.confidence,
-                    "algorithm": ta.algorithm,
+                    "detected": ca.detected,
+                    "confidence": ca.confidence,
+                    "algorithm": ca.algorithm,
+                    "corroborated": ca.corroborated,
+                    "reporter_total": ca.reporter_total,
                     "sources": [
                         {"source": s.source, "reliability": s.reliability,
                          "authoritative": s.authoritative, "value": s.value}
-                        for s in ta.sources
+                        for s in ca.sources
                     ],
                 }
             },
