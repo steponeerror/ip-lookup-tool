@@ -26,3 +26,17 @@ def test_precedence_order():
     # malicious > suspicious > benign > informational
     assert _assess_classification([_obs("suspicious"), _obs("benign")]).verdict == "suspicious"
     assert _assess_classification([_obs("benign"), _obs("informational")]).verdict == "benign"
+
+
+def test_single_observation_no_conflict():
+    a = _assess_classification([_obs("malicious")])
+    assert a.verdict == "malicious"
+    assert a.verdict_conflict is False
+
+
+def test_all_unknown_verdicts_deterministic():
+    # Unknown verdicts: result is alphabetical (deterministic), not set-order dependent.
+    a = _assess_classification([_obs("zzz_unknown"), _obs("aaa_unknown")])
+    assert a.verdict == "aaa_unknown"
+    assert a.verdict_conflict is True
+
