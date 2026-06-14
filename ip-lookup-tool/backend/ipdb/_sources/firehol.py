@@ -78,23 +78,21 @@ class FireholBlocklistSource(IpListSource):
 
     def health(self) -> SourceHealth:
         import time
-        last_updated = None
         mtimes = []
         if self._path.exists():
             for list_name in self._lists:
                 p = self._path / f"{list_name}.netset"
                 if p.exists():
                     mtimes.append(p.stat().st_mtime)
-        if mtimes:
-            last_updated = time.strftime(
-                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(max(mtimes)))
+        file_mtime = max(mtimes) if mtimes else None
+        last_updated = (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(file_mtime))
+                        if file_mtime else None)
+        is_stale = file_mtime is None or (
+            time.time() - file_mtime > self.stale_days * 86400)
         return SourceHealth(
             name=self.name,
             loaded=self._tree is not None,
             record_count=self._count,
             last_updated=last_updated,
-            is_stale=(
-                self._loaded_at == 0
-                or (time.time() - self._loaded_at > self.stale_days * 86400)
-            ),
+            is_stale=is_stale,
         )

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from ipdb import (
-    load_db, lookup, get_status, is_db_stale, reload_db,
+    load_db, lookup, get_status, refresh_stale,
     get_download_steps,
     enrich_with_ipapi, enrich_with_ipapi_is,
 )
@@ -64,11 +64,10 @@ async def _stream_lookup(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if is_db_stale():
-        logging.info("Database is stale, updating...")
-        reload_db()
-    else:
-        load_db()
+    # Download only sources whose data file is stale/missing, then load all.
+    # Avoids re-downloading fresh data on every restart (staleness is file-mtime
+    # based, not in-memory load time).
+    refresh_stale()
     yield
 
 app = FastAPI(title="IP Lookup Tool", lifespan=lifespan)

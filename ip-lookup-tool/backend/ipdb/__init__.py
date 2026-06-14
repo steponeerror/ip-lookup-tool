@@ -2,6 +2,7 @@ from ipdb._registry import (
     load_db,
     lookup,
     reload_db,
+    refresh_stale,
     get_status,
     is_db_stale,
     enrich_with_ipapi,
