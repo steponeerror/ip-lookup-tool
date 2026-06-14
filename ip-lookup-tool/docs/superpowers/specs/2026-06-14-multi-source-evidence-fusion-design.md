@@ -138,19 +138,29 @@ per-IP bundle：
 
 ## 新增源清单（Adding a source — 接源模板）
 
-接一个新源（**不碰 `_merge.py`/`_types.py`/`_stix_export.py`**）：
+接一个新源（**不碰 `_merge.py`/`_types.py`/`_stix_export.py`**）。证据源分两条路径：
+
 ```python
-class NewSource(IpListSource):                # 或 CsvSource / OnlineEnricher / DomainSource
+class NewSource(IpListSource):               # 或 CsvSource
     name = "newsrc"
-    classification_type = "c2-server"         # 必填：IntelMQ enum 值（新值加进词表）
-    verdict = "malicious"                      # 必填：第二轴
-    reliability = 0.8                          # 必填：原 SOURCE_RELIABILITY，现读这里
-    authoritative_for = []                     # 可选
+    classification_type = "blacklist"         # 单类别源：类级默认/回退即可
+    verdict = "malicious"
+    reliability = 0.8                         # 复核引擎读这里（无中央表）
+    authoritative_for = []
     # cost = SourceCost(daily_cap=1000)        # 在线源必填
-    def query(self, ip):                        # 返回 EvidenceObservation 载荷（最小化只给 type/verdict）
-        ... return {"malware_name":..., "first_seen":..., "tags":[...], "extra":{...}}
 ```
-新源若是**全新** classification.type：加一行 `stix_export` 的 type→indicator_type 映射。tokenized 源：加一个 `_instantiate_source` 分支。其余零改动。
+
+**单类别源**（tor / vpn / ET / blacklist / ipsum / firehol 类）：用类级 `classification_type` 默认值即可。trie 存 `[get_insert_data()]`（`list[dict]`，单元素），`query()` 原样返回该 list。
+
+**多类别源**（ThreatFox / OTX / blocklist_de 类）：override `parse_row`，逐条用 `from .._classification import normalize, <SOURCE>_MAP` 把原生类别映射成 IntelMQ `classification.type`；同 IP 多类别 → trie 存多元素 list（单源多分类）。需在 `ipdb/_classification.py` 加 `{native: intelmq}` 映射表；若是**全新** classification 值，加进 `CLASSIFICATION_TYPES` 受控词表 + `stix_export` 的 type→indicator_type 映射。
+
+**契约**：
+- 证据源 trie 值 = `list[dict]`（每 CIDR 一条观测 dict，支持单源多分类）。
+- 标量源（ipinfo_lite / iptoasn / cn_isp 自有类）= 单 `dict`。
+- `query()` 原样返回存储值；`lookup()` 归一化 list/dict。
+- tokenized 源：加一个 `_instantiate_source` 分支。其余零改动。
+
+参考：`docs/superpowers/specs/2026-06-14-multi-source-per-entry-classification-design.md` 与 `docs/superpowers/plans/2026-06-14-multi-source-per-entry-classification.md`。
 
 ## 分期实施（每期独立可验证，TDD）
 
