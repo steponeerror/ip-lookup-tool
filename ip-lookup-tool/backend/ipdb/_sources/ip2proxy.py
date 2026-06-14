@@ -96,7 +96,7 @@ class IP2ProxySource(CsvSource):
                     if evidence is None:
                         continue
                     for cidr in _ipa.summarize_address_range(sa, ea):
-                        tree.insert(str(cidr), evidence)
+                        tree.insert(str(cidr), [evidence])
                         count += 1
         finally:
             if extracted and extracted.exists():
@@ -106,18 +106,6 @@ class IP2ProxySource(CsvSource):
         self._count = count
         self._loaded_at = _time.time()
         return count
-
-    def query(self, ip: str) -> dict:
-        # Override CsvSource.query: return the stored per-range {is_proxy,
-        # is_hosting} dict instead of the static get_insert_data(). The base
-        # query() would return {"is_proxy": True} for every range, discarding
-        # is_hosting and misreporting hosting-only (DCH) ranges as proxy.
-        if self._tree is None:
-            return {}
-        try:
-            return self._tree[ip]
-        except KeyError:
-            return {}
 
     def health(self) -> SourceHealth:
         import time as _time
