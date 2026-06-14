@@ -32,4 +32,5 @@ class IPsumSource(CsvSource):
                 return None
         return {"_ip": row[0].strip(),
                 "classification_type": self.classification_type,
-                "verdict": self.verdict}
+                "verdict": self.verdict,
+                "extra": {"native_type": self.classification_type}}
