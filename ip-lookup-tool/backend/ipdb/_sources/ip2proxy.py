@@ -161,6 +161,5 @@ def _proxy_evidence(proxy_type: str) -> dict | None:
         "is_proxy": pt in ("VPN", "PUB"),
         "is_hosting": pt == "DCH",
     }
-    if cls == "other":
-        evidence["extra"] = {"native_type": pt}   # preserve raw (e.g. DCH)
+    evidence["extra"] = {"native_type": pt}
     return evidence
