@@ -172,7 +172,7 @@ class CsvSource(IpListSource):
         with open(self._path, "r", encoding="utf-8") as f:
             for _ in range(self.skip_lines):
                 next(f, None)
-            reader = _csv.reader(f)
+            reader = _csv.reader(f, delimiter=self.delimiter)
             for row in reader:
                 if not row:
                     continue
