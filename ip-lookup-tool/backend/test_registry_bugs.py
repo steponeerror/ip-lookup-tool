@@ -1,8 +1,6 @@
 """Tests for registry bugs found in code review — updated for name-based get_status."""
 from ipdb._types import SourceHealth
-from ipdb._registry import get_status, THREAT_BOOLS
-from ipdb._merge import apply_enrichment
-from ipdb._types import LookupResult, MergedField, ThreatAssessment
+from ipdb._registry import get_status
 
 
 class TestGetStatusTimestamps:
@@ -78,89 +76,3 @@ class TestGetStatusTimestamps:
         )
         status = get_status()
         assert status["last_updated"] == "N/A"
-
-
-class TestApplyEnrichmentAllBooleans:
-    """P2: apply_enrichment should update all threat booleans after enrichment."""
-
-    def _empty_result(self, ip="test"):
-        return LookupResult(
-            ip=ip,
-            country=MergedField("N/A", 0, "voting", []),
-            asn=MergedField(0, 0, "voting", []),
-            as_name=MergedField("N/A", 0, "voting", []),
-            ip_range=MergedField("N/A", 0, "voting", []),
-            is_isp=False,
-            threats={
-                b.removeprefix("is_"): ThreatAssessment(False, 0, "voting", [])
-                for b in THREAT_BOOLS
-            },
-        )
-
-    def test_recomputes_is_tor(self, monkeypatch):
-        monkeypatch.setattr(
-            "ipdb._merge.SOURCE_RELIABILITY",
-            {"enricher": 0.50, "tor_exits": 0.95},
-        )
-        r = self._empty_result()
-        enrichment = {"test": {
-            "is_tor": True, "is_vpn": False, "is_malicious": False,
-            "is_proxy": False, "is_mobile": False, "is_hosting": False,
-        }}
-        result = apply_enrichment(
-            r, enrichment, "enricher",
-            THREAT_BOOLS,
-            {b: 1 for b in THREAT_BOOLS},
-        )
-        assert result.threats["tor"].detected is True
-        assert result.threats["tor"].confidence > 0
-
-    def test_recomputes_is_vpn(self, monkeypatch):
-        monkeypatch.setattr(
-            "ipdb._merge.SOURCE_RELIABILITY", {"enricher": 0.50},
-        )
-        r = self._empty_result()
-        enrichment = {"test": {
-            "is_tor": False, "is_vpn": True, "is_malicious": False,
-            "is_proxy": False, "is_mobile": False, "is_hosting": False,
-        }}
-        result = apply_enrichment(
-            r, enrichment, "enricher",
-            THREAT_BOOLS,
-            {b: 1 for b in THREAT_BOOLS},
-        )
-        assert result.threats["vpn"].detected is True
-        assert result.threats["vpn"].confidence > 0
-
-    def test_recomputes_is_malicious(self, monkeypatch):
-        monkeypatch.setattr(
-            "ipdb._merge.SOURCE_RELIABILITY", {"enricher": 0.50},
-        )
-        r = self._empty_result()
-        enrichment = {"test": {
-            "is_tor": False, "is_vpn": False, "is_malicious": True,
-            "is_proxy": False, "is_mobile": False, "is_hosting": False,
-        }}
-        result = apply_enrichment(
-            r, enrichment, "enricher",
-            THREAT_BOOLS,
-            {b: 1 for b in THREAT_BOOLS},
-        )
-        assert result.threats["malicious"].detected is True
-        assert result.threats["malicious"].confidence > 0
-
-    def test_all_six_booleans_updated(self, monkeypatch):
-        monkeypatch.setattr(
-            "ipdb._merge.SOURCE_RELIABILITY", {"enricher": 0.50},
-        )
-        r = self._empty_result()
-        enrichment = {"test": {b: True for b in THREAT_BOOLS}}
-        result = apply_enrichment(
-            r, enrichment, "enricher",
-            THREAT_BOOLS,
-            {b: 1 for b in THREAT_BOOLS},
-        )
-        for bool_name in THREAT_BOOLS:
-            name = bool_name.removeprefix("is_")
-            assert result.threats[name].detected is True
-            assert result.threats[name].confidence > 0

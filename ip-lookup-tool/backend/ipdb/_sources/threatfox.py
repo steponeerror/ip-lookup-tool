@@ -66,5 +66,11 @@ class ThreatFoxSource(CsvSource):
             confidence_pct = int(_clean(row[9]))   # confidence_level
         except (ValueError, IndexError):
             confidence_pct = 50
-        return {"_ip": ip, "is_malicious": True,
-                "_threatfox_confidence": confidence_pct}
+        return {
+            "_ip": ip,
+            "classification_type": "c2-server",
+            "verdict": "malicious",
+            "malware_name": _clean(row[5]),       # fk_malware, e.g. win.vidar
+            "confidence": confidence_pct,
+            "first_seen": _clean(row[0]),         # first_seen_utc
+        }

@@ -29,4 +29,6 @@ class IPsumSource(CsvSource):
                 return None
             if appearances < self._min_count:
                 return None
-        return {"_ip": row[0].strip(), "is_malicious": True}
+        return {"_ip": row[0].strip(),
+                "classification_type": self.classification_type,
+                "verdict": self.verdict}

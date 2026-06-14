@@ -12,7 +12,6 @@ from ipdb import (
     load_db, lookup, get_status, is_db_stale, reload_db,
     get_download_steps,
     enrich_with_ipapi, enrich_with_ipapi_is,
-    THREAT_BOOLS, expected_counts, apply_enrichment,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -25,60 +24,19 @@ ENRICH_CHUNK = 100
 async def _enrich_results(
     results: list, enrich: bool
 ) -> str | None:
-    """Enrich results from external APIs. results elements are LookupResult.
+    """Online enrichment is deferred to the fusion corroboration path (Plan 3).
 
-    Returns error string or None.
+    The old boolean-enrichment (apply_enrichment over threat bools) was removed
+    when booleans were replaced by classification.type. Online enrichers will
+    emit EvidenceObservation directly in a follow-up plan.
     """
-    if not enrich:
-        return None
-    unique_ips = list({r.ip for r in results})
-    expected = expected_counts()
-
-    # ip-api.com
-    ipapi_map = await asyncio.to_thread(enrich_with_ipapi, unique_ips)
-    enriched_count = 0
-    if ipapi_map:
-        for r in results:
-            if r.ip not in ipapi_map:
-                continue
-            r = apply_enrichment(
-                r, ipapi_map, "ip_api",
-                ("is_proxy", "is_mobile", "is_hosting"), expected,
-            )
-            enriched_count += 1
-
-    # ipapi.is — only for IPs that ip_api missed
-    missed_ips = [ip for ip in unique_ips if ip not in ipapi_map]
-    ipapi_is_map = {}
-    ipapi_is_ok = True
-    if missed_ips:
-        ipapi_is_map, ipapi_is_ok = await asyncio.to_thread(
-            enrich_with_ipapi_is, missed_ips)
-    if ipapi_is_map:
-        for r in results:
-            if r.ip not in ipapi_map:
-                r = apply_enrichment(
-                    r, ipapi_is_map, "ipapi_is",
-                    ("is_proxy", "is_mobile", "is_hosting",
-                     "is_tor", "is_vpn"), expected,
-                )
-
-    errors = []
-    if len(ipapi_map) == 0:
-        errors.append(
-            f"ip-api.com enrichment failed, got 0/{len(unique_ips)} IPs")
-    elif enriched_count < len(unique_ips):
-        errors.append(
-            f"ip-api.com partial enrichment: {enriched_count}/{len(unique_ips)} IPs")
-    if not ipapi_is_ok:
-        errors.append("ipapi.is enrichment failed")
-    return "; ".join(errors) if errors else None
+    return None
 
 
 async def _stream_lookup(
     ips: list[str], enrich: bool = True
 ) -> AsyncIterator:
-    """Stream lookup results with chunked enrichment progress as NDJSON."""
+    """Stream lookup results with chunked progress as NDJSON."""
     total = len(ips)
     yield json.dumps({"type": "start", "total": total}) + "\n"
 
@@ -94,78 +52,13 @@ async def _stream_lookup(
         }) + "\n"
         await asyncio.sleep(0)
 
-    enrich_error = None
-    expected = expected_counts()
-
-    if enrich and results:
-        unique_ips = list(dict.fromkeys(r.ip for r in results))
-        enrich_total = len(unique_ips)
-        yield json.dumps({
-            "type": "enriching", "done": 0, "total": enrich_total,
-        }) + "\n"
-
-        # ip-api.com enrichment in chunks
-        ipapi_map: dict[str, dict] = {}
-        any_failure = False
-        for i in range(0, enrich_total, ENRICH_CHUNK):
-            chunk = unique_ips[i : i + ENRICH_CHUNK]
-            chunk_map = await asyncio.to_thread(enrich_with_ipapi, chunk)
-            if chunk_map:
-                ipapi_map.update(chunk_map)
-            else:
-                any_failure = True
-            done = min(i + ENRICH_CHUNK, enrich_total)
-            yield json.dumps({
-                "type": "enriching", "done": done, "total": enrich_total,
-            }) + "\n"
-            await asyncio.sleep(0)
-
-        # ipapi.is enrichment — only for missed IPs
-        ipapi_is_map: dict[str, dict] = {}
-        ipapi_is_ok = True
-        missed_ips = [ip for ip in unique_ips if ip not in ipapi_map]
-        if missed_ips:
-            ipapi_is_map, ipapi_is_ok = await asyncio.to_thread(
-                enrich_with_ipapi_is, missed_ips,
-            )
-
-        enriched_count = 0
-        for r in results:
-            extra = ipapi_map.get(r.ip)
-            if extra:
-                r = apply_enrichment(
-                    r, ipapi_map, "ip_api",
-                    ("is_proxy", "is_mobile", "is_hosting"),
-                    expected,
-                )
-                enriched_count += 1
-            else:
-                extra_is = ipapi_is_map.get(r.ip)
-                if extra_is:
-                    r = apply_enrichment(
-                        r, ipapi_is_map, "ipapi_is",
-                        ("is_proxy", "is_mobile", "is_hosting",
-                         "is_tor", "is_vpn"),
-                        expected,
-                    )
-                    enriched_count += 1
-
-        if any_failure:
-            enrich_error = (
-                f"ip-api.com enrichment failed, "
-                f"got {enriched_count}/{enrich_total} IPs"
-            )
-        elif not ipapi_map and not ipapi_is_map:
-            enrich_error = "Enrichment returned no data"
-        elif enriched_count < len(unique_ips):
-            enrich_error = (
-                f"Enriched {enriched_count}/{enrich_total} IPs (partial data)"
-            )
+    # Online enrichment deferred (Plan 3); classifications come from offline
+    # sources' EvidenceObservation via lookup().
 
     yield json.dumps({
         "type": "complete",
         "results": [r.to_dict() for r in results],
-        "enrich_error": enrich_error,
+        "enrich_error": None,
     }) + "\n"
 
 

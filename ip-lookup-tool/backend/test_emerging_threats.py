@@ -24,6 +24,6 @@ class TestEmergingThreats:
         src = EmergingThreatsSource(data_dir=tmp_path)
 
         assert src.load() == 2
-        assert src.query("162.243.103.246")["is_malicious"] is True
-        assert src.query("1.10.16.5")["is_malicious"] is True
+        assert src.query("162.243.103.246")["classification_type"] == "blacklist"
+        assert src.query("1.10.16.5")["classification_type"] == "blacklist"
         assert src.query("8.8.8.8") == {}

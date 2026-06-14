@@ -12,15 +12,15 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 
-from ._types import SourceHealth, LookupResult, MergedField, ThreatAssessment
+from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment
 from ._merge import (
     FactualVoting,
     NamingAuthority,
     RangeSpecificity,
     _to_attributions,
-    _assess_boolean,
-    THREAT_BOOLS,         # re-exported via __init__
-    SOURCE_RELIABILITY,   # needed for get_status names
+    to_observation,
+    _assess_classification,
+    SOURCE_RELIABILITY,   # needed for get_status / scalar strategies
 )
 from ._enrichers.ip_api import IPApiEnricher
 from ._enrichers.ipapi_is import IPApiIsEnricher
@@ -122,13 +122,8 @@ def load_db() -> None:
 
 
 def expected_counts() -> dict[str, int]:
-    """Return how many sources declare each threat boolean in their fields tuple."""
-    counts: dict[str, int] = {b: 0 for b in THREAT_BOOLS}
-    for s in _sources:
-        for f in getattr(s, "fields", ()):
-            if f in counts:
-                counts[f] += 1
-    return counts
+    """Deprecated stub — threat booleans removed. Returns {} for backward import compat."""
+    return {}
 
 
 def lookup(ip: str) -> LookupResult:
@@ -140,21 +135,29 @@ def lookup(ip: str) -> LookupResult:
     except (ipaddress.AddressValueError, ValueError):
         return _error_result(ip)
 
-    # Collect raw field values from all sources
+    # Collect scalar fields + evidence observations from all sources.
     field_values: dict[str, dict[str, Any]] = defaultdict(dict)
+    observations = []
     for source in _sources:
         try:
             raw = source.query(ip)
         except Exception as e:
             logger.warning(f"{source.name} query failed for {ip}: {e}")
             continue
-        for key, value in raw.items():
-            field_values[key][source.name] = value
+        if not raw:
+            continue
+        for key in ("country_code", "asn", "as_name", "ip_range", "is_isp"):
+            if key in raw:
+                field_values[key][source.name] = raw[key]
+        if "classification_type" in raw:
+            observations.append(to_observation(
+                source.name, raw,
+                classification_type=raw["classification_type"],
+                verdict=raw.get("verdict", "malicious"),
+                reliability=getattr(source, "reliability", 0.5)))
 
     context = {"ip": ip, "country": field_values.get("country_code", {})}
-    exp = expected_counts()
 
-    # Scalar merges (return MergedField)
     country = _strategies["country_code"].merge(
         field_values.get("country_code", {}), context)
     asn = _strategies["asn"].merge(
@@ -166,13 +169,13 @@ def lookup(ip: str) -> LookupResult:
 
     is_isp = any(field_values.get("is_isp", {}).values())
 
-    # Threat assessments (return ThreatAssessment)
-    threats: dict[str, ThreatAssessment] = {}
-    for bool_name in THREAT_BOOLS:
-        attribs = _to_attributions(field_values.get(bool_name, {}), bool_name)
-        name = bool_name.removeprefix("is_")
-        threats[name] = _assess_boolean(
-            bool_name, attribs, exp.get(bool_name, 0))
+    # Group observations by classification_type and assess each group.
+    groups: dict[str, list] = defaultdict(list)
+    for o in observations:
+        groups[o.classification_type].append(o)
+    classifications = {
+        ctype: _assess_classification(grp) for ctype, grp in groups.items()
+    }
 
     return LookupResult(
         ip=ip,
@@ -181,15 +184,13 @@ def lookup(ip: str) -> LookupResult:
         as_name=as_name,
         ip_range=ip_range,
         is_isp=is_isp,
-        threats=threats,
+        classifications=classifications,
+        is_whitelisted=False,
+        whitelist_notes=[],
     )
 
 
 def _error_result(ip: str) -> LookupResult:
-    empty_ta = {
-        b.removeprefix("is_"): ThreatAssessment(False, 0, "voting", [])
-        for b in THREAT_BOOLS
-    }
     return LookupResult(
         ip=ip,
         country=MergedField("N/A", 0, "voting", []),
@@ -197,7 +198,9 @@ def _error_result(ip: str) -> LookupResult:
         as_name=MergedField("N/A", 0, "voting", []),
         ip_range=MergedField("N/A", 0, "voting", []),
         is_isp=False,
-        threats=empty_ta,
+        classifications={},
+        is_whitelisted=False,
+        whitelist_notes=[],
         error="invalid IP format",
     )
 

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ._types import (
-    SourceAttribution, MergedField, ThreatAssessment, LookupResult,
+    SourceAttribution, MergedField, LookupResult,
     EvidenceObservation, ClassificationAssessment,
 )
 
@@ -82,13 +82,6 @@ def pcr6_combine(bbas: list[dict[str, float]]) -> dict[str, float]:
         result = _pcr6_pair(result, bba)
     return result
 
-
-# ── Threat bools (kept here to avoid circular imports) ──
-
-THREAT_BOOLS = [
-    "is_proxy", "is_mobile", "is_hosting",
-    "is_tor", "is_vpn", "is_malicious",
-]
 
 # ── Source reliability and authority maps ──
 
@@ -259,108 +252,6 @@ class RangeSpecificity:
             key=lambda a: _ipa.IPv4Network(a.value, strict=False).prefixlen,
         )
         return MergedField(most_specific.value, 85, "specificity", attributions)
-
-
-# ── Threat boolean assessment (three-stage: cascade → voting → pcr6) ──
-
-def _assess_boolean(
-    field: str,
-    attributions: list[SourceAttribution],
-    expected: int = 0,
-) -> ThreatAssessment:
-    """Three-stage threat boolean merge.
-
-    Stage 1: Authoritative cascade — any authoritative source reporting True wins.
-    Stage 2: Weighted voting — aggregate reliability by True/False vote.
-             If margin >= 20%, use voting result.
-    Stage 3: PCR6 evidence fusion — fused for close votes (margin < 20%).
-    """
-    if not attributions:
-        return ThreatAssessment(False, 0, "voting", [])
-
-    # Stage 1: Authoritative veto
-    auth_true = [a for a in attributions if a.authoritative and a.value is True]
-    if auth_true:
-        conf = _weighted_confidence(auth_true, attributions)
-        participating = sum(1 for a in attributions if a.value is not None)
-        conf = _apply_coverage_penalty(conf, participating, expected)
-        return ThreatAssessment(True, conf, "cascade", attributions)
-
-    # Stage 2: Weighted voting
-    tw = sum(a.reliability for a in attributions if a.value is True)
-    fw = sum(a.reliability for a in attributions if a.value is False)
-    total = tw + fw
-
-    if total == 0:
-        return ThreatAssessment(False, 0, "voting", attributions)
-
-    detected = tw > fw
-    margin = abs(tw - fw) / total
-
-    # Stage 3: PCR6 escalation for close votes
-    if margin < 0.20 and len(attributions) >= 2:
-        bbas = [_build_bba(a.value, a.reliability) for a in attributions]
-        fused = pcr6_combine(bbas)
-        detected = fused["true"] > fused["false"]
-        conf = round(max(fused["true"], fused["false"]) * 100)
-        participating = sum(1 for a in attributions if a.value is not None)
-        conf = _apply_coverage_penalty(conf, participating, expected)
-        return ThreatAssessment(detected, conf, "pcr6", attributions)
-
-    # Stage 4: Voting result is clear
-    conf = round(max(tw, fw) / total * 100)
-    participating = sum(1 for a in attributions if a.value is not None)
-    conf = _apply_coverage_penalty(conf, participating, expected)
-    return ThreatAssessment(detected, conf, "voting", attributions)
-
-
-# ── Enrichment merge ──
-
-def apply_enrichment(
-    result: LookupResult,
-    enrichment: dict[str, dict],
-    enricher_name: str,
-    enricher_fields: tuple[str, ...],
-    expected: dict[str, int],
-) -> LookupResult:
-    """Append enricher source data to threat assessments and re-assess.
-
-    Args:
-        result: The LookupResult to enrich (mutated in place, returned for chaining).
-        enrichment: {ip: {field: value}} from enricher.batch call.
-        enricher_name: e.g. "ip_api" or "ipapi_is".
-        enricher_fields: tuple of THREAT_BOOLS keys the enricher provides.
-        expected: {bool_name: expected_source_count} for coverage penalty.
-
-    Returns:
-        The same LookupResult, enriched.
-    """
-    data = enrichment.get(result.ip, {})
-    if not data:
-        return result
-
-    rel = SOURCE_RELIABILITY.get(enricher_name, 0.5)
-    for bool_name in THREAT_BOOLS:
-        if bool_name not in enricher_fields:
-            continue
-        val = data.get(bool_name)
-        if val is None:
-            continue
-        name = bool_name.removeprefix("is_")
-        ta = result.threats.get(name)
-        if ta is None:
-            continue
-        # Idempotent: skip if this enricher already contributed to this threat.
-        if any(s.source == enricher_name for s in ta.sources):
-            continue
-        ta.sources = list(ta.sources) + [
-            SourceAttribution(enricher_name, val, rel, False)
-        ]
-        result.threats[name] = _assess_boolean(
-            bool_name, ta.sources, expected.get(bool_name, 0)
-        )
-
-    return result
 
 
 def _decay_confidence(base: int, first_seen) -> int:

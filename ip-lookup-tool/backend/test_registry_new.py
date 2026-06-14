@@ -1,10 +1,10 @@
-"""Tests for _registry's lookup() returning LookupResult, expected_counts, get_status.
+"""Tests for _registry's lookup() returning LookupResult + get_status.
 
 Requires load_db() to succeed — sources are monkeypatched to return controlled data.
 """
 import pytest
-from ipdb._types import LookupResult, MergedField, ThreatAssessment
-from ipdb._registry import lookup, expected_counts, _error_result
+from ipdb._types import LookupResult, MergedField
+from ipdb._registry import lookup, _error_result
 
 
 class TestLookupResultShape:
@@ -43,11 +43,15 @@ class TestLookupResultShape:
                         "country_code": "US", "asn": 13335,
                         "as_name": "CLOUDFLARENET",
                     }
+                if self.name == "threatfox":
+                    return {"classification_type": "c2-server",
+                            "verdict": "malicious"}
                 return {}
 
         sources = [
             FakeSource("ipinfo_lite", ("country_code", "asn", "as_name", "ip_range", "is_isp")),
             FakeSource("iptoasn", ("country_code", "asn", "as_name")),
+            FakeSource("threatfox", ("is_malicious",)),
         ]
         monkeypatch.setattr(reg, "_sources", sources)
         monkeypatch.setattr(reg, "_strategies", {
@@ -62,14 +66,8 @@ class TestLookupResultShape:
         assert isinstance(r, LookupResult)
         assert r.ip == "1.2.3.4"
         assert isinstance(r.country, MergedField)
-        assert isinstance(r.threats, dict)
-        assert "proxy" in r.threats
-        assert isinstance(r.threats["proxy"], ThreatAssessment)
-
-    def test_result_has_threat_keys_without_is_prefix(self):
-        r = lookup("1.2.3.4")
-        for key in r.threats:
-            assert not key.startswith("is_"), f"threat key '{key}' should not have is_ prefix"
+        assert isinstance(r.classifications, dict)
+        assert "c2-server" in r.classifications
 
     def test_invalid_ip_returns_error_result(self):
         r = lookup("not-an-ip")
@@ -80,34 +78,7 @@ class TestLookupResultShape:
         r = _error_result("bad")
         assert isinstance(r, LookupResult)
         assert r.error == "invalid IP format"
-
-
-class TestExpectedCounts:
-    def test_counts_per_threat_bool(self, monkeypatch):
-        import ipdb._registry as reg
-        from ipdb._types import SourceHealth
-
-        class FakeSrc:
-            def __init__(self, name, fields):
-                self.name = name
-                self.fields = fields
-            def health(self):
-                return SourceHealth(
-                    name=self.name, loaded=True, record_count=1,
-                    last_updated=None, is_stale=False,
-                )
-
-        monkeypatch.setattr(reg, "_sources", [
-            FakeSrc("s1", ("is_proxy", "is_mobile")),
-            FakeSrc("s2", ("is_proxy", "is_tor")),
-            FakeSrc("s3", ()),
-        ])
-
-        counts = expected_counts()
-        assert counts["is_proxy"] == 2
-        assert counts["is_mobile"] == 1
-        assert counts["is_tor"] == 1
-        assert counts["is_vpn"] == 0
+        assert r.classifications == {}
 
 
 # Fake strategies for TestLookupResultShape
