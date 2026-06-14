@@ -146,15 +146,17 @@ def lookup(ip: str) -> LookupResult:
             continue
         if not raw:
             continue
-        for key in ("country_code", "asn", "as_name", "ip_range", "is_isp"):
-            if key in raw:
-                field_values[key][source.name] = raw[key]
-        if "classification_type" in raw:
-            observations.append(to_observation(
-                source.name, raw,
-                classification_type=raw["classification_type"],
-                verdict=raw.get("verdict", "malicious"),
-                reliability=getattr(source, "reliability", 0.5)))
+        items = raw if isinstance(raw, list) else [raw]
+        for item in items:
+            for key in ("country_code", "asn", "as_name", "ip_range", "is_isp"):
+                if key in item:
+                    field_values[key][source.name] = item[key]
+            if "classification_type" in item:
+                observations.append(to_observation(
+                    source.name, item,
+                    classification_type=item["classification_type"],
+                    verdict=item.get("verdict", "malicious"),
+                    reliability=getattr(source, "reliability", 0.5)))
 
     context = {"ip": ip, "country": field_values.get("country_code", {})}
 
