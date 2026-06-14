@@ -92,15 +92,11 @@ class IP2ProxySource(CsvSource):
                         ea = _ipa.IPv4Address(end_ip)
                     except (_ipa.AddressValueError, ValueError):
                         continue
-                    is_proxy = proxy_type in ("VPN", "PUB")
-                    is_hosting = proxy_type == "DCH"
-                    if not is_proxy and not is_hosting:
+                    evidence = _proxy_evidence(proxy_type)
+                    if evidence is None:
                         continue
                     for cidr in _ipa.summarize_address_range(sa, ea):
-                        tree.insert(str(cidr), {
-                            "is_proxy": is_proxy,
-                            "is_hosting": is_hosting,
-                        })
+                        tree.insert(str(cidr), evidence)
                         count += 1
         finally:
             if extracted and extracted.exists():
@@ -152,3 +148,24 @@ def _int_to_ip(s: str) -> str | None:
         return str(ipaddress.IPv4Address(n))
     except (ValueError, ipaddress.AddressValueError):
         return None
+
+
+def _proxy_evidence(proxy_type: str) -> dict | None:
+    """Map an IP2Proxy proxy_type to a fusion evidence dict, or None to drop.
+
+    Keeps VPN/PUB (proxy), TOR (tor), DCH (hosting). Drops other types
+    (SES/WEB/...) which are not meaningfully proxy/tor/hosting for this tool.
+    Per-entry classification_type lets TOR map to "tor" while the rest map to
+    the source default "proxy".
+    """
+    pt = proxy_type.strip().upper()
+    if pt not in ("VPN", "PUB", "DCH", "TOR"):
+        return None
+    return {
+        "proxy_type": pt,
+        "classification_type": "tor" if pt == "TOR" else "proxy",
+        "verdict": "suspicious",
+        # legacy booleans kept until the boolean->type migration completes
+        "is_proxy": pt in ("VPN", "PUB"),
+        "is_hosting": pt == "DCH",
+    }
