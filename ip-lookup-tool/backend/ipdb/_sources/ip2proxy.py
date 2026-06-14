@@ -15,6 +15,8 @@ class IP2ProxySource(CsvSource):
     name = "ip2proxy"
     filename = "ip2proxy_px2.csv"  # post-extraction
     fields = ("is_proxy", "is_hosting")
+    classification_type = "proxy"
+    verdict = "suspicious"
     stale_days = 7
     reliability = 0.80
     authoritative_for = ["is_proxy"]

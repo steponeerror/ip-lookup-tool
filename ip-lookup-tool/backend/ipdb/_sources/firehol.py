@@ -14,6 +14,8 @@ class FireholBlocklistSource(IpListSource):
     url = ""  # unused — custom download() handles multiple URLs
     filename = "firehol"  # directory name
     fields = ("is_malicious",)
+    classification_type = "blacklist"
+    verdict = "malicious"
     stale_days = 1
     reliability = 0.50
     authoritative_for = []

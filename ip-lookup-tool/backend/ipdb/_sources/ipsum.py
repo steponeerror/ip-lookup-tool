@@ -7,6 +7,8 @@ class IPsumSource(CsvSource):
     url = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt"
     filename = "ipsum.txt"
     fields = ("is_malicious",)
+    classification_type = "blacklist"
+    verdict = "malicious"
     stale_days = 1
     reliability = 0.55
     authoritative_for = []

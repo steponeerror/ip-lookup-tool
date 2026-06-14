@@ -14,6 +14,8 @@ class EmergingThreatsSource(IpListSource):
            "fwrules/emerging-Block-IPs.txt")
     filename = "emerging-block-ips.txt"
     fields = ("is_malicious",)
+    classification_type = "blacklist"
+    verdict = "malicious"
     stale_days = 1
     reliability = 0.90
     authoritative_for = ["is_malicious"]
