@@ -43,16 +43,33 @@ BLOCKLIST_DE_MAP = {
     "apache": "scanner",
 }
 
+# ip2proxy proxy_type → IntelMQ. DCH (datacenter/hosting) intentionally absent:
+# it has no clean IntelMQ mapping, so normalize() passes it through RAW ("dch")
+# rather than mislabeling it "proxy" or bloating the vocabulary with ad-hoc types.
+PROXY_MAP = {
+    "vpn": "proxy",
+    "pub": "proxy",
+    "tor": "tor",
+}
+
 # OTX pulse threat_type -> IntelMQ. Populate from REST /pulses/subscribed
 # actual field values during Task 8.
 OTX_MAP: dict[str, str] = {}
 
 
-def normalize(raw_type, mapping: dict, default: str = "blacklist") -> str:
-    """Map a source-native category to an IntelMQ classification.type.
+def normalize(raw_type, mapping: dict) -> str:
+    """Map a source-native category to a CONTROLLED IntelMQ classification.type
+    (the cross-source corroboration axis).
 
-    Unknown raw values fall back to `default`; if `default` itself is not in
-    the vocabulary, return "other". Output is always a valid vocab member.
+    A clearly-mapped value (present in `mapping` AND in the vocabulary) is used
+    as-is. Anything else -> "other" (a controlled bucket that still participates
+    in corroboration). Raw native values are NOT passed through here — sources
+    that want to preserve an unmappable native value stash it in `extra` (see
+    ip2proxy._proxy_evidence). This keeps the vocabulary from growing on every
+    edge case while keeping the corroboration axis intact.
     """
-    v = mapping.get((raw_type or "").strip().lower(), default)
-    return v if v in CLASSIFICATION_TYPES else "other"
+    key = (raw_type or "").strip().lower()
+    mapped = mapping.get(key)
+    if mapped and mapped in CLASSIFICATION_TYPES:
+        return mapped
+    return "other"

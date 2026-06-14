@@ -143,17 +143,24 @@ def _proxy_evidence(proxy_type: str) -> dict | None:
 
     Keeps VPN/PUB (proxy), TOR (tor), DCH (hosting). Drops other types
     (SES/WEB/...) which are not meaningfully proxy/tor/hosting for this tool.
-    Per-entry classification_type lets TOR map to "tor" while the rest map to
-    the source default "proxy".
+    classification_type comes from normalize(pt, PROXY_MAP): VPN/PUB->proxy,
+    TOR->tor. DCH has no clean IntelMQ map -> "other" (NOT mislabeled "proxy"),
+    and its raw value is preserved in extra["native_type"] for STIX/future use.
     """
+    from .._classification import normalize, PROXY_MAP
+
     pt = proxy_type.strip().upper()
     if pt not in ("VPN", "PUB", "DCH", "TOR"):
         return None
-    return {
+    cls = normalize(pt, PROXY_MAP)
+    evidence = {
         "proxy_type": pt,
-        "classification_type": "tor" if pt == "TOR" else "proxy",
+        "classification_type": cls,
         "verdict": "suspicious",
         # legacy booleans kept until the boolean->type migration completes
         "is_proxy": pt in ("VPN", "PUB"),
         "is_hosting": pt == "DCH",
     }
+    if cls == "other":
+        evidence["extra"] = {"native_type": pt}   # preserve raw (e.g. DCH)
+    return evidence
