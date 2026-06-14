@@ -27,3 +27,27 @@ class TestIpListSource:
         src = TestSource(data_dir=Path("/tmp"))
         data = src.get_insert_data()
         assert data == {"is_malicious": True}
+
+    def test_load_strips_inline_comments(self, tmp_path):
+        # spamhaus DROP format: "CIDR ; SBLxxxx" — inline comment after CIDR.
+        # Must load all CIDRs/IPs, not silently drop them.
+        class SpamhausLike(IpListSource):
+            name = "spamhaus_like"
+            url = "https://example.com/drop.txt"
+            filename = "drop.txt"
+            fields = ("is_malicious",)
+
+        (tmp_path / "drop.txt").write_text(
+            "; header comment line\n"
+            "1.10.16.0/20 ; SBL256894\n"
+            "1.2.3.4\n"
+            "5.6.7.0/24 ; SBL000001\n"
+            "\n"
+        )
+        src = SpamhausLike(data_dir=tmp_path)
+        count = src.load()
+
+        assert count == 3
+        assert src.query("1.10.16.5") == {"is_malicious": True}
+        assert src.query("5.6.7.1") == {"is_malicious": True}
+        assert src.query("9.9.9.9") == {}

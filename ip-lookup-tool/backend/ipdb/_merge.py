@@ -72,14 +72,15 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "spamhaus":    0.90,
     "threatfox":   0.85,
     "blocklist_de":0.65,
-    "shadowserver":0.90,
+    "emerging_threats":0.90,
+    "otx":         0.75,
 }
 
 AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
     "is_proxy":     ["ip2proxy"],
     "is_tor":       ["tor_exits"],
     "is_vpn":       ["x4bnet_vpn"],
-    "is_malicious": ["threatfox", "shadowserver", "spamhaus"],
+    "is_malicious": ["threatfox", "emerging_threats", "spamhaus"],
     "is_hosting":   ["ipinfo_lite"],
     "is_mobile":    ["ipinfo_lite"],
 }

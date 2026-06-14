@@ -88,6 +88,12 @@ class IpListSource:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
+                # Strip inline comments (e.g. spamhaus "CIDR ; SBLxxxx")
+                for sep in (";", "#"):
+                    if sep in line:
+                        line = line.split(sep, 1)[0].strip()
+                if not line:
+                    continue
                 try:
                     net = _ipa.IPv4Network(line, strict=False)
                 except (_ipa.AddressValueError, ValueError):
