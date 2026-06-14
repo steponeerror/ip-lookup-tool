@@ -1,11 +1,12 @@
 """Merge strategies, PCR6 evidence fusion, source attribution, and enrichment."""
 
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Any
 
 from ._types import (
     SourceAttribution, MergedField, ThreatAssessment, LookupResult,
-    EvidenceObservation,
+    EvidenceObservation, ClassificationAssessment,
 )
 
 
@@ -360,3 +361,58 @@ def apply_enrichment(
         )
 
     return result
+
+
+def _decay_confidence(base: int, first_seen) -> int:
+    """Linear time decay on evidence age. None first_seen => no decay.
+
+    <=90d: unchanged. 90-365d: linear down to 50% of base. >365d: 20% floor.
+    """
+    if not first_seen:
+        return base
+    try:
+        ts = datetime.fromisoformat(str(first_seen).replace("Z", "+00:00"))
+    except ValueError:
+        return base
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    age_days = (datetime.now(timezone.utc) - ts).days
+    if age_days <= 90:
+        return base
+    if age_days <= 365:
+        return round(base * (1 - 0.5 * (age_days - 90) / 275))
+    return round(base * 0.20)
+
+
+def _assess_classification(group: list) -> ClassificationAssessment:
+    """Assess one (classification.type, verdict) group of observations."""
+    obs = group
+    ctype = obs[0].classification_type
+    verdict = obs[0].verdict
+    n = len(obs)
+    corroborated = n >= 2
+
+    # Weighted base confidence from reliabilities (mean reliability * 100).
+    rels = [o.reliability for o in obs]
+    base = round(100 * sum(rels) / len(rels)) if rels else 0
+    base = min(100, max(0, base))
+    if corroborated:
+        base = max(base, 80)                       # Admiralty "Confirmed" band floor
+
+    # Decay by the NEWEST (min) first_seen in the group.
+    first_seens = [o.first_seen for o in obs if o.first_seen]
+    newest = min(first_seens) if first_seens else None
+    confidence = _decay_confidence(base, newest)
+
+    sources = [
+        SourceAttribution(source=o.source, value=True, reliability=o.reliability,
+                          authoritative=False)
+        for o in obs
+    ]
+    reporter_total = sum(o.reporter_count or 0 for o in obs)
+
+    return ClassificationAssessment(
+        type=ctype, verdict=verdict, detected=True, confidence=confidence,
+        algorithm="corroboration", sources=sources, corroborated=corroborated,
+        reporter_total=reporter_total,
+    )
