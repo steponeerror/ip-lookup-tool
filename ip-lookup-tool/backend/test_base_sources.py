@@ -48,6 +48,6 @@ class TestIpListSource:
         count = src.load()
 
         assert count == 3
-        assert src.query("1.10.16.5") == {"is_malicious": True}
-        assert src.query("5.6.7.1") == {"is_malicious": True}
+        assert src.query("1.10.16.5") == [{"is_malicious": True}]
+        assert src.query("5.6.7.1") == [{"is_malicious": True}]
         assert src.query("9.9.9.9") == {}

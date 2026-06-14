@@ -106,7 +106,7 @@ class IpListSource:
                     net = _ipa.IPv4Network(line, strict=False)
                 except (_ipa.AddressValueError, ValueError):
                     continue
-                tree.insert(str(net), insert_data)
+                tree.insert(str(net), [insert_data])
                 count += 1
         self._tree = tree
         self._count = count
@@ -117,8 +117,7 @@ class IpListSource:
         if self._tree is None:
             return {}
         try:
-            self._tree[ip]
-            return self.get_insert_data()
+            return self._tree[ip]
         except KeyError:
             return {}
 
