@@ -74,4 +74,5 @@ class ThreatFoxSource(CsvSource):
             "malware_name": _clean(row[5]),       # fk_malware, e.g. win.vidar
             "confidence": confidence_pct,
             "first_seen": _clean(row[0]),         # first_seen_utc
+            "extra": {"native_type": _clean(row[4])},
         }
