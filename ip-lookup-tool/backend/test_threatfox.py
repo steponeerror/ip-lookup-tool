@@ -35,6 +35,16 @@ class TestThreatFoxParseRow:
         assert parsed["verdict"] == "malicious"
         assert parsed["malware_name"] == "win.vidar"
         assert parsed["confidence"] == 75
+        assert parsed["extra"] == {"native_type": "payload_delivery"}
+
+    def test_parse_row_preserves_native_type(self, tmp_path):
+        src = _make_source(tmp_path)
+        # threat_type = "botnet_cc" column index 4
+        row = ["2026-06-14", "1", "9.9.9.9:80", "ip:port", "botnet_cc", "trickbot",
+               "", "", "", "90"]
+        parsed = src.parse_row(row)
+        assert parsed["classification_type"] == "c2-server"
+        assert parsed["extra"] == {"native_type": "botnet_cc"}
 
     def test_skips_non_ip_rows(self, tmp_path):
         src = _make_source(tmp_path)
