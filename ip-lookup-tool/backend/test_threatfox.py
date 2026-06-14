@@ -112,4 +112,4 @@ class TestThreatFoxDownloadUnzips:
         count = src.load()
 
         assert count == 1
-        assert src.query("1.2.3.4")["classification_type"] == "c2-server"
+        assert src.query("1.2.3.4")[0]["classification_type"] == "c2-server"
