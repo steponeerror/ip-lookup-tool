@@ -52,9 +52,23 @@ PROXY_MAP = {
     "tor": "tor",
 }
 
-# OTX pulse threat_type -> IntelMQ. Populate from REST /pulses/subscribed
-# actual field values during Task 8.
-OTX_MAP: dict[str, str] = {}
+# OTX pulse name protocol keyword -> IntelMQ. The /pulses/activity feed is
+# auto-generated "IMMEDIATE THREAT: {PROTO} Intrusion from..." pulses with
+# adversary="Automated Scanner". Protocol keywords from the pulse name map
+# to IntelMQ categories; unmapped protocols default to "scanner".
+OTX_PROTOCOL_MAP = {
+    "smtp": "brute-force",
+    "ftp": "brute-force",
+    "ssh": "brute-force",
+    "imap": "brute-force",
+    "pop3": "brute-force",
+    "rdp": "brute-force",
+    "sip": "brute-force",
+    "http": "scanner",
+    "https": "scanner",
+    "apache": "exploit",
+    "web": "scanner",
+}
 
 
 def normalize(raw_type, mapping: dict) -> str:
