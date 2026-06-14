@@ -54,6 +54,8 @@ class OtxSource(IpListSource):
     url = "https://otx.alienvault.com/taxii/poll"  # informational; download uses cabby
     filename = "otx_ips.txt"
     fields = ("is_malicious",)
+    classification_type = "c2-server"
+    verdict = "malicious"
     stale_days = 1
     reliability = 0.75
     authoritative_for: list[str] = []  # correlation/pulse-based, not authoritative
