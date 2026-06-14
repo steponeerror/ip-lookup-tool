@@ -114,8 +114,8 @@ class OtxSource(CsvSource):
             "Accept": "application/json",
         }
 
-        # {indicator_value -> {classification_type, ...}}
-        collected: dict[str, set[str]] = {}
+        # indicator -> {(ctype, protocol)}
+        collected: dict[str, set[tuple[str, str]]] = {}
         first = True
 
         while True:
@@ -145,7 +145,7 @@ class OtxSource(CsvSource):
                         value = ind.get("indicator", "").strip()
                         if not value:
                             continue
-                        collected.setdefault(value, set()).add(ctype)
+                        collected.setdefault(value, set()).add((ctype, proto or ""))
 
                 page += 1
 
@@ -168,15 +168,15 @@ class OtxSource(CsvSource):
         with open(self._path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             for indicator in sorted(collected):
-                for ctype in sorted(collected[indicator]):
-                    writer.writerow([indicator, ctype])
+                for ctype, protocol in sorted(collected[indicator]):
+                    writer.writerow([indicator, ctype, protocol])
 
         # Persist cursor for next incremental fetch
         today = time.strftime("%Y-%m-%d")
         with open(self._cursor_path, "w") as f:
             f.write(today + "\n")
 
-        n_rows = sum(len(classes) for classes in collected.values())
+        n_rows = sum(len(pairs) for pairs in collected.values())
         elapsed = time.time() - t0
         logger.info(
             f"Downloaded {self.name} "
@@ -206,10 +206,14 @@ class OtxSource(CsvSource):
             return None
         ip_or_cidr = row[0].strip()
         ctype = row[1].strip()
+        protocol = row[2].strip() if len(row) > 2 else ""
         if not ip_or_cidr or not ctype:
             return None
-        return {
+        result = {
             "_ip": ip_or_cidr,
             "classification_type": ctype,
             "verdict": "malicious",
         }
+        if protocol:
+            result["extra"] = {"native_type": protocol}
+        return result
