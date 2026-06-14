@@ -57,7 +57,8 @@ class IpListSource:
         """
         if getattr(self, "classification_type", None):
             return {"classification_type": self.classification_type,
-                    "verdict": getattr(self, "verdict", "malicious")}
+                    "verdict": getattr(self, "verdict", "malicious"),
+                    "extra": {"native_type": self.classification_type}}
         return {self.fields[0]: True}
 
     # ── Standard lifecycle ──
