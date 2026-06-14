@@ -1,114 +1,215 @@
-"""AlienVault OTX source — bulk IPv4 indicators via TAXII 1.x (cabby).
+"""AlienVault OTX source — IPv4 indicators via REST /pulses/activity.
 
-The OTX REST `/pulses/subscribed` endpoint is unreliable for accounts with
-large subscription sets (timeouts / 502). The supported bulk-consumption path
-is the TAXII feed:
-
-    discovery: https://otx.alienvault.com/taxii/discovery
-    poll:      https://otx.alienvault.com/taxii/poll
-    auth:      username = OTX API key, password ignored
-
-We poll the public ``user_AlienVault`` collection over a time window, extract
-IPv4 / CIDR indicators from the STIX 1.x cybox ``Address_Value`` elements, and
-store them as a local IP list. Download is time-boxed via ``OTX_POLL_SECONDS``
-so it never blocks DB startup indefinitely.
+Replaces the old TAXII (cabby) implementation which was slow, depended on
+the ``cabby`` library, and returned all indicators under a single hardcoded
+``c2-server`` classification. The REST activity feed returns real-time
+attacker IPv4s from auto-generated intrusion pulses. Per-entry classification
+is derived from the protocol keyword in the pulse name (e.g. SMTP → brute-force).
 """
+
+import csv
 import datetime
+import json
 import logging
 import os
 import re
 import time
+import urllib.request
 
-from ._base import IpListSource
+from ._base import CsvSource
+from .._classification import OTX_PROTOCOL_MAP
 
 logger = logging.getLogger(__name__)
 
-_IP_TOKEN = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$")
-_ADDRESS_VALUE = re.compile(r"Address_Value[^>]*>([^<]+)<")
+_ACTIVITY_URL = "https://otx.alienvault.com/api/v1/pulses/activity"
+_DEFAULT_POLL_SECONDS = 120
+_DEFAULT_LOOKBACK_DAYS = 30
+_PAGE_SIZE = 20
+_TIMEOUT = 120
 
-DEFAULT_COLLECTION = "user_AlienVault"
-DEFAULT_POLL_SECONDS = 120
-DEFAULT_LOOKBACK_DAYS = 30
+# Pulse names from the activity feed follow the template:
+#   "IMMEDIATE THREAT: <PROTO> Intrusion from <ip> identified by <source>"
+_PULSE_NAME_RE = re.compile(
+    r"IMMEDIATE THREAT:\s*(\S+)\s+Intrusion", re.IGNORECASE)
 
 
-def extract_ipv4_indicators(stix_xml: str) -> list[str]:
-    """Extract unique IPv4 / IPv4-CIDR values from OTX STIX 1.x XML.
+def _extract_protocol(pulse_name: str | None) -> str | None:
+    """Extract protocol keyword (lowercased) from an OTX pulse name.
 
-    cybox Address objects expose values in <Address_Value> elements (any
-    namespace prefix). A single value may be comma- or whitespace-separated;
-    non-IP values (domains, URLs) are discarded.
+    Returns ``None`` when the name doesn't match the ``IMMEDIATE THREAT``
+    template (e.g. manually submitted pulses with free-form descriptions).
     """
-    seen: set[str] = set()
-    out: list[str] = []
-    for raw in _ADDRESS_VALUE.findall(stix_xml):
-        for token in re.split(r"[,\s]+", raw.strip()):
-            token = token.strip()
-            if token and _IP_TOKEN.match(token) and token not in seen:
-                seen.add(token)
-                out.append(token)
-    return out
+    m = _PULSE_NAME_RE.search(pulse_name or "")
+    return m.group(1).lower() if m else None
 
 
-class OtxSource(IpListSource):
+def _classify(protocol: str | None) -> str:
+    """Map an OTX protocol keyword to IntelMQ ``classification_type``.
+
+    Unmapped/default protocols return ``"scanner"`` since *all* activity-feed
+    pulses originate from ``adversary=Automated Scanner``.
+    """
+    if protocol and protocol in OTX_PROTOCOL_MAP:
+        return OTX_PROTOCOL_MAP[protocol]
+    return "scanner"
+
+
+class OtxSource(CsvSource):
     name = "otx"
-    url = "https://otx.alienvault.com/taxii/poll"  # informational; download uses cabby
-    filename = "otx_ips.txt"
+    url = "https://otx.alienvault.com/api/v1/pulses/activity"
+    filename = "otx_ips.csv"
     fields = ("is_malicious",)
-    classification_type = "c2-server"
+    classification_type = "scanner"
     verdict = "malicious"
     stale_days = 1
     reliability = 0.75
-    authoritative_for: list[str] = []  # correlation/pulse-based, not authoritative
+    authoritative_for = []
+
+    def __init__(self, data_dir):
+        super().__init__(data_dir)
+        self._cursor_path = data_dir / "otx_last_fetch.txt"
+
+    # ── Download (REST pagination with modified_since) ──
+
+    def _fetch(self, url: str, headers: dict, retries: int = 3) -> bytes:
+        """GET with retries and exponential backoff."""
+        for attempt in range(1, retries + 1):
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+                    return resp.read()
+            except Exception as e:
+                if attempt == retries:
+                    raise
+                wait = 2 ** attempt
+                logger.info(
+                    f"{self.name}: request failed (attempt {attempt}), "
+                    f"retrying in {wait}s: {type(e).__name__}")
+                time.sleep(wait)
+        # Unreachable: loop body always runs (retries >= 1) and
+        # last-attempt failure raises via the ``except`` block.
+        raise RuntimeError(  # pragma: no cover
+            f"{self.name}: fetch failed after {retries} retries")
 
     def download(self) -> None:
         key = os.environ.get("OTX_API_KEY", "").strip()
         if not key:
             raise RuntimeError("OTX_API_KEY not set; skipping OTX download")
 
-        budget = int(os.environ.get("OTX_POLL_SECONDS", DEFAULT_POLL_SECONDS))
-        lookback = int(os.environ.get(
-            "OTX_LOOKBACK_DAYS", DEFAULT_LOOKBACK_DAYS))
-        collection = os.environ.get("OTX_COLLECTION", DEFAULT_COLLECTION)
-
-        # Import lazily so the module imports cleanly when cabby isn't used.
-        from cabby import create_client
-
-        client = create_client("otx.alienvault.com", use_https=True)
-        client.set_auth(username=key, password="ignored")
-        begin = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
-            days=lookback)
-
+        budget = int(os.environ.get(
+            "OTX_POLL_SECONDS", _DEFAULT_POLL_SECONDS))
         self._data_dir.mkdir(parents=True, exist_ok=True)
+
+        modified_since = self._read_cursor()
+
         logger.info(
-            f"Downloading {self.name} (TAXII {collection}, "
-            f"lookback {lookback}d, budget {budget}s)...")
-        ips: set[str] = set()
-        n_blocks = 0
+            f"Downloading {self.name} (REST /activity, "
+            f"modified_since={modified_since}, budget {budget}s)...")
+
         t0 = time.time()
-        try:
-            for block in client.poll(
-                    collection, begin_date=begin, uri="/taxii/poll"):
-                n_blocks += 1
-                content = block.content
-                txt = (content.decode("utf-8", "ignore")
-                       if isinstance(content, (bytes, bytearray))
-                       else str(content))
-                for ip in extract_ipv4_indicators(txt):
-                    ips.add(ip)
-                if time.time() - t0 > budget:
-                    logger.info(
-                        f"{self.name}: reached {budget}s budget, stopping early")
+        page = 1
+        headers = {
+            "X-OTX-API-KEY": key,
+            "User-Agent": "ip-lookup-tool/1.0",
+            "Accept": "application/json",
+        }
+
+        # {indicator_value -> {classification_type, ...}}
+        collected: dict[str, set[str]] = {}
+        first = True
+
+        while True:
+            if time.time() - t0 > budget:
+                logger.info(
+                    f"{self.name}: reached {budget}s budget, stopping early")
+                break
+
+            params = f"limit={_PAGE_SIZE}&page={page}"
+            params += f"&modified_since={modified_since}"
+            url = f"{_ACTIVITY_URL}?{params}"
+
+            try:
+                body = self._fetch(url, headers, retries=3 if first else 1)
+                data = json.loads(body)
+                pulses = data.get("results") or []
+                if not pulses:
                     break
-        except Exception as e:
-            if not ips:
-                raise RuntimeError(f"{self.name} TAXII poll failed: {e}")
-            logger.warning(f"{self.name}: TAXII error after partial data: {e}")
 
-        if not ips:
-            raise RuntimeError(f"{self.name}: no IPv4 indicators harvested")
+                for pulse in pulses:
+                    proto = _extract_protocol(pulse.get("name"))
+                    ctype = _classify(proto)
+                    for ind in (pulse.get("indicators") or []):
+                        itype = ind.get("type")
+                        if itype not in ("IPv4", "IPv6", "CIDR", "IPv4CIDR"):
+                            continue
+                        value = ind.get("indicator", "").strip()
+                        if not value:
+                            continue
+                        collected.setdefault(value, set()).add(ctype)
 
-        self._path.write_text("\n".join(sorted(ips)) + "\n")
+                page += 1
+
+            except Exception as e:
+                if first:
+                    raise RuntimeError(
+                        f"{self.name} REST poll failed: {e}")
+                logger.warning(
+                    f"{self.name}: REST error after partial data: {e}")
+                break
+
+            first = False
+
+        if not collected:
+            raise RuntimeError(
+                f"{self.name}: no IPv4 indicators harvested")
+
+        # Write CSV for CsvSource.load() to consume
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        with open(self._path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            for indicator in sorted(collected):
+                for ctype in sorted(collected[indicator]):
+                    writer.writerow([indicator, ctype])
+
+        # Persist cursor for next incremental fetch
+        today = time.strftime("%Y-%m-%d")
+        with open(self._cursor_path, "w") as f:
+            f.write(today + "\n")
+
+        n_rows = sum(len(classes) for classes in collected.values())
+        elapsed = time.time() - t0
         logger.info(
-            f"Downloaded {self.name} ({len(ips)} IPs from {n_blocks} blocks)")
+            f"Downloaded {self.name} "
+            f"({len(collected)} indicators, {n_rows} rows, "
+            f"{page - 1} pages in {elapsed:.1f}s)")
 
-    # load() is inherited from IpListSource (reads IPs/CIDRs into pytricia).
+    # ── Cursor persistence ──
+
+    def _read_cursor(self) -> str:
+        """Read the last-fetch date from the cursor file.
+
+        Returns an ISO date string (``YYYY-MM-DD``). The first run defaults
+        to ``DEFAULT_LOOKBACK_DAYS`` ago for a meaningful backfill.
+        """
+        if self._cursor_path.exists():
+            val = self._cursor_path.read_text().strip()
+            if val:
+                return val
+        d = datetime.date.today() - datetime.timedelta(
+            days=_DEFAULT_LOOKBACK_DAYS)
+        return d.isoformat()
+
+    # ── Per-row classification ──
+
+    def parse_row(self, row: list[str]) -> dict | None:
+        if len(row) < 2:
+            return None
+        ip_or_cidr = row[0].strip()
+        ctype = row[1].strip()
+        if not ip_or_cidr or not ctype:
+            return None
+        return {
+            "_ip": ip_or_cidr,
+            "classification_type": ctype,
+            "verdict": "malicious",
+        }

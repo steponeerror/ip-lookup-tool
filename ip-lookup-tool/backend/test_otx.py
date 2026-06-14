@@ -1,46 +1,64 @@
-"""Tests for AlienVault OTX TAXII source — STIX 1.x IPv4 indicator parsing.
+"""Tests for AlienVault OTX REST source — protocol extraction & classification.
 
-The TAXII transport (cabby poll) is network-heavy; we unit-test the pure
-STIX-XML → IPv4 parser, which is where parsing bugs live.
+The REST /pulses/activity transport is tested live (see T8a verification).
+These unit tests validate the pure-function protocol→classification mapping.
 """
-from ipdb._sources.otx import extract_ipv4_indicators, OtxSource
-
-# Minimal but representative OTX STIX 1.2 package fragments. cybox IPv4 Address
-# objects use an <Address_Value ...> element (namespace-prefixed in real data).
-_STIX_WITH_IPS = """
-<stix:STIX_Package xmlns:Address_Obj="http://cybox.mitre.org/objects#AddressObject-2">
-  <cybox:Properties>
-    <Address_Obj:Address_Value condition="Equals">1.2.3.4</Address_Obj:Address_Value>
-  </cybox:Properties>
-  <cybox:Properties>
-    <Address_Obj:Address_Value condition="Equals">192.168.0.0/24</Address_Obj:Address_Value>
-  </cybox:Properties>
-  <cybox:Properties>
-    <Address_Obj:Address_Value condition="Equals">evil.example.com</Address_Obj:Address_Value>
-  </cybox:Properties>
-</stix:STIX_Package>
-"""
-
-_STIX_EMPTY = "<stix:STIX_Package xmlns:Address_Obj='x'></stix:STIX_Package>"
+from ipdb._sources.otx import _extract_protocol, _classify, OtxSource
 
 
-class TestExtractIpv4Indicators:
-    def test_extracts_bare_ipv4(self):
-        assert extract_ipv4_indicators(_STIX_WITH_IPS) == [
-            "1.2.3.4", "192.168.0.0/24"]
+class TestExtractProtocol:
+    def test_immediate_threat_smtp(self):
+        assert _extract_protocol(
+            "IMMEDIATE THREAT: SMTP Intrusion from 1.2.3.4 identified by Sentinel"
+        ) == "smtp"
 
-    def test_ignores_non_ip_values(self):
-        ips = extract_ipv4_indicators(_STIX_WITH_IPS)
-        assert "evil.example.com" not in ips
+    def test_immediate_threat_ftp(self):
+        assert _extract_protocol(
+            "IMMEDIATE THREAT: FTP Intrusion from 5.6.7.8 identified by Sentinel"
+        ) == "ftp"
 
-    def test_empty_returns_empty_list(self):
-        assert extract_ipv4_indicators(_STIX_EMPTY) == []
+    def test_immediate_threat_ssh(self):
+        assert _extract_protocol(
+            "IMMEDIATE THREAT: SSH Intrusion from 9.9.9.9 identified by Sentinel"
+        ) == "ssh"
 
-    def test_dedupes(self):
-        stix = (
-            "<p><Address_Obj:Address_Value>10.0.0.1</Address_Obj:Address_Value>"
-            "<Address_Obj:Address_Value>10.0.0.1</Address_Obj:Address_Value></p>")
-        assert extract_ipv4_indicators(stix) == ["10.0.0.1"]
+    def test_lowercase_protocol(self):
+        assert _extract_protocol(
+            "IMMEDIATE THREAT: smtp Intrusion from 1.2.3.4"
+        ) == "smtp"
+
+    def test_unknown_format_returns_none(self):
+        assert _extract_protocol(None) is None
+        assert _extract_protocol("") is None
+        assert _extract_protocol("Custom pulse from researcher") is None
+
+    def test_malformed_tokens(self):
+        assert _extract_protocol(
+            "IMMEDIATE THREAT:  Intrusion from X"
+        ) is None
+
+
+class TestClassify:
+    def test_smtp_brute_force(self):
+        assert _classify("smtp") == "brute-force"
+
+    def test_ftp_brute_force(self):
+        assert _classify("ftp") == "brute-force"
+
+    def test_ssh_brute_force(self):
+        assert _classify("ssh") == "brute-force"
+
+    def test_http_scanner(self):
+        assert _classify("http") == "scanner"
+
+    def test_imap_brute_force(self):
+        assert _classify("imap") == "brute-force"
+
+    def test_missing_protocol_defaults_scanner(self):
+        assert _classify(None) == "scanner"
+
+    def test_unknown_protocol_defaults_scanner(self):
+        assert _classify("mysql") == "scanner"
 
 
 class TestOtxSourceConfig:
@@ -49,3 +67,7 @@ class TestOtxSourceConfig:
         assert OtxSource.reliability == 0.75
         # OTX is correlation/pulse-based — not authoritative.
         assert OtxSource.authoritative_for == []
+
+    def test_classification_type(self):
+        # Scanner is the class-level default; parse_row overrides per-entry.
+        assert OtxSource.classification_type == "scanner"
