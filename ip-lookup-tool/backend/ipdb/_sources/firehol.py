@@ -69,7 +69,8 @@ class FireholBlocklistSource(IpListSource):
                     except (_ipa.AddressValueError, ValueError):
                         continue
                     tree.insert(str(net), [{"classification_type": self.classification_type,
-                                            "verdict": self.verdict}])
+                                            "verdict": self.verdict,
+                                            "extra": {"native_type": self.classification_type}}])
                     count += 1
         self._tree = tree
         self._count = count
