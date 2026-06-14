@@ -113,7 +113,7 @@ class IpListSource:
         self._loaded_at = time.time()
         return count
 
-    def query(self, ip: str) -> dict[str, Any]:
+    def query(self, ip: str) -> Any:
         if self._tree is None:
             return {}
         try:
