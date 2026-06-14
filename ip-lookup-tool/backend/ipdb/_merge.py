@@ -285,6 +285,10 @@ def _assess_classification(group: list) -> ClassificationAssessment:
     PRECEDENCE = {"malicious": 0, "suspicious": 1, "benign": 2, "informational": 3}
     distinct_verdicts = {o.verdict for o in obs}
     verdict = min(distinct_verdicts, key=lambda v: PRECEDENCE.get(v, 99))
+    if verdict not in PRECEDENCE:
+        # All verdicts unknown: min() over ties is set-iteration-order dependent
+        # (process-nondeterministic), so fall back to sorted order for determinism.
+        verdict = sorted(distinct_verdicts)[0]
     verdict_conflict = len(distinct_verdicts) > 1
 
     n = len(obs)
