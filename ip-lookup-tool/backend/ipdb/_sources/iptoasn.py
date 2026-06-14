@@ -114,17 +114,17 @@ class IPtoASNSource:
     def health(self):
         from .._types import SourceHealth
 
+        file_mtime = None
         last_updated = None
         if self._path.exists():
-            mtime = self._path.stat().st_mtime
-            last_updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))
+            file_mtime = self._path.stat().st_mtime
+            last_updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(file_mtime))
+        is_stale = file_mtime is None or (
+            time.time() - file_mtime > self.stale_days * 86400)
         return SourceHealth(
             name=self.name,
             loaded=self._tree is not None,
             record_count=self._count,
             last_updated=last_updated,
-            is_stale=(
-                self._loaded_at == 0
-                or (time.time() - self._loaded_at > self.stale_days * 86400)
-            ),
+            is_stale=is_stale,
         )

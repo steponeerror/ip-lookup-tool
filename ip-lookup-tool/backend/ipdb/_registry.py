@@ -121,6 +121,24 @@ def load_db() -> None:
     logger.info(f"Loaded {counts} records")
 
 
+def refresh_stale() -> None:
+    """Startup refresh: download only sources whose data file is stale/missing,
+    then load all from disk.
+
+    Contrast reload_db(), which force-refreshes EVERY source. This cheap path
+    avoids re-downloading fresh data on every restart — staleness now reflects
+    the data file's mtime, not in-memory load time.
+    """
+    for source in _sources:
+        try:
+            if source.health().is_stale:
+                logger.info(f"{source.name}: data file stale/missing, downloading...")
+                source.download()
+        except Exception as e:
+            logger.warning(f"{source.name} download failed: {e}")
+    load_db()
+
+
 def expected_counts() -> dict[str, int]:
     """Deprecated stub — threat booleans removed. Returns {} for backward import compat."""
     return {}

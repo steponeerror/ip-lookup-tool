@@ -109,22 +109,22 @@ class IP2ProxySource(CsvSource):
 
     def health(self) -> SourceHealth:
         import time as _time
+        file_mtime = None
         last_updated = None
         for p in [self._zip_path, self._path]:
             if p.exists():
-                mtime = p.stat().st_mtime
+                file_mtime = p.stat().st_mtime
                 last_updated = _time.strftime(
-                    "%Y-%m-%dT%H:%M:%SZ", _time.gmtime(mtime))
+                    "%Y-%m-%dT%H:%M:%SZ", _time.gmtime(file_mtime))
                 break
+        is_stale = file_mtime is None or (
+            _time.time() - file_mtime > self.stale_days * 86400)
         return SourceHealth(
             name=self.name,
             loaded=self._tree is not None,
             record_count=self._count,
             last_updated=last_updated,
-            is_stale=(
-                self._loaded_at == 0
-                or (_time.time() - self._loaded_at > self.stale_days * 86400)
-            ),
+            is_stale=is_stale,
         )
 
 
