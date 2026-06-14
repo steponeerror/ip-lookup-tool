@@ -276,10 +276,17 @@ def _decay_confidence(base: int, first_seen) -> int:
 
 
 def _assess_classification(group: list) -> ClassificationAssessment:
-    """Assess one (classification.type, verdict) group of observations."""
+    """Assess one classification.type group of observations."""
     obs = group
     ctype = obs[0].classification_type
-    verdict = obs[0].verdict
+
+    # Deterministic verdict precedence: malicious > suspicious > benign > informational.
+    # Replaces silent obs[0].verdict first-wins.
+    PRECEDENCE = {"malicious": 0, "suspicious": 1, "benign": 2, "informational": 3}
+    distinct_verdicts = {o.verdict for o in obs}
+    verdict = min(distinct_verdicts, key=lambda v: PRECEDENCE.get(v, 99))
+    verdict_conflict = len(distinct_verdicts) > 1
+
     n = len(obs)
     corroborated = n >= 2
 
@@ -305,5 +312,5 @@ def _assess_classification(group: list) -> ClassificationAssessment:
     return ClassificationAssessment(
         type=ctype, verdict=verdict, detected=True, confidence=confidence,
         algorithm="corroboration", sources=sources, corroborated=corroborated,
-        reporter_total=reporter_total,
+        reporter_total=reporter_total, verdict_conflict=verdict_conflict,
     )

@@ -75,7 +75,7 @@ class EvidenceObservation:
 
 @dataclass
 class ClassificationAssessment:
-    """Corroboration result for one (classification.type, verdict) group."""
+    """Corroboration result for one classification.type group."""
     type: str
     verdict: str
     detected: bool
@@ -84,6 +84,7 @@ class ClassificationAssessment:
     sources: list  # list[SourceAttribution]
     corroborated: bool                       # >=2 independent sources
     reporter_total: int = 0
+    verdict_conflict: bool = False           # >=2 distinct verdicts in group
 
 
 @dataclass
@@ -117,6 +118,7 @@ class LookupResult:
                     "algorithm": v.algorithm,
                     "corroborated": v.corroborated,
                     "reporter_total": v.reporter_total,
+                    "verdict_conflict": v.verdict_conflict,
                     "sources": [
                         _attribution_to_dict(s) for s in v.sources
                     ],
