@@ -34,23 +34,43 @@
 
 ## 架构改动
 
-### 1. `_base.py`：trie 值契约 + query 修复
+### 1. 源契约盘点（修订：回应评审 Finding 1，避免"恰好能跑"的隐式依赖）
 
-**证据源**（带 `classification_type` 的 `IpListSource` + 所有 `CsvSource`）的 trie 值从"单个 dict"改为"`list[dict]`"：
+证据源 trie 值从"单个 dict"改为"`list[dict]`"。改动前**必须**逐一确认每个源的当前 trie/query 形状，因为部分源走自定义路径：
 
-- **`IpListSource.load()`**：累积 `dict[cidr_str, list[dict]]`，每个 CIDR 存 `[self.get_insert_data()]`（单类别源 = 1 元素列表）。
-- **`CsvSource.load()`**：每行 `parse_row` 出的证据 dict 按规范化 CIDR 累积到 list；同 IP 多 `threat_type` → list 多元素。最后每个 CIDR 插入其 list。
-- **`query()` 修复**：
+| 源 | 基类 | load 来源 | query 来源 | 当前 trie 值 | §1 动作 |
+|---|---|---|---|---|---|
+| ipinfo_lite | 自有类 | custom | custom | 标量 dict | **不动**（标量路径） |
+| iptoasn | 自有类 | custom | custom | 标量 dict | **不动** |
+| cn_isp | 自有类 | custom | custom | 标量 dict | **不动** |
+| tor_exits | IpListSource | base（override `get_insert_data`） | base（bug） | evidence dict | 基类 load 改 list 自动覆盖 |
+| x4bnet_vpn / spamhaus / emerging_threats / otx | IpListSource | base | base（bug） | evidence dict | 基类 load 改 list 自动覆盖 |
+| blocklist_de | IpListSource | base | base（bug） | evidence dict | T4 重写 load 时原生产 list |
+| ipsum / threatfox | CsvSource | base | base（bug） | 逐行 dict | 基类 load 改 list 自动覆盖 |
+| **firehol** | IpListSource | **custom**（存 dict） | base（bug，继承） | evidence dict | **§1 显式改 firehol.load 存 `[dict]`** |
+| **ip2proxy** | CsvSource | **custom** | **custom**（返 dict，仅为绕 bug） | per-range dict | **§1 删自定义 query + load 改存 `[dict]`**（基类 query 修复后 override 冗余） |
+
+**基类改动**：
+- **`IpListSource.load()`**：累积 `dict[cidr_str, list[dict]]`，每个 CIDR 存 `[self.get_insert_data()]`。
+- **`CsvSource.load()`**：每行 `parse_row` 出的证据 dict 按规范化 CIDR 累积到 list，**带去重**（见 §2）；同 IP 多 `threat_type` → list 多元素。
+- **`query()` 修复**（返回存储值，不再返回类级常量）：
   ```python
   def query(self, ip):
       if self._tree is None:
           return {}
       try:
-          return self._tree[ip]   # 返回存储的 list（证据源）或 dict（标量源）
+          return self._tree[ip]   # 证据源 = list[dict]；标量源 = dict（未被本 spec 触及）
       except KeyError:
           return {}
   ```
-  标量源（ipinfo_lite/iptoasn/cn_isp）不在 `IpListSource` 体系，存单个 dict，不动。
+
+**显式动作（必须在 T1 一并落地，否则契约不一致）**：
+- `firehol.load()`：把 `tree.insert(net, {dict})` 改成 `tree.insert(net, [{dict}])`（它继承新 query，必须存 list）。
+- `ip2proxy`：删 `query()` override（其注释 line 111-114 自陈 override 仅为绕 bug；基类修好后冗余），`load()` 改存 `[evidence]`。
+
+**回归测试（新增）**：T1 后断言每个源 `query(ip)` 返回形状——证据源 `list[dict]`、标量源 `dict`，作为契约护栏。
+
+**关于 ip2proxy 的 `is_proxy`/`is_hosting`**：其 evidence dict 仍带这俩键（retired 布尔），§2 归一化的取值键列表不含它们 → **被忽略**。当前无害，spec 明示此 drop。
 
 ### 2. `_registry.py:lookup()` 归一化
 
@@ -72,6 +92,8 @@ for item in items:
 ```
 
 引擎按 `classification_type` 分组的逻辑（`_registry.py:173-178`）不变——只是某源现在可能贡献多条 observation。
+
+**同源去重（回应评审 Finding 3）**：`CsvSource.load()` 累积时按去重键 `(classification_type, verdict, malware_name)` 去重（source 由实例隐含）。这样 ThreatFox 对同一 IP 的重复行（相同 `threat_type`）合并成一条 observation，不同 `threat_type` 仍各自累积成多元素 list。去重在 load 阶段做（一次），不在每次 query 做。
 
 ### 3. `_classification.py`：词表 + 映射帮手
 
@@ -108,18 +130,22 @@ def normalize(raw_type: str, mapping: dict, default="blacklist") -> str:
 | 源 | 改动 | 分类来源 |
 |---|---|---|
 | **ThreatFox** | `parse_row` 用 `normalize(_clean(row[4]), THREATFOX_MAP)` 替代硬编码 `c2-server`；保留 `malware_name`/`confidence`/`first_seen` 逐行 | `threat_type` 列（已验证分布） |
-| **blocklist_de** | 从 `lists/all.txt` 改为按 attack-type 拉多个 `lists/<type>.txt`，每类用 `normalize` 映射；多列表下载 + 去重 + 按 CIDR 累积 | attack-type 码（⚠️ 实现时核实官网 export 页的类别码/URL） |
+| **blocklist_de** | 从 `lists/all.txt` 改为按 attack-type 拉多个 `lists/<type>.txt`，每类用 `normalize` 映射；多列表下载 + 去重 + 按 CIDR 累积 | attack-type 码（⚠️ **T4 前先核实**官网 export 页的类别码/URL，记录映射来源，加冒烟测试断言各类别覆盖率不下降） |
 | **emerging_threats** | 仅契约升级（list-per-CIDR），逻辑不变 | 诚实单标签 `blacklist`（数据无类别） |
 | **OTX** | **gated**：依赖 REST `/pulses/subscribed` 改造（见上轮调查）。改造后每个 pulse indicator 带 `threat_type`/`malware_family` → `normalize(., OTX_MAP)` | pulse 自带类别 |
+| **firehol** | 契约适配：`load()` 改存 `[dict]`（继承新 query 必须 list） | 不变（`blacklist`） |
+| **ip2proxy** | 契约适配：删 `query()` override + `load()` 改存 `[evidence]`（override 仅为绕 bug，基类修好后冗余）；`is_proxy`/`is_hosting` 被 §2 忽略（明示 drop） | 不变（`proxy`/`tor`） |
 
 ## verdict 分组决策（折入评审 #3）
 
 当前 `_registry.py:173` 只按 `classification_type` 分组，`_assess_classification` 取 `obs[0].verdict`。若同 type 出现冲突 verdict（malicious vs benign），后者被静默覆盖。
 
-**本 spec 范围内的源 verdict 是均匀的**（threat 类全 `malicious`，proxy 类全 `suspicious`），冲突**不会发生**。因此：
+**本 spec 范围内的源 verdict 是均匀的**（threat 类全 `malicious`，proxy 类全 `suspicious`），冲突**当前不会发生**。但评审 Finding 2 指出：保留 `obs[0].verdict` 的"首条赢 + 仅 warning"会留下**静默覆盖**——未来接入 benign 源会悄悄改变结果，warning 阻止不了数据丢失。因此改为**确定性 + 显式暴露**：
 
-- 实现：**保持 type 分键 + 加冲突看门**——`lookup()` 分组时若发现同 `classification_type` 出现 ≥2 个不同 verdict，`logger.warning` 记录（不破坏 schema）。
-- 后续：真正的 `(type, verdict)` 分键（key 改 `"type:verdict"` 或值改 list）**与 benign 在线源（GreyNoise 等）绑定**，那时一并改 schema + 前端。列为跟踪项，不在本 spec 抢跑。
+- 实现：分组仍按 `classification_type`（不改 schema 分键）。`_assess_classification` 内对同 type 的多条 observation，按**确定性优先级**选 verdict：`malicious > suspicious > benign > informational`（不再"首条赢"）。
+- 暴露：`ClassificationAssessment` 新增 `verdict_conflict: bool = False`（默认 False，向后兼容）+ `to_dict()` 输出该字段。同 type 出现 ≥2 不同 verdict 时置 True。
+- 不改 `classifications` dict 的 key（仍按 type），**无 API/前端破坏性变更**；新增字段为附加信息。
+- 后续：真正的 `(type, verdict)` 双键分桶（让 malicious/benign 各成独立条目）仍**与 benign 在线源绑定**另立，不在本 spec 抢跑。
 
 ## 新源模板（更新 fusion 设计文档的"接源"章节）
 
@@ -137,8 +163,8 @@ class NewSource(IpListSource):               # 或 CsvSource
 
 ## 分期实施（TDD）
 
-1. **T1 契约修复**：`_base.py` query/load 改 list-per-CIDR；`lookup()` 归一化。
-   - 验证：query 返回 list；CsvSource 同 IP 多 threat_type → list 多元素；标量源不受影响。
+1. **T1 契约修复**：`_base.py` query/load 改 list-per-CIDR；`lookup()` 归一化；**`firehol.load` 改存 list + `ip2proxy` 删自定义 query 并 load 改 list**；新增 query 返回形状回归测试。
+   - 验证：query 返回 list；CsvSource 同 IP 多 threat_type → list 多元素；标量源不受影响；firehol/ip2proxy 契约一致。
 2. **T2 词表**：`_classification.py` + 各映射表 + `normalize()`。
    - 验证：映射正确；未知值回退 `blacklist`/`other`；非词表值不外泄。
 3. **T3 ThreatFox 逐条**：`parse_row` 用 `threat_type` 映射。
@@ -147,7 +173,8 @@ class NewSource(IpListSource):               # 或 CsvSource
    - 验证：每类 IP 标注正确；多列表合并去重。
 5. **T5 OTX 逐条**（gated on REST 改造）：pulse `threat_type` → `normalize(., OTX_MAP)`。
    - 验证：pulse 类别正确映射，不再全标 c2-server。
-6. **T6 verdict 冲突看门 + 端到端**：加 warning；真实 IP 查询显示正确逐条分类；跨源复核产出多 type；单类别源/标量源回归正常。
+6. **T6 verdict 确定性选择 + 端到端**：`_assess_classification` 按 malicious>suspicious>benign>informational 选 verdict + `verdict_conflict` 标记；真实 IP 查询显示正确逐条分类；跨源复核产出多 type；单类别源/标量源回归正常。
+   - 验证：同 type 冲突 verdict 时取恶意优先、`verdict_conflict=True`；无静默覆盖。
 7. **T7 文档**：更新 fusion 设计"接源模板"章节 + README。
 
 ## 测试
@@ -165,7 +192,7 @@ class NewSource(IpListSource):               # 或 CsvSource
 | blocklist_de 类别码未知 | T4 实现时核实官网 export 页，映射表据实填 |
 | OTX 依赖 REST 改造 | T5 gated，可独立后置 |
 | list 包装内存（~8MB） | 相对几百 MB 数据可忽略 |
-| verdict 冲突 schema 抖动 | 本 spec 加看门不改 schema；真正分键与 benign 源绑定另立 |
+| verdict 冲突 | 改为确定性优先级（恶意优先）+ `verdict_conflict` 标记，消除静默覆盖；不改 dict 分键，无 schema 破坏 |
 | API/前端破坏 | `classifications` 结构不变 |
 
 ## 评审反馈处理记录
@@ -182,6 +209,12 @@ class NewSource(IpListSource):               # 或 CsvSource
 - #6 保留中央 reliability 配置：与 fusion 设计 T3"删中央字典读源属性"**直接矛盾**，不采纳。
 - #11 Alembic schema 迁移：核实**无数据库 / 无 SQL / 无 Alembic**（flat files + pytricia 内存树），不适用。
 - #12 日志合规：工具不持久化查询日志，超出本 spec 范围。
+
+### Codex adversarial review（needs-attention，3 findings，均已折入）
+
+- **F1（契约 vs 自定义源，严重）**：§1 新增**源契约盘点表**，逐一列出每个源的基类/load/query/trie 形状 + §1 动作；T1 显式改 `firehol.load` 存 list、删 `ip2proxy` 自定义 query 并 load 改 list；新增 query 返回形状回归测试。
+- **F2（verdict 静默覆盖）**：由"看门 warning"改为**确定性优先级**（恶意优先）+ `ClassificationAssessment.verdict_conflict` 标记，消除静默覆盖。
+- **F3（blocklist_de 未核实 + 同源去重）**：T4 前先核实 attack-type 码/URL + 加覆盖率冒烟测试；`CsvSource.load` 累积按 `(classification_type, verdict, malware_name)` 去重。
 
 ## 不在范围内（明确）
 
