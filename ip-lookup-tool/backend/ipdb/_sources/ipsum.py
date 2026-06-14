@@ -12,6 +12,7 @@ class IPsumSource(CsvSource):
     stale_days = 1
     reliability = 0.55
     authoritative_for = []
+    delimiter = "\t"          # IPsum is tab-separated: "<ip>\t<count>"
     _min_count: int = 3
 
     def __init__(self, data_dir, min_count: int = 3):
