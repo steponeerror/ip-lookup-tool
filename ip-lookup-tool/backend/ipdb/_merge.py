@@ -301,9 +301,11 @@ def _assess_classification(group: list) -> ClassificationAssessment:
     if corroborated:
         base = max(base, 80)                       # Admiralty "Confirmed" band floor
 
-    # Decay by the NEWEST (min) first_seen in the group.
+    # Decay by the NEWEST first_seen in the group (max — ISO date strings sort
+    # chronologically, so min would be the OLDEST and over-decay). Anchoring on
+    # the freshest evidence keeps corroborated confidence high.
     first_seens = [o.first_seen for o in obs if o.first_seen]
-    newest = min(first_seens) if first_seens else None
+    newest = max(first_seens) if first_seens else None
     confidence = _decay_confidence(base, newest)
 
     sources = [
