@@ -7,6 +7,8 @@ class BlocklistDeSource(IpListSource):
     url = "https://lists.blocklist.de/lists/all.txt"
     filename = "blocklist_de.txt"
     fields = ("is_malicious",)
+    classification_type = "blacklist"
+    verdict = "malicious"
     stale_days = 1
     reliability = 0.65
     authoritative_for = []

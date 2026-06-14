@@ -12,6 +12,8 @@ class TorExitSource(IpListSource):
     url = "https://check.torproject.org/exit-addresses"
     filename = "tor-exit-addresses.txt"
     fields = ("is_tor",)
+    classification_type = "tor"
+    verdict = "suspicious"
     stale_days = 1
     reliability = 0.95
     authoritative_for = ["is_tor"]

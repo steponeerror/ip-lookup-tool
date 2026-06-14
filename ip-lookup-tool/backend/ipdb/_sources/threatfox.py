@@ -27,6 +27,8 @@ class ThreatFoxSource(CsvSource):
     url = "https://threatfox.abuse.ch/export/csv/full/"
     filename = "threatfox.csv"
     fields = ("is_malicious",)
+    classification_type = "c2-server"
+    verdict = "malicious"
     stale_days = 1
     reliability = 0.85
     authoritative_for = ["is_malicious"]
