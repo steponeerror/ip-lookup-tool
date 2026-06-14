@@ -71,3 +71,17 @@ class TestOtxSourceConfig:
     def test_classification_type(self):
         # Scanner is the class-level default; parse_row overrides per-entry.
         assert OtxSource.classification_type == "scanner"
+
+    def test_parse_row_reads_protocol_from_column_3(self):
+        src = OtxSource.__new__(OtxSource)
+        parsed = src.parse_row(["1.2.3.4", "brute-force", "smtp"])
+        assert parsed["_ip"] == "1.2.3.4"
+        assert parsed["classification_type"] == "brute-force"
+        assert parsed["extra"] == {"native_type": "smtp"}
+
+    def test_parse_row_without_protocol_column_still_works(self):
+        src = OtxSource.__new__(OtxSource)
+        parsed = src.parse_row(["1.2.3.4", "scanner"])
+        assert parsed["_ip"] == "1.2.3.4"
+        assert parsed["classification_type"] == "scanner"
+        assert "extra" not in parsed
