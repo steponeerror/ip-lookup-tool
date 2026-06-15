@@ -60,6 +60,8 @@ class _FakeProxySource(CsvSource):
     name = "fake_proxy"
     filename = "fake_proxy.csv"
     fields = ("is_proxy",)
+    classification_type = "proxy"
+    verdict = "suspicious"
 
     def parse_row(self, row):
         # row = [ip, proxy_type]; map VPN/PUB -> is_proxy evidence
@@ -78,8 +80,11 @@ class _FakeProxySource(CsvSource):
 def test_native_type_distinguishes_dedup(tmp_path):
     """Two rows same CIDR, different native_type (VPN vs PUB) must NOT merge."""
     src = _FakeProxySource(data_dir=tmp_path)
-    src._path = tmp_path / "fake_proxy.csv"
     src._path.write_text("1.2.3.4,VPN\n1.2.3.4,PUB\n")
     count = src.load()
     # Both rows survive (different native_type), so count == 2
     assert count == 2
+    out = src.query("1.2.3.4")
+    assert isinstance(out, list) and len(out) == 2
+    native_types = {o["extra"]["native_type"] for o in out}
+    assert native_types == {"VPN", "PUB"}
