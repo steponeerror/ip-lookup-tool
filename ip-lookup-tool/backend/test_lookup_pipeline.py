@@ -73,6 +73,21 @@ class FakeThreatSource:
                             last_updated=None, is_stale=False)
 
 
+class FakeAssetSource:
+    """Simulates ip2proxy returning is_proxy + native_type."""
+    name = "ip2proxy"
+    fields = ("is_proxy",)
+    reliability = 0.80
+
+    def query(self, ip):
+        return {"is_proxy": True, "_native_types": {"is_proxy": "VPN"}}
+
+    def health(self):
+        from ipdb._types import SourceHealth
+        return SourceHealth(name=self.name, loaded=True, record_count=1,
+                            last_updated=None, is_stale=False)
+
+
 # ── Tests ──
 
 class TestLookupPipelineIntegration:
@@ -206,3 +221,32 @@ class TestLookupPipelineIntegration:
         assert ca.verdict_conflict is True
         # malicious beats benign per precedence
         assert ca.verdict == "malicious"
+
+    def test_asset_keys_collected_into_attributes(self):
+        """Asset keys (is_proxy etc.) go into attributes, not field_values."""
+        import ipdb._registry as reg
+        from ipdb._registry import lookup
+
+        scalar = FakeScalarSource()
+        asset = FakeAssetSource()
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(reg, "_sources", [scalar, asset])
+        monkeypatch.setattr(reg, "_strategies", {
+            "country_code": FactualVoting(default="N/A"),
+            "asn": FactualVoting(default=0),
+            "as_name": FactualVoting(default="N/A"),
+            "ip_range": RangeSpecificity(),
+        })
+
+        r = lookup("1.2.3.4")
+        # Asset collected
+        assert "is_proxy" in r.attributes
+        assert len(r.attributes["is_proxy"]) == 1
+        stmt = r.attributes["is_proxy"][0]
+        assert stmt.source == "ip2proxy"
+        assert stmt.value is True
+        assert stmt.native_type == "VPN"
+        # No pollution: is_proxy did NOT enter field_values (not in 5-key whitelist)
+        assert r.is_isp is False
+        # classifications empty (asset source has no classification_type)
+        assert r.classifications == {}
