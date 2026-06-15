@@ -49,7 +49,7 @@ export interface LookupResult {
   ip_range: MergedField<string>;
   is_isp: boolean;
   classifications: Record<string, ClassificationAssessment>;
-  attributes: Record<string, AssetStatement[]>;
+  attributes?: Record<string, AssetStatement[]>;
   is_whitelisted: boolean;
   whitelist_notes: string[];
   error?: string;
