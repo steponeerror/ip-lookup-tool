@@ -52,24 +52,14 @@ echo [INSTALL] Installing project dependencies...
 REM First install packages with pre-built wheels
 "%PYTHON_DIR%\python.exe" -m pip install fastapi uvicorn[standard] python-multipart python-dotenv cabby -q
 
-REM pytricia: download prebuilt wheel from CI release (avoids MSVC compilation)
-echo [DOWNLOAD] Fetching prebuilt pytricia wheel...
-curl -fL -o pytricia.whl "https://github.com/steponeerror/ip-lookup-tool/releases/download/wheels-v1/pytricia-1.0.2-cp311-cp311-win_amd64.whl" 2>nul
-if not errorlevel 1 (
-    echo [OK] Installing prebuilt pytricia wheel...
-    "%PYTHON_DIR%\python.exe" -m pip install pytricia.whl -q
-    del pytricia.whl
+REM pytricia: install bundled prebuilt wheel (no MSVC needed)
+if exist "pytricia-1.0.2-cp311-cp311-win_amd64.whl" (
+    echo [OK] Installing bundled pytricia wheel...
+    "%PYTHON_DIR%\python.exe" -m pip install "pytricia-1.0.2-cp311-cp311-win_amd64.whl" -q
     goto :build_done
 )
 
-REM pytricia: check for cached wheel first, then try compile, then fallback
-if exist pytricia-*.whl (
-    echo [OK] Found cached pytricia wheel, installing...
-    "%PYTHON_DIR%\python.exe" -m pip install pytricia-*.whl -q
-    goto :build_done
-)
-
-REM Try to compile pytricia (requires Microsoft C++ Build Tools)
+REM Fallback: compile from source (requires Microsoft C++ Build Tools)
 "%PYTHON_DIR%\python.exe" -m pip install pytricia -q
 if errorlevel 1 (
     echo.
