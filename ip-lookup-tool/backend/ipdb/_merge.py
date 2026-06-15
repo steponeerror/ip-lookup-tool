@@ -315,8 +315,26 @@ def _assess_classification(group: list) -> ClassificationAssessment:
     ]
     reporter_total = sum(o.reporter_count or 0 for o in obs)
 
+    # ── Rich fields — surface per-source context to the API ──
+    malware_names = sorted({o.malware_name for o in obs if o.malware_name})
+
+    details: list[dict] = []
+    for o in obs:
+        d: dict[str, Any] = {"source": o.source, "reliability": o.reliability}
+        if o.malware_name:
+            d["malware_name"] = o.malware_name
+        if o.confidence is not None:
+            d["native_confidence"] = o.confidence
+        if o.first_seen:
+            d["first_seen"] = o.first_seen
+        native_type = o.extra.get("native_type") if o.extra else None
+        if native_type:
+            d["native_type"] = native_type
+        details.append(d)
+
     return ClassificationAssessment(
         type=ctype, verdict=verdict, detected=True, confidence=confidence,
         algorithm="corroboration", sources=sources, corroborated=corroborated,
         reporter_total=reporter_total, verdict_conflict=verdict_conflict,
+        malware_names=malware_names, details=details,
     )
