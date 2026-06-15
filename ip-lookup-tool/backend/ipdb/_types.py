@@ -74,6 +74,14 @@ class EvidenceObservation:
 
 
 @dataclass
+class AssetStatement:
+    """Single source's statement about one asset attribute. Pure陈述; no scoring."""
+    source: str
+    value: Any                              # bool (is_proxy) or str (carrier)
+    native_type: Optional[str] = None       # source-native subtype, e.g. "VPN"/"PUB"/"DCH"
+
+
+@dataclass
 class ClassificationAssessment:
     """Corroboration result for one classification.type group."""
     type: str
@@ -99,6 +107,7 @@ class LookupResult:
     ip_range: MergedField
     is_isp: bool
     classifications: dict   # dict[str, ClassificationAssessment]
+    attributes: dict = field(default_factory=dict)   # dict[str, list[AssetStatement]] — pure陈述
     is_whitelisted: bool = False
     whitelist_notes: list = field(default_factory=list)
     error: str | None = None
@@ -128,6 +137,11 @@ class LookupResult:
                     ],
                 }
                 for k, v in self.classifications.items()
+            },
+            "attributes": {
+                key: [{"source": s.source, "value": s.value, "native_type": s.native_type}
+                      for s in stmts]
+                for key, stmts in self.attributes.items()
             },
             "is_whitelisted": self.is_whitelisted,
             "whitelist_notes": self.whitelist_notes,
