@@ -169,7 +169,7 @@ class CsvSource(IpListSource):
             self._tree = tree
             return 0
 
-        # cidr_str -> list[evidence dict], deduped by (classification_type, verdict, malware_name)
+        # cidr_str -> list[evidence dict], deduped by (classification_type, verdict, malware_name, native_type)
         acc: dict[str, list[dict]] = {}
         count = 0
         with open(self._path, "r", encoding="utf-8") as f:
@@ -200,9 +200,12 @@ class CsvSource(IpListSource):
                     parsed.get("classification_type"),
                     parsed.get("verdict"),
                     parsed.get("malware_name"),
+                    (parsed.get("extra") or {}).get("native_type"),
                 )
                 if any(
-                    (o.get("classification_type"), o.get("verdict"), o.get("malware_name")) == dedup
+                    (o.get("classification_type"), o.get("verdict"),
+                     o.get("malware_name"),
+                     (o.get("extra") or {}).get("native_type")) == dedup
                     for o in bucket
                 ):
                     continue
