@@ -70,6 +70,20 @@ OTX_PROTOCOL_MAP = {
     "web": "scanner",
 }
 
+# MISP attribute category → IntelMQ. "network activity" deliberately absent:
+# most IP attributes land there and it's too vague to map honestly, so it falls
+# to "other" (raw category preserved in extra.native_type) — same philosophy as
+# ip2proxy DCH in PROXY_MAP. Keys MUST be lowercase — normalize() lowercases the
+# input before lookup.
+MISP_CATEGORY_MAP = {
+    "payload delivery": "malware-distribution",
+    "payload installation": "malware",
+    "artifacts dropped": "malware",
+    "payload type": "malware",
+    "spam": "spam",
+    "botnet": "botnet",
+}
+
 
 def normalize(raw_type, mapping: dict) -> str:
     """Map a source-native category to a CONTROLLED IntelMQ classification.type
