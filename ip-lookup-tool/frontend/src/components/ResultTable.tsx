@@ -686,6 +686,7 @@ export function ResultTable({ results }: ResultTableProps) {
           <tbody>
             {pageRows.map((r, i) => {
               const summary = threatSummary(r);
+              const badges = assetBadges(r);
               return (
               <Fragment key={r.ip + i}>
                 <motion.tr
@@ -718,9 +719,9 @@ export function ResultTable({ results }: ResultTableProps) {
                   </td>
                   <td className="px-3 py-2">
                     <ThreatTags r={r} summary={summary} />
-                    {assetBadges(r).length > 0 && (
+                    {badges.length > 0 && (
                       <span className="inline-flex flex-wrap items-center gap-1 ml-1">
-                        {assetBadges(r).map((a) => (
+                        {badges.map((a) => (
                           <span key={`asset-${a.key}`} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20" title={a.detail}>
                             {a.label}{a.key !== "carrier" ? "" : `: ${a.detail}`}
                           </span>
