@@ -22,6 +22,7 @@ import ipaddress
 import json
 import logging
 import os
+import ssl
 import time
 import urllib.request
 from pathlib import Path
@@ -57,6 +58,7 @@ class MispSource:
         self._key = os.environ.get("MISP_KEY", "")
         self._last = os.environ.get("MISP_LAST", "7d")
         self._limit = int(os.environ.get("MISP_LIMIT", "100000"))
+        self._verify = os.environ.get("MISP_VERIFY", "true").lower() in ("true", "1", "yes")
         tags = [t.strip() for t in os.environ.get("MISP_TAGS", "").split(",") if t.strip()]
         self._tags = tags or None
 
@@ -90,7 +92,8 @@ class MispSource:
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        ssl_ctx = ssl.create_default_context() if self._verify else ssl._create_unverified_context()
+        with urllib.request.urlopen(req, timeout=120, context=ssl_ctx) as resp:
             raw = resp.read()
         parsed = json.loads(raw)
         attrs = parsed.get("response", {}).get("Attribute", [])
