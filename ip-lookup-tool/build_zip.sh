@@ -9,10 +9,9 @@ PYTHON_VERSION="3.11.9"
 PYTHON_URL="https://www.python.org/ftp/python/${PYTHON_VERSION}/python-${PYTHON_VERSION}-embed-amd64.zip"
 GETPIP_URL="https://bootstrap.pypa.io/get-pip.py"
 
-# pytricia 预编译 wheel（由 .github/workflows/wheels.yml 在 CI 上构建并上传到此 Release）
+# pytricia 预编译 wheel（已提交在 release/，由 .github/workflows/wheels.yml 在 CI 上构建）
 # 随包分发后，build.bat 直接安装，Windows 用户无需 MSVC
 PYTRICIA_WHEEL="pytricia-1.0.2-cp311-cp311-win_amd64.whl"
-WHEEL_URL="https://github.com/steponeerror/ip-lookup-tool/releases/download/wheels-v1/${PYTRICIA_WHEEL}"
 
 RELEASE_DIR="$PROJECT_ROOT/release"
 
@@ -94,13 +93,12 @@ echo "  下载项目依赖（纯 Python 包 + 预编译 wheel）..."
     -q fastapi uvicorn python-multipart python-dotenv \
     2>&1 || echo "  (部分底层包需在 Windows 上编译完成)"
 
-# pytricia：下载 CI 预编译的 wheel（随包分发，build.bat 直接安装，用户无需 MSVC）
-echo "  下载预编译的 pytricia wheel..."
-if curl -fL -o "$RELEASE_DIR/$PYTRICIA_WHEEL" "$WHEEL_URL"; then
-    echo "  → pytricia wheel 下载完成（随 zip 分发）"
+# pytricia：预编译 wheel 已提交在 release/，随包分发（build.bat 直接安装，用户无需 MSVC）
+if [ -f "$RELEASE_DIR/$PYTRICIA_WHEEL" ]; then
+    echo "  → pytricia 预编译 wheel 就绪（随 zip 分发）"
 else
-    echo "  [警告] 预编译 wheel 下载失败，build.bat 将在 Windows 上编译（需 MSVC）"
-    rm -f "$RELEASE_DIR/$PYTRICIA_WHEEL"
+    echo "  [警告] release/$PYTRICIA_WHEEL 不存在，build.bat 将在 Windows 上编译（需 MSVC）"
+    echo "         可运行 .github/workflows/wheels.yml 生成后放入 release/"
 fi
 
 # 把依赖写进 requirements.txt（build.bat 会补完安装）
@@ -147,7 +145,7 @@ with zipfile.ZipFile('../$ZIP_NAME', 'w', zipfile.ZIP_DEFLATED) as zf:
         if os.path.exists(p):
             zf.write(p, f)
 
-    # pytricia 预编译 wheel（放 zip 根，build.bat 的 pytricia-*.whl 分支会安装它）
+    # pytricia 预编译 wheel（放 zip 根，build.bat 直接安装）
     pytricia_wheel = 'pytricia-1.0.2-cp311-cp311-win_amd64.whl'
     if os.path.exists(pytricia_wheel):
         zf.write(pytricia_wheel, pytricia_wheel)
