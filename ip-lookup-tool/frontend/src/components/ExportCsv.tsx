@@ -9,49 +9,52 @@ export function ExportCsv({ results }: ExportCsvProps) {
 
   const csvEscape = (v: string) => /[,"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 
+  const assetVal = (r: LookupResult, key: string): string => {
+    const stmts = r.attributes?.[key];
+    if (!stmts || !stmts.length) return "";
+    return String(stmts[0].value);
+  };
+  const assetNative = (r: LookupResult, key: string): string => {
+    const stmts = r.attributes?.[key];
+    if (!stmts || !stmts.length) return "";
+    return stmts[0].native_type ?? "";
+  };
+
   const handleExport = () => {
+    // Fixed schema mirroring the frontend table columns.
     const header =
-      "ip,asn,asn_confidence,asn_algorithm,country,country_confidence,country_algorithm," +
-      "as_name,as_name_confidence,as_name_algorithm,is_isp," +
-      "proxy_detected,proxy_confidence,proxy_algorithm," +
-      "mobile_detected,mobile_confidence,mobile_algorithm," +
-      "hosting_detected,hosting_confidence,hosting_algorithm," +
-      "tor_detected,tor_confidence,tor_algorithm," +
-      "vpn_detected,vpn_confidence,vpn_algorithm," +
-      "malicious_detected,malicious_confidence,malicious_algorithm," +
-      "ip_range,range_confidence,range_algorithm,error\n";
+      "ip,asn,asn_confidence,country,country_confidence,as_name,as_name_confidence," +
+      "is_isp,classifications,ip_range,range_confidence,error," +
+      "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier\n";
 
     const rows = results
       .map((r) => {
-        const p = r.threats.proxy ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
-        const m = r.threats.mobile ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
-        const h = r.threats.hosting ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
-        const t = r.threats.tor ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
-        const v = r.threats.vpn ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
-        const mal = r.threats.malicious ?? { detected: false, confidence: 0, algorithm: "voting", sources: [] };
+        const classifications = Object.keys(r.classifications)
+          .map((type) => {
+            const ca = r.classifications[type];
+            return `${type}:${ca.verdict}:${ca.confidence}`;
+          })
+          .join(" | ");
 
         return [
           csvEscape(r.ip),
           csvEscape(String(r.asn.value)),
           String(r.asn.confidence),
-          csvEscape(r.asn.algorithm),
           csvEscape(r.country.value),
           String(r.country.confidence),
-          csvEscape(r.country.algorithm),
           csvEscape(r.as_name.value),
           String(r.as_name.confidence),
-          csvEscape(r.as_name.algorithm),
           String(r.is_isp),
-          String(p.detected), String(p.confidence), csvEscape(p.algorithm),
-          String(m.detected), String(m.confidence), csvEscape(m.algorithm),
-          String(h.detected), String(h.confidence), csvEscape(h.algorithm),
-          String(t.detected), String(t.confidence), csvEscape(t.algorithm),
-          String(v.detected), String(v.confidence), csvEscape(v.algorithm),
-          String(mal.detected), String(mal.confidence), csvEscape(mal.algorithm),
+          csvEscape(classifications),
           csvEscape(r.ip_range.value),
           String(r.ip_range.confidence),
-          csvEscape(r.ip_range.algorithm),
           csvEscape(r.error ?? ""),
+          csvEscape(assetVal(r, "is_proxy")),
+          csvEscape(assetNative(r, "is_proxy")),
+          csvEscape(assetVal(r, "is_hosting")),
+          csvEscape(assetVal(r, "is_tor")),
+          csvEscape(assetVal(r, "is_vpn")),
+          csvEscape(assetVal(r, "carrier")),
         ].join(",");
       })
       .join("\n");

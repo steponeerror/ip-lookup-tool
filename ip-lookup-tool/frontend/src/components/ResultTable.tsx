@@ -1,12 +1,12 @@
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
-import type { LookupResult, MergedField, ThreatAssessment } from "../api";
+import type { LookupResult, MergedField, ClassificationAssessment } from "../api";
 
 interface ResultTableProps {
   results: LookupResult[];
 }
 
-type SortKey = "ip" | "asn" | "country" | "as_name" | "is_isp" | "threat" | "ip_range";
+type SortKey = "ip" | "asn" | "country" | "as_name" | "verdict" | "threat" | "ip_range";
 
 // Confidence color: continuous from red (0) → amber (50) → emerald (95+)
 function confColor(conf: number): string {
@@ -21,32 +21,148 @@ function confTextColor(conf: number): string {
   return "text-red-400";
 }
 
-const THREAT_LABELS: Record<string, string> = {
-  proxy: "代理",
-  mobile: "基站",
-  hosting: "机房",
-  tor: "Tor",
-  vpn: "VPN",
+// ── 判定 (verdict) — dominant color anchor. 红=恶意 / 橙=可疑 / 绿=可信 / 灰=未知 ──
+const VERDICT_LABEL: Record<string, string> = {
   malicious: "恶意",
+  suspicious: "可疑",
+  benign: "可信",
+  informational: "未知",
+  clean: "可信",
+};
+const VERDICT_STYLE: Record<string, string> = {
+  malicious: "bg-red-500/15 text-red-300 ring-1 ring-red-500/30",
+  suspicious: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30",
+  benign: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30",
+  informational: "bg-zinc-500/15 text-zinc-400 ring-1 ring-zinc-500/25",
+  clean: "bg-zinc-700/40 text-zinc-500 ring-1 ring-zinc-600/40",
+};
+const VERDICT_RANK: Record<string, number> = {
+  malicious: 3, suspicious: 2, benign: 1, informational: 0, clean: 0,
 };
 
-const THREAT_ACTIVE: Record<string, string> = {
-  proxy: "bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/25",
-  mobile: "bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/25",
-  hosting: "bg-purple-500/15 text-purple-400 ring-1 ring-purple-500/25",
-  tor: "bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/25",
-  vpn: "bg-cyan-500/15 text-cyan-400 ring-1 ring-cyan-500/25",
-  malicious: "bg-red-500/15 text-red-400 ring-1 ring-red-500/25",
+// 基础设施类标签 (anonymizing infra): neutral, not malicious.
+const INFRA_TYPES = new Set(["tor", "proxy", "vpn", "hosting", "scanner_hosting"]);
+
+// Normalize backend keys: hyphen → underscore ("brute-force" ≡ "brute_force").
+function normType(type: string): string {
+  return type.replace(/-/g, "_");
+}
+
+const CLASS_LABELS: Record<string, string> = {
+  "c2_server": "C2",
+  botnet_cc: "C2",
+  scanner: "扫描",
+  brute_force: "暴力破解",
+  malware: "恶意软件",
+  blacklist: "黑名",
+  tor: "Tor",
+  proxy: "代理",
+  hosting: "机房",
+  vpn: "VPN",
 };
 
-const THREAT_OUTLINED: Record<string, string> = {
-  proxy: "text-orange-400/60 ring-1 ring-orange-500/15",
-  mobile: "text-blue-400/60 ring-1 ring-blue-500/15",
-  hosting: "text-purple-400/60 ring-1 ring-purple-500/15",
-  tor: "text-rose-400/60 ring-1 ring-rose-500/15",
-  vpn: "text-cyan-400/60 ring-1 ring-cyan-500/15",
-  malicious: "text-red-400/60 ring-1 ring-red-500/15",
+// Asset attribute labels (rendered in the asset zone, separate from threats).
+const ASSET_LABELS: Record<string, string> = {
+  is_proxy: "代理",
+  is_hosting: "机房",
+  is_tor: "Tor",
+  is_vpn: "VPN",
+  carrier: "运营商",
 };
+
+// Classification types that ALSO appear as asset keys — when a classification
+// of this type exists, the asset badge is suppressed to avoid duplication.
+const ASSET_DUPLICATES_CLASSIFICATION = new Set(["is_tor", "is_vpn", "is_proxy"]);
+
+function assetBadges(r: LookupResult): { label: string; detail: string; key: string }[] {
+  const out: { label: string; detail: string; key: string }[] = [];
+  const classTypes = new Set(Object.keys(r.classifications));
+  for (const [key, stmts] of Object.entries(r.attributes)) {
+    if (!ASSET_LABELS[key]) continue;
+    // De-dup: if classification already covers this, skip
+    if (ASSET_DUPLICATES_CLASSIFICATION.has(key)) {
+      const ctype = key === "is_tor" ? "tor" : "proxy";
+      if (classTypes.has(ctype)) continue;
+    }
+    const first = stmts[0];
+    if (!first) continue;
+    let detail = first.source;
+    if (first.native_type) detail += ` · ${first.native_type}`;
+    if (key === "carrier") detail = String(first.value);
+    out.push({ label: ASSET_LABELS[key], detail, key });
+  }
+  return out;
+}
+
+const CLASS_PALETTE: Record<string, string> = {
+  // 行为类 (active malice) — red/orange
+  "c2_server": "bg-red-500/15 text-red-400 ring-1 ring-red-500/25",
+  botnet_cc: "bg-red-500/15 text-red-400 ring-1 ring-red-500/25",
+  malware: "bg-red-500/15 text-red-400 ring-1 ring-red-500/25",
+  blacklist: "bg-red-500/15 text-red-400 ring-1 ring-red-500/25",
+  scanner: "bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/25",
+  brute_force: "bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/25",
+  // 基础设施类 (anonymizing) — cyan/sky, neutral
+  tor: "bg-cyan-500/12 text-cyan-400 ring-1 ring-cyan-500/20",
+  proxy: "bg-cyan-500/12 text-cyan-400 ring-1 ring-cyan-500/20",
+  vpn: "bg-cyan-500/12 text-cyan-400 ring-1 ring-cyan-500/20",
+  hosting: "bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20",
+};
+const INFRA_FALLBACK = "bg-cyan-500/12 text-cyan-400 ring-1 ring-cyan-500/20";
+const BEHAVIORAL_FALLBACK = "bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/25";
+
+function isInfra(type: string): boolean {
+  const t = normType(type);
+  return INFRA_TYPES.has(t) ||
+    t.includes("tor") || t.includes("proxy") || t.includes("vpn") || t.includes("hosting");
+}
+
+function classPalette(type: string): string {
+  const t = normType(type);
+  if (CLASS_PALETTE[t]) return CLASS_PALETTE[t];
+  if (t.includes("c2") || t.includes("botnet")) return CLASS_PALETTE["c2_server"];
+  if (t.includes("malware")) return CLASS_PALETTE["malware"];
+  if (t.includes("scan")) return CLASS_PALETTE["scanner"];
+  if (t.includes("brute")) return CLASS_PALETTE["brute_force"];
+  return isInfra(t) ? INFRA_FALLBACK : BEHAVIORAL_FALLBACK;
+}
+
+function classLabel(type: string): string {
+  const t = normType(type);
+  return CLASS_LABELS[t] ?? t.replace(/_/g, " ");
+}
+
+// Shorten a malware family for inline chip: "win.dcrat" → "dcrat".
+function familyShort(name: string): string {
+  return name.replace(/^(win|linux|mac|osx|android|ios|trojan|worm|backdoor)[._-]/i, "");
+}
+
+// Aggregate threat signal across all classifications on one IP.
+function threatSummary(r: LookupResult): {
+  verdict: string; confidence: number; sourceCount: number;
+  corroborated: boolean; conflict: boolean; hasThreats: boolean;
+} {
+  const cas = Object.values(r.classifications).filter((c) => c.detected && c.confidence > 0);
+  if (cas.length === 0) {
+    return { verdict: "clean", confidence: 0, sourceCount: 0, corroborated: false, conflict: false, hasThreats: false };
+  }
+  let worst = cas[0];
+  for (const c of cas) {
+    if ((VERDICT_RANK[c.verdict] ?? 0) > (VERDICT_RANK[worst.verdict] ?? 0)) worst = c;
+  }
+  const worstVerdict = worst.verdict;
+  const confidence = Math.max(...cas.filter((c) => c.verdict === worstVerdict).map((c) => c.confidence));
+  const sources = new Set<string>();
+  for (const c of cas) for (const s of c.sources) sources.add(s.source);
+  return {
+    verdict: worstVerdict,
+    confidence,
+    sourceCount: sources.size,
+    corroborated: cas.some((c) => c.corroborated),
+    conflict: cas.some((c) => c.verdict_conflict),
+    hasThreats: true,
+  };
+}
 
 const ALGORITHM_ICONS: Record<string, string> = {
   cascade: "🔑",
@@ -54,28 +170,53 @@ const ALGORITHM_ICONS: Record<string, string> = {
   pcr6: "⚠️",
   authority: "🏛️",
   specificity: "🎯",
+  corroboration: "🤝",
 };
 
-const THREAT_KEYS = ["proxy", "mobile", "hosting", "tor", "vpn", "malicious"] as const;
-
-function ThreatBadges({ threats }: { threats: Record<string, ThreatAssessment> }) {
+function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> }) {
+  const label = VERDICT_LABEL[summary.verdict] ?? "未知";
+  const style = VERDICT_STYLE[summary.verdict] ?? VERDICT_STYLE.informational;
+  const showConf = summary.verdict === "malicious" || summary.verdict === "suspicious";
+  const tooltip = summary.hasThreats
+    ? `${label}${showConf ? ` 置信度 ${summary.confidence}` : ""}${summary.sourceCount ? ` · ${summary.sourceCount} 源` : ""}${summary.corroborated ? " · 已印证" : ""}${summary.conflict ? " · 判定冲突" : ""}`
+    : "未命中威胁情报";
   return (
-    <span className="inline-flex flex-wrap gap-1">
-      {THREAT_KEYS.map((key) => {
-        const ta = threats[key];
-        if (!ta) return null;
-        if (!ta.detected && ta.confidence === 0) return null;
-        const label = THREAT_LABELS[key];
-        if (ta.detected) {
-          const cls = ta.confidence >= 70 ? THREAT_ACTIVE[key] : THREAT_OUTLINED[key];
-          return (
-            <span key={key} title={`${label}: confidence ${ta.confidence} (${ta.algorithm})`} className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${cls}`}>
-              {label}
-            </span>
-          );
-        }
-        return null;
+    <span title={tooltip} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${style}`}>
+      {label}
+      {showConf && <span className="font-mono text-[10px] opacity-80">{summary.confidence}</span>}
+    </span>
+  );
+}
+
+function ThreatTags({ r, summary }: { r: LookupResult; summary: ReturnType<typeof threatSummary> }) {
+  const keys = Object.keys(r.classifications).filter((t) => {
+    const ca = r.classifications[t];
+    return ca.detected && ca.confidence > 0;
+  });
+  if (keys.length === 0) return <span className="text-zinc-700 text-[11px]">-</span>;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {keys.map((type) => {
+        const ca = r.classifications[type];
+        const label = classLabel(type);
+        const family = ca.malware_names.length > 0 ? familyShort(ca.malware_names[0]) : null;
+        const tooltip = `${label}: ${VERDICT_LABEL[ca.verdict] ?? ca.verdict}, 置信度 ${ca.confidence}${ca.corroborated ? ", 已印证" : ""}`;
+        return (
+          <span key={type} title={tooltip} className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${classPalette(type)}`}>
+            {label}{family && <span className="ml-0.5 opacity-70">·{family}</span>}
+          </span>
+        );
       })}
+      {summary.sourceCount > 0 && (
+        <span className="text-[10px] text-zinc-500" title="命中情报源数">
+          {summary.sourceCount}源{summary.corroborated && <span className="ml-px text-emerald-400">✓</span>}
+        </span>
+      )}
+      {summary.conflict && (
+        <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-amber-500/25" title="多源判定冲突">
+          ⚠冲突
+        </span>
+      )}
     </span>
   );
 }
@@ -86,7 +227,7 @@ function lowestConfidence(r: LookupResult): number {
     r.asn.confidence,
     r.as_name.confidence,
     r.ip_range.confidence,
-    ...Object.values(r.threats).map((t) => t.confidence),
+    ...Object.values(r.classifications).map((c) => c.confidence),
   ];
   return Math.min(...confs);
 }
@@ -133,43 +274,64 @@ function FieldDetail<T>({
   );
 }
 
-function ThreatDetail({ threats }: { threats: Record<string, ThreatAssessment> }) {
+function ClassificationDetailPanel({ classifications }: { classifications: Record<string, ClassificationAssessment> }) {
+  const keys = Object.keys(classifications);
+  if (keys.length === 0) {
+    return (
+      <div>
+        <span className="text-xs font-medium text-zinc-300">威胁明细</span>
+        <div className="ml-3 mt-1 text-[11px] text-zinc-600">未命中</div>
+      </div>
+    );
+  }
   return (
     <div>
-      <span className="text-xs font-medium text-zinc-300">Threat</span>
-      <div className="ml-3 mt-1 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3">
-        {THREAT_KEYS.map((key) => {
-          const ta = threats[key];
-          if (!ta) return null;
-          if (!ta.detected && ta.confidence === 0 && ta.sources.length === 0) return null;
+      <span className="text-xs font-medium text-zinc-300">威胁明细</span>
+      <div className="ml-3 mt-1 space-y-2.5">
+        {keys.map((type) => {
+          const ca = classifications[type];
           return (
-            <div key={key}>
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={`inline-block h-1.5 w-1.5 rounded-full ${
-                    ta.detected ? "bg-orange-400" : "bg-zinc-600"
-                  }`}
-                />
-                <span className="text-[11px] text-zinc-400">{THREAT_LABELS[key]}</span>
-                <span className={`text-[10px] ${confTextColor(ta.confidence)}`}>
-                  {ta.confidence}
+            <div key={type}>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className={`inline-block h-1.5 w-1.5 rounded-full ${ca.detected ? "bg-orange-400" : "bg-zinc-600"}`} />
+                <span className="text-[11px] text-zinc-400 font-medium">{classLabel(type)}</span>
+                <span className={`rounded px-1 py-px text-[10px] font-medium ${VERDICT_STYLE[ca.verdict] ?? VERDICT_STYLE.informational}`}>
+                  {VERDICT_LABEL[ca.verdict] ?? ca.verdict}
                 </span>
-                <span className="text-[10px] text-zinc-600">
-                  {ALGORITHM_ICONS[ta.algorithm] ?? ta.algorithm}
-                </span>
+                <span className={`text-[10px] ${confTextColor(ca.confidence)}`}>{ca.confidence}</span>
+                <span className="text-[10px] text-zinc-600">{ALGORITHM_ICONS[ca.algorithm] ?? ca.algorithm}</span>
+                {ca.corroborated && (
+                  <span className="text-[10px] text-amber-400" title="2+ 独立源印证">已印证</span>
+                )}
+                {ca.verdict_conflict && (
+                  <span className="text-[10px] text-red-400" title="源之间判定冲突">判定冲突</span>
+                )}
               </div>
-              {ta.sources.length > 0 && (
-                <div className="ml-3 flex flex-wrap gap-x-3">
-                  {ta.sources.map((s) => (
-                    <span key={s.source} className="text-[10px]">
-                      <span className="text-zinc-600">{s.source}</span>
-                      {s.authoritative && (
-                        <span className="text-amber-400" title="authoritative">★</span>
+              {/* 恶意软件家族 */}
+              {ca.malware_names.length > 0 && (
+                <div className="ml-3 mt-1 flex flex-wrap gap-1">
+                  {ca.malware_names.map((m) => (
+                    <span key={m} className="rounded bg-purple-500/10 px-1 py-px text-[10px] text-purple-400 font-mono">{m}</span>
+                  ))}
+                </div>
+              )}
+              {/* 每源明细 */}
+              {ca.details.length > 0 && (
+                <div className="ml-3 mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+                  {ca.details.map((d, idx) => (
+                    <span key={d.source + idx} className="text-[10px] leading-relaxed">
+                      <span className="text-zinc-600">{d.source}</span>
+                      {d.native_type && (
+                        <span className="text-zinc-500 ml-1" title="源原生类型">
+                          [{d.native_type}]
+                        </span>
                       )}
-                      <span className="text-zinc-700 mx-0.5">:</span>
-                      <span className={s.value ? "text-orange-400" : "text-zinc-500"}>
-                        {String(s.value ?? "N/A")}
-                      </span>
+                      {d.native_confidence != null && (
+                        <span className="text-zinc-500 ml-0.5">{d.native_confidence}</span>
+                      )}
+                      {d.first_seen && (
+                        <span className="text-zinc-700 ml-1">{d.first_seen.slice(0, 10)}</span>
+                      )}
                     </span>
                   ))}
                 </div>
@@ -186,11 +348,11 @@ function ExpandableDetail({ r }: { r: LookupResult }) {
   return (
     <td colSpan={7} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
       <div className="grid gap-2.5">
-        <FieldDetail label="Country" field={r.country} format={String} />
+        <FieldDetail label="国家" field={r.country} format={String} />
         <FieldDetail label="ASN" field={r.asn} format={(v) => String(v)} />
-        <FieldDetail label="ISP / Org" field={r.as_name} format={String} />
-        <ThreatDetail threats={r.threats} />
-        <FieldDetail label="Range" field={r.ip_range} format={String} />
+        <FieldDetail label="机构 / ISP" field={r.as_name} format={String} />
+        <ClassificationDetailPanel classifications={r.classifications} />
+        <FieldDetail label="网段" field={r.ip_range} format={String} />
       </div>
     </td>
   );
@@ -198,16 +360,15 @@ function ExpandableDetail({ r }: { r: LookupResult }) {
 
 function SummaryBar({ results }: { results: LookupResult[] }) {
   const stats = useMemo(() => {
-    const threats: Record<string, number> = {};
-    for (const k of THREAT_KEYS) threats[k] = 0;
+    const classTotals: Record<string, number> = {};
     let ispCount = 0;
     let lowConf = 0;
     let medConf = 0;
     let highConf = 0;
 
     for (const r of results) {
-      for (const k of THREAT_KEYS) {
-        if (r.threats[k]?.detected) threats[k]++;
+      for (const type of Object.keys(r.classifications)) {
+        classTotals[type] = (classTotals[type] || 0) + 1;
       }
       if (r.is_isp) ispCount++;
       const c = lowestConfidence(r);
@@ -216,16 +377,16 @@ function SummaryBar({ results }: { results: LookupResult[] }) {
       else highConf++;
     }
 
-    return { threats, ispCount, lowConf, medConf, highConf };
+    return { classTotals, ispCount, lowConf, medConf, highConf };
   }, [results]);
 
-  const activeThreats = THREAT_KEYS.filter((k) => stats.threats[k] > 0);
-  if (activeThreats.length === 0 && stats.ispCount === 0 && stats.lowConf === 0 && stats.medConf === 0) {
+  const activeClasses = Object.keys(stats.classTotals);
+  if (activeClasses.length === 0 && stats.ispCount === 0 && stats.lowConf === 0 && stats.medConf === 0) {
     return (
       <div className="flex items-center gap-3 text-xs text-zinc-500">
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          All {results.length.toLocaleString()} results high confidence
+          全部 {results.length.toLocaleString()} 条 高置信
         </span>
       </div>
     );
@@ -236,28 +397,28 @@ function SummaryBar({ results }: { results: LookupResult[] }) {
       {stats.lowConf > 0 && (
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500" />
-          {stats.lowConf} low confidence
+          {stats.lowConf} 低置信
         </span>
       )}
       {stats.medConf > 0 && (
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
-          {stats.medConf} medium confidence
+          {stats.medConf} 中置信
         </span>
       )}
       {stats.highConf > 0 && (
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          {stats.highConf} high confidence
+          {stats.highConf} 高置信
         </span>
       )}
-      {activeThreats.length > 0 && <span className="text-zinc-600">|</span>}
-      {activeThreats.map((k) => (
-        <span key={k} className="flex items-center gap-1">
-          <span className={`rounded px-1 py-0.5 text-[10px] font-medium ${THREAT_ACTIVE[k]}`}>
-            {THREAT_LABELS[k]}
+      {activeClasses.length > 0 && <span className="text-zinc-600">|</span>}
+      {activeClasses.map((type) => (
+        <span key={type} className="flex items-center gap-1">
+          <span className={`rounded px-1 py-0.5 text-[10px] font-medium ${classPalette(type)}`}>
+            {classLabel(type)}
           </span>
-          <span className="text-zinc-500">{stats.threats[k]}</span>
+          <span className="text-zinc-500">{stats.classTotals[type]}</span>
         </span>
       ))}
       {stats.ispCount > 0 && (
@@ -275,13 +436,99 @@ function SummaryBar({ results }: { results: LookupResult[] }) {
   );
 }
 
+function ScoredCell({
+  value,
+  confidence,
+  valueClass = "text-zinc-300",
+}: {
+  value: React.ReactNode;
+  confidence: number;
+  valueClass?: string;
+}) {
+  return (
+    <td className="px-3 py-2 whitespace-nowrap">
+      <span className={valueClass}>{value}</span>
+      <span className={`ml-1 text-[10px] ${confTextColor(confidence)}`}>({confidence})</span>
+    </td>
+  );
+}
+
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 200];
+
+function Pagination({
+  page,
+  pageCount,
+  pageSize,
+  total,
+  onPage,
+  onPageSize,
+}: {
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  total: number;
+  onPage: (p: number) => void;
+  onPageSize: (s: number) => void;
+}) {
+  if (total === 0) return null;
+  const from = page * pageSize + 1;
+  const to = Math.min((page + 1) * pageSize, total);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-400">
+      <div className="flex items-center gap-2">
+        <span className="text-zinc-500">每页</span>
+        <select
+          value={pageSize}
+          onChange={(e) => onPageSize(Number(e.target.value))}
+          className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/30"
+        >
+          {PAGE_SIZE_OPTIONS.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+        <span className="text-zinc-500 tabular-nums">
+          {from.toLocaleString()}–{to.toLocaleString()} / {total.toLocaleString()}
+        </span>
+      </div>
+      {pageCount > 1 && (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onPage(page - 1)}
+            disabled={page === 0}
+            className="rounded-md bg-zinc-800 px-2.5 py-1 text-zinc-300 transition-colors hover:text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            ‹
+          </button>
+          <span className="px-2 text-zinc-400 tabular-nums">
+            {page + 1} / {pageCount}
+          </span>
+          <button
+            onClick={() => onPage(page + 1)}
+            disabled={page >= pageCount - 1}
+            className="rounded-md bg-zinc-800 px-2.5 py-1 text-zinc-300 transition-colors hover:text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            ›
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ResultTable({ results }: ResultTableProps) {
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [disagreementsFirst, setDisagreementsFirst] = useState(false);
   const [filter, setFilter] = useState("");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
   const reduce = useReducedMotion();
+
+  // Reset to first page whenever the result set or view config changes.
+  useEffect(() => {
+    setPage(0);
+  }, [results, filter, sortKey, sortAsc, disagreementsFirst, pageSize]);
 
   const filtered = useMemo(() => {
     if (!filter.trim()) return results;
@@ -309,10 +556,12 @@ export function ResultTable({ results }: ResultTableProps) {
       case "asn": return typeof r.asn.value === "number" ? r.asn.value : 0;
       case "country": return r.country.value;
       case "as_name": return r.as_name.value;
-      case "is_isp": return r.is_isp ? 1 : 0;
+      case "verdict": return VERDICT_RANK[threatSummary(r).verdict] ?? 0;
       case "threat": {
-        const t = r.threats;
-        return (t.proxy?.detected ? 4 : 0) + (t.mobile?.detected ? 2 : 0) + (t.hosting?.detected ? 1 : 0);
+        return Object.keys(r.classifications).filter((t) => {
+          const ca = r.classifications[t];
+          return ca.detected && ca.confidence > 0;
+        }).length;
       }
       case "ip_range": return r.ip_range.value;
     }
@@ -337,6 +586,13 @@ export function ResultTable({ results }: ResultTableProps) {
     });
   }, [filtered, sortKey, sortAsc, disagreementsFirst]);
 
+  // Pagination: render only the current page slice. Sorting/filtering still
+  // run on the full set above (correct order); this just caps the DOM count.
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageStart = safePage * pageSize;
+  const pageRows = sorted.slice(pageStart, pageStart + pageSize);
+
   const toggleRow = (ip: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -356,10 +612,10 @@ export function ResultTable({ results }: ResultTableProps) {
   const cols: { key: SortKey; label: string; className?: string }[] = [
     { key: "ip", label: "IP" },
     { key: "asn", label: "ASN", className: "w-24" },
-    { key: "country", label: "Country", className: "w-24" },
-    { key: "as_name", label: "ISP / Org" },
-    { key: "is_isp", label: "ISP", className: "w-16 text-center" },
-    { key: "threat", label: "Type" },
+    { key: "country", label: "国家", className: "w-24" },
+    { key: "as_name", label: "ISP/Org" },
+    { key: "verdict", label: "判定", className: "w-20 text-center" },
+    { key: "threat", label: "威胁标签", className: "min-w-[180px]" },
     { key: "ip_range", label: "Range", className: "w-44" },
   ];
 
@@ -428,7 +684,9 @@ export function ResultTable({ results }: ResultTableProps) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r, i) => (
+            {pageRows.map((r, i) => {
+              const summary = threatSummary(r);
+              return (
               <Fragment key={r.ip + i}>
                 <motion.tr
                   initial={reduce ? false : { opacity: 0, y: 6 }}
@@ -444,51 +702,33 @@ export function ResultTable({ results }: ResultTableProps) {
                   }`}
                 >
                   <td className="px-3 py-2 text-zinc-100 font-semibold">{r.ip}</td>
-                  <td className="px-3 py-2">
-                    <span className="flex items-center gap-1.5">
-                      <span className={`h-1 rounded-full ${confColor(r.asn.confidence)}`}
-                            style={{ width: `${Math.max(r.asn.confidence, 2)}px` }} />
-                      <span className="text-zinc-300">{r.asn.value}</span>
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className="flex items-center gap-1.5">
-                      <span className={`h-1 rounded-full ${confColor(r.country.confidence)}`}
-                            style={{ width: `${Math.max(r.country.confidence, 2)}px` }} />
-                      <span className="text-zinc-300">{r.country.value}</span>
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className="flex items-center gap-1.5">
-                      <span className={`h-1 rounded-full ${confColor(r.as_name.confidence)}`}
-                            style={{ width: `${Math.max(r.as_name.confidence, 2)}px` }} />
-                      <span className="text-zinc-300">{r.as_name.value}</span>
-                      {r.is_isp && (
-                        <span className="rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">
-                          ISP
-                        </span>
-                      )}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    {r.is_isp ? (
-                      <span className="inline-block rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">
+                  <ScoredCell value={r.asn.value} confidence={r.asn.confidence} />
+                  <ScoredCell value={r.country.value} confidence={r.country.confidence} />
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <span className="text-zinc-300">{r.as_name.value}</span>
+                    <span className={`ml-1 text-[10px] ${confTextColor(r.as_name.confidence)}`}>({r.as_name.confidence})</span>
+                    {r.is_isp && (
+                      <span className="ml-1.5 rounded bg-emerald-500/15 px-1 py-0.5 text-[10px] text-emerald-400 ring-1 ring-emerald-500/25">
                         ISP
                       </span>
-                    ) : (
-                      <span className="text-zinc-700">-</span>
                     )}
                   </td>
-                  <td className="px-3 py-2">
-                    <ThreatBadges threats={r.threats} />
+                  <td className="px-3 py-2 text-center">
+                    <VerdictCell summary={summary} />
                   </td>
                   <td className="px-3 py-2">
-                    <span className="flex items-center gap-1.5">
-                      <span className={`h-1 rounded-full ${confColor(r.ip_range.confidence)}`}
-                            style={{ width: `${Math.max(r.ip_range.confidence, 2)}px` }} />
-                      <span className="text-zinc-500">{r.ip_range.value}</span>
-                    </span>
+                    <ThreatTags r={r} summary={summary} />
+                    {assetBadges(r).length > 0 && (
+                      <span className="inline-flex flex-wrap items-center gap-1 ml-1">
+                        {assetBadges(r).map((a) => (
+                          <span key={`asset-${a.key}`} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20" title={a.detail}>
+                            {a.label}{a.key !== "carrier" ? "" : `: ${a.detail}`}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </td>
+                  <ScoredCell value={r.ip_range.value} confidence={r.ip_range.confidence} valueClass="text-zinc-500" />
                 </motion.tr>
                 <AnimatePresence>
                   {expanded.has(r.ip) && (
@@ -504,7 +744,8 @@ export function ResultTable({ results }: ResultTableProps) {
                   )}
                 </AnimatePresence>
               </Fragment>
-            ))}
+              );
+            })}
             {sorted.length === 0 && filter && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-xs text-zinc-600">
@@ -515,6 +756,15 @@ export function ResultTable({ results }: ResultTableProps) {
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        page={safePage}
+        pageCount={pageCount}
+        pageSize={pageSize}
+        total={sorted.length}
+        onPage={setPage}
+        onPageSize={setPageSize}
+      />
     </div>
   );
 }
