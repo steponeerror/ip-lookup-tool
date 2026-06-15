@@ -3,10 +3,12 @@ from ipdb._types import EvidenceObservation
 from ipdb._merge import _decay_confidence, _assess_classification
 
 
-def _obs(source, reliability=0.5, first_seen=None, confidence=None):
+def _obs(source, reliability=0.5, first_seen=None, confidence=None,
+         malware_name=None):
     return EvidenceObservation(
         source=source, classification_type="c2-server", verdict="malicious",
-        reliability=reliability, first_seen=first_seen, confidence=confidence)
+        reliability=reliability, first_seen=first_seen, confidence=confidence,
+        malware_name=malware_name)
 
 
 def test_decay_recent_unchanged():
@@ -36,6 +38,20 @@ def test_decay_none_first_seen_unchanged():
 
 def test_single_source_not_corroborated():
     a = _assess_classification([_obs("threatfox", reliability=0.85)])
+    assert a.detected is True
+    assert a.corroborated is False
+    assert len(a.sources) == 1
+
+
+def test_single_source_multiple_observations_not_corroborated():
+    # Same source produces 2 observations (different malware_name, e.g.
+    # threatfox lists one IP under both win.vidar and agenttesla). These
+    # share a single source and must NOT count as independent corroboration.
+    grp = [
+        _obs("threatfox", reliability=0.85, malware_name="win.vidar"),
+        _obs("threatfox", reliability=0.85, malware_name="agenttesla"),
+    ]
+    a = _assess_classification(grp)
     assert a.detected is True
     assert a.corroborated is False
     assert len(a.sources) == 1

@@ -292,7 +292,12 @@ def _assess_classification(group: list) -> ClassificationAssessment:
     verdict_conflict = len(distinct_verdicts) > 1
 
     n = len(obs)
-    corroborated = n >= 2
+    # Corroboration = ≥2 INDEPENDENT sources, not ≥2 observations. A single
+    # source can emit multiple observations (e.g. threatfox lists one IP under
+    # two malware families); those share a source and must not count as
+    # independent corroboration.
+    distinct_sources = {o.source for o in obs}
+    corroborated = len(distinct_sources) >= 2
 
     # Weighted base confidence from reliabilities (mean reliability * 100).
     rels = [o.reliability for o in obs]
@@ -308,10 +313,15 @@ def _assess_classification(group: list) -> ClassificationAssessment:
     newest = max(first_seens) if first_seens else None
     confidence = _decay_confidence(base, newest)
 
+    # Dedupe sources by name: one source emitting multiple observations in a
+    # group yields a single attribution (reliability is source-level, identical
+    # across its observations).
     sources = [
-        SourceAttribution(source=o.source, value=True, reliability=o.reliability,
+        SourceAttribution(source=src, value=True,
+                          reliability=next(o.reliability for o in obs
+                                           if o.source == src),
                           authoritative=False)
-        for o in obs
+        for src in distinct_sources
     ]
     reporter_total = sum(o.reporter_count or 0 for o in obs)
 
