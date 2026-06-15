@@ -80,8 +80,32 @@ if [ ! -f "$PYTHON_DIR/Scripts/pip.exe" ]; then
 fi
 
 # 安装项目依赖
-echo "  安装项目依赖..."
-"$PYTHON_DIR/python.exe" -m pip install -q -r "$RELEASE_DIR/requirements.txt"
+echo "  下载项目依赖（纯 Python 包 + 预编译 wheel）..."
+"$PYTHON_DIR/python.exe" -m pip install \
+    --only-binary :all: \
+    --platform win_amd64 \
+    --python-version 3.11 \
+    --target "$PYTHON_DIR/Lib/site-packages" \
+    -q fastapi uvicorn python-multipart python-dotenv \
+    2>&1 || echo "  (部分底层包需在 Windows 上编译完成)"
+
+# pytricia 无预编译 Windows wheel，用 build.bat 在 Windows 上编译
+# 将 sdist 下载到 release/ 目录备用
+echo "  下载 pytricia 源码（需在 Windows 上编译）..."
+"$PYTHON_DIR/python.exe" -m pip download \
+    --only-binary :none: \
+    --no-deps \
+    -d "$RELEASE_DIR" pytricia 2>/dev/null || true
+
+# 把依赖写进 requirements.txt（build.bat 会补完安装）
+echo "fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+pytricia>=1.0.0
+python-multipart>=0.0.20
+python-dotenv>=1.1.0
+cabby>=0.1.0" > "$RELEASE_DIR/requirements.txt"
+echo "  ✅ 依赖准备完成（pytricia 需在 Windows 上编译）
+         → 解压后首次运行: build.bat"
 
 # 拷贝 .env（如果有）
 if [ -f "$PROJECT_ROOT/backend/.env" ]; then
