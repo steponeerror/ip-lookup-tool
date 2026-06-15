@@ -5,17 +5,39 @@ export interface SourceAttribution {
   authoritative: boolean;
 }
 
+export interface AssetStatement {
+  source: string;
+  value: boolean | string;
+  native_type?: string;
+}
+
 export interface MergedField<T = any> {
   value: T;
-  confidence: number;           // 0–100 integer
+  confidence: number;           // 0-100 integer
   algorithm: string;            // "cascade" | "voting" | "pcr6" | "authority" | "specificity"
   sources: SourceAttribution[];
 }
 
-export interface ThreatAssessment {
+export interface ClassificationDetail {
+  source: string;
+  reliability: number;
+  malware_name?: string;
+  native_confidence?: number;
+  first_seen?: string;
+  native_type?: string;
+}
+
+export interface ClassificationAssessment {
+  type: string;
+  verdict: string;             // "malicious" | "suspicious" | "benign" | "informational"
   detected: boolean;
-  confidence: number;           // 0–100 integer
+  confidence: number;           // 0-100 integer
   algorithm: string;
+  corroborated: boolean;
+  reporter_total: number;
+  verdict_conflict: boolean;
+  malware_names: string[];
+  details: ClassificationDetail[];
   sources: SourceAttribution[];
 }
 
@@ -26,7 +48,10 @@ export interface LookupResult {
   as_name: MergedField<string>;
   ip_range: MergedField<string>;
   is_isp: boolean;
-  threats: Record<string, ThreatAssessment>;   // key = "proxy", "tor", "vpn", "malicious", "hosting", "mobile"
+  classifications: Record<string, ClassificationAssessment>;
+  attributes: Record<string, AssetStatement[]>;
+  is_whitelisted: boolean;
+  whitelist_notes: string[];
   error?: string;
 }
 
