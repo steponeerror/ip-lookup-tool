@@ -85,6 +85,8 @@ class ClassificationAssessment:
     corroborated: bool                       # >=2 independent sources
     reporter_total: int = 0
     verdict_conflict: bool = False           # >=2 distinct verdicts in group
+    malware_names: list[str] = field(default_factory=list)   # de-duplicated, e.g. ["win.vidar"]
+    details: list[dict] = field(default_factory=list)        # per-source rich info
 
 
 @dataclass
@@ -119,6 +121,8 @@ class LookupResult:
                     "corroborated": v.corroborated,
                     "reporter_total": v.reporter_total,
                     "verdict_conflict": v.verdict_conflict,
+                    "malware_names": v.malware_names,
+                    "details": v.details,
                     "sources": [
                         _attribution_to_dict(s) for s in v.sources
                     ],
