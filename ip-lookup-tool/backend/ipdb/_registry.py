@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 
-from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment
+from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment, AssetStatement
 from ._merge import (
     FactualVoting,
     NamingAuthority,
@@ -90,6 +90,10 @@ _strategies = {
     "ip_range": RangeSpecificity(),
 }
 
+# Asset attributes collected into LookupResult.attributes (pure陈述, no scoring).
+# Explicit whitelist — sources emitting keys not in this set are ignored.
+_ASSET_KEYS = ("is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier")
+
 
 # --- Public API ---
 
@@ -138,6 +142,7 @@ def lookup(ip: str) -> LookupResult:
     # Collect scalar fields + evidence observations from all sources.
     field_values: dict[str, dict[str, Any]] = defaultdict(dict)
     observations = []
+    attributes: dict[str, list] = defaultdict(list)
     for source in _sources:
         try:
             raw = source.query(ip)
@@ -157,6 +162,17 @@ def lookup(ip: str) -> LookupResult:
                     classification_type=item["classification_type"],
                     verdict=item.get("verdict", "malicious"),
                     reliability=getattr(source, "reliability", 0.5)))
+            native_types = item.get("_native_types") or {}
+            for akey in _ASSET_KEYS:
+                if akey in item:
+                    stmt = AssetStatement(
+                        source=source.name, value=item[akey],
+                        native_type=native_types.get(akey))
+                    # Dedup by (source, value, native_type)
+                    if not any(s.source == stmt.source and s.value == stmt.value
+                               and s.native_type == stmt.native_type
+                               for s in attributes[akey]):
+                        attributes[akey].append(stmt)
 
     context = {"ip": ip, "country": field_values.get("country_code", {})}
 
@@ -187,6 +203,7 @@ def lookup(ip: str) -> LookupResult:
         ip_range=ip_range,
         is_isp=is_isp,
         classifications=classifications,
+        attributes=dict(attributes),
         is_whitelisted=False,
         whitelist_notes=[],
     )
@@ -201,6 +218,7 @@ def _error_result(ip: str) -> LookupResult:
         ip_range=MergedField("N/A", 0, "voting", []),
         is_isp=False,
         classifications={},
+        attributes={},
         is_whitelisted=False,
         whitelist_notes=[],
         error="invalid IP format",
