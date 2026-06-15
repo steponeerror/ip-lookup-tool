@@ -144,9 +144,8 @@ def _proxy_evidence(proxy_type: str) -> dict | None:
 
     Keeps VPN/PUB (proxy), TOR (tor), DCH (hosting). Drops other types
     (SES/WEB/...) which are not meaningfully proxy/tor/hosting for this tool.
-    classification_type comes from normalize(pt, PROXY_MAP): VPN/PUB->proxy,
-    TOR->tor. DCH has no clean IntelMQ map -> "other" (NOT mislabeled "proxy"),
-    and its raw value is preserved in extra["native_type"] for STIX/future use.
+    Emits asset keys (is_proxy/is_hosting/is_tor) + _native_types for the
+    attributes channel; classification_type for the threat channel.
     """
     from .._classification import normalize, PROXY_MAP
 
@@ -155,12 +154,20 @@ def _proxy_evidence(proxy_type: str) -> dict | None:
         return None
     cls = normalize(pt, PROXY_MAP)
     evidence = {
-        "proxy_type": pt,
         "classification_type": cls,
         "verdict": "suspicious",
-        # legacy booleans kept until the boolean->type migration completes
-        "is_proxy": pt in ("VPN", "PUB"),
-        "is_hosting": pt == "DCH",
+        "extra": {"native_type": pt},
     }
-    evidence["extra"] = {"native_type": pt}
+    native = {}
+    if pt in ("VPN", "PUB"):
+        evidence["is_proxy"] = True
+        native["is_proxy"] = pt
+    if pt == "DCH":
+        evidence["is_hosting"] = True
+        native["is_hosting"] = "DCH"
+    if pt == "TOR":
+        evidence["is_tor"] = True
+        native["is_tor"] = "TOR"
+    if native:
+        evidence["_native_types"] = native
     return evidence

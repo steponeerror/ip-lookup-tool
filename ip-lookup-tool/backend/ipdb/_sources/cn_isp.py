@@ -95,6 +95,7 @@ class ChineseISPSource:
                 "country_code": node["country_code"],
                 "as_name": node["isp"],
                 "is_isp": True,
+                "carrier": node["isp"],
                 "ip_range": str(self._tree.get_key(ip)),
             }
         except KeyError:
