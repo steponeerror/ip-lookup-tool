@@ -54,3 +54,32 @@ def test_miss_returns_empty(tmp_path):
     src = FakeMulti(data_dir=tmp_path)
     src.load()
     assert src.query("9.9.9.9") == {}
+
+
+class _FakeProxySource(CsvSource):
+    name = "fake_proxy"
+    filename = "fake_proxy.csv"
+    fields = ("is_proxy",)
+
+    def parse_row(self, row):
+        # row = [ip, proxy_type]; map VPN/PUB -> is_proxy evidence
+        pt = row[1].strip().upper()
+        if pt not in ("VPN", "PUB"):
+            return None
+        return {
+            "_ip": row[0].strip(),
+            "classification_type": "proxy",
+            "verdict": "suspicious",
+            "is_proxy": True,
+            "extra": {"native_type": pt},
+        }
+
+
+def test_native_type_distinguishes_dedup(tmp_path):
+    """Two rows same CIDR, different native_type (VPN vs PUB) must NOT merge."""
+    src = _FakeProxySource(data_dir=tmp_path)
+    src._path = tmp_path / "fake_proxy.csv"
+    src._path.write_text("1.2.3.4,VPN\n1.2.3.4,PUB\n")
+    count = src.load()
+    # Both rows survive (different native_type), so count == 2
+    assert count == 2
