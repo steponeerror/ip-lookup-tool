@@ -7,12 +7,16 @@ from typing import AsyncIterator
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from ipdb import (
     load_db, lookup, get_status, refresh_stale,
     get_download_steps,
     enrich_with_ipapi, enrich_with_ipapi_is,
 )
+
+import os
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 
@@ -251,3 +255,17 @@ async def lookup_stix(ip: str):
             "STIX export unavailable: install stix2 package (pip install stix2)",
         )
     return bundle
+
+
+# ── Static file serving for production frontend ──
+# In development: run `npm run dev` separately (port 5173) for hot-reload.
+# In production: build first — cd frontend && npm run build — then access :8000.
+_static_dir = Path(__file__).parent.parent / "frontend" / "dist"
+_env_static = os.environ.get("IP_RADAR_STATIC_DIR")
+if _env_static:
+    _static_dir = Path(_env_static)
+if _static_dir.exists():
+    app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="frontend")
+    logger.info("Serving frontend from %s", _static_dir)
+else:
+    logger.info("No frontend build at %s — API only", _static_dir)
