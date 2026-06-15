@@ -81,7 +81,7 @@ function assetBadges(r: LookupResult): { label: string; detail: string; key: str
     if (!ASSET_LABELS[key]) continue;
     // De-dup: if classification already covers this, skip
     if (ASSET_DUPLICATES_CLASSIFICATION.has(key)) {
-      const ctype: Record<string, string> = { is_tor: "tor", is_proxy: "proxy", is_vpn: "vpn" };
+      const ctype: Record<string, string> = { is_tor: "tor", is_proxy: "proxy", is_vpn: "proxy" };
       if (classTypes.has(ctype[key])) continue;
     }
     const first = stmts[0];
