@@ -238,10 +238,29 @@ def get_status() -> dict:
     lite_count = lite_h.health().record_count if lite_h else 0
     tsv_count = tsv_h.health().record_count if tsv_h else 0
     cn_count = cn_h.health().record_count if cn_h else 0
+    # Accumulate total across all sources + per-category breakdowns
+    total_count = sum(h.record_count for h in healths)
+    # Categorize sources by type
+    scalar_keys = ("ipinfo_lite", "iptoasn", "cn_isp")
+    threat_keys = (
+        "threatfox", "otx", "spamhaus", "blocklist_de",
+        "emerging_threats", "ipsum", "firehol", "abuseipdb", "misp",
+    )
+    asset_keys = ("ip2proxy", "tor_exits", "x4bnet_vpn")
+    scalar_total = sum(by_name[k].health().record_count
+                       for k in scalar_keys if k in by_name)
+    threat_total = sum(by_name[k].health().record_count
+                       for k in threat_keys if k in by_name)
+    asset_total = sum(by_name[k].health().record_count
+                      for k in asset_keys if k in by_name)
     return {
         "last_updated": last_updated,
         "record_count": lite_count + tsv_count,
         "cn_record_count": cn_count,
+        "total_records": total_count,
+        "scalar_records": scalar_total,
+        "threat_records": threat_total,
+        "asset_records": asset_total,
         "is_stale": any(h.is_stale for h in healths),
     }
 
