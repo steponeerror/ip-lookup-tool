@@ -34,4 +34,6 @@ class TorExitSource(IpListSource):
         # Tor exits are /32 hosts
         return {"classification_type": self.classification_type,
                 "verdict": self.verdict,
-                "extra": {"native_type": self.classification_type}}
+                "extra": {"native_type": self.classification_type},
+                "is_tor": True,
+                "_native_types": {"is_tor": "TOR"}}
