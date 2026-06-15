@@ -27,7 +27,7 @@ const VERDICT_LABEL: Record<string, string> = {
   suspicious: "可疑",
   benign: "可信",
   informational: "未知",
-  clean: "可信",
+  clean: "—",
 };
 const VERDICT_STYLE: Record<string, string> = {
   malicious: "bg-red-500/15 text-red-300 ring-1 ring-red-500/30",
@@ -179,7 +179,8 @@ function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> })
   const showConf = summary.verdict === "malicious" || summary.verdict === "suspicious";
   const tooltip = summary.hasThreats
     ? `${label}${showConf ? ` 置信度 ${summary.confidence}` : ""}${summary.sourceCount ? ` · ${summary.sourceCount} 源` : ""}${summary.corroborated ? " · 已印证" : ""}${summary.conflict ? " · 判定冲突" : ""}`
-    : "未命中威胁情报";
+    : "";
+  if (!summary.hasThreats) return <span className="text-zinc-700 text-[11px]">-</span>;
   return (
     <span title={tooltip} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${style}`}>
       {label}

@@ -266,6 +266,6 @@ if _env_static:
     _static_dir = Path(_env_static)
 if _static_dir.exists():
     app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="frontend")
-    logger.info("Serving frontend from %s", _static_dir)
+    logging.info("Serving frontend from %s", _static_dir)
 else:
-    logger.info("No frontend build at %s — API only", _static_dir)
+    logging.info("No frontend build at %s — API only", _static_dir)
