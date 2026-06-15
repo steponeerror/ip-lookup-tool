@@ -1,0 +1,41 @@
+name: Build Windows Wheels
+
+# 一次性在 windows-latest（自带 MSVC）上编译 pytricia 的 cp311 win_amd64 wheel，
+# 上传到 Release tag wheels-v1，供 build_zip.sh / build.bat 直接下载安装。
+# 最终用户无需安装 MSVC 即可获得 pytricia。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'wheels-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  pytricia:
+    runs-on: windows-latest
+    steps:
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build pytricia wheel
+        run: |
+          pip wheel --no-deps "pytricia==1.0.2" -w dist/
+          dir dist
+
+      - name: Upload wheel to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: wheels-v1
+          name: Prebuilt Windows Wheels
+          body: |
+            Prebuilt Windows wheels for C-extension deps that have no official
+            win_amd64 wheel on PyPI. Built on windows-latest with MSVC v143.
+
+            Files:
+            - `pytricia-1.0.2-cp311-cp311-win_amd64.whl` — for Python 3.11 x64
+          files: dist/pytricia-*.whl
