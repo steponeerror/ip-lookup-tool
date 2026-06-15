@@ -59,6 +59,10 @@ export interface DbStatus {
   last_updated: string;
   record_count: number;
   cn_record_count: number;
+  total_records: number;
+  scalar_records: number;
+  threat_records: number;
+  asset_records: number;
   is_stale: boolean;
   warnings?: string[];
 }

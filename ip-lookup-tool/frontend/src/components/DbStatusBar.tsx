@@ -101,7 +101,7 @@ export function DbStatusBar() {
             <span>{status.warnings!.join("; ")}</span>
             <span className="text-zinc-700">|</span>
             <span className="text-zinc-500">
-              {status.record_count.toLocaleString()} ASN + {status.cn_record_count.toLocaleString()} CN ISP
+              {status.total_records.toLocaleString()} 条记录
             </span>
           </div>
           <button
@@ -125,9 +125,21 @@ export function DbStatusBar() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
           </span>
-          <span>{status.record_count.toLocaleString()} ASN + {status.cn_record_count.toLocaleString()} CN ISP</span>
+          <span>{status.total_records.toLocaleString()} 条记录</span>
           <span className="text-zinc-700">|</span>
-          <span>Updated {status.last_updated}</span>
+          <span className="text-zinc-500 tabular-nums">
+            {status.scalar_records.toLocaleString()} 标量
+          </span>
+          <span className="text-zinc-600">·</span>
+          <span className="text-zinc-500 tabular-nums">
+            {status.threat_records.toLocaleString()} 威胁
+          </span>
+          <span className="text-zinc-600">·</span>
+          <span className="text-zinc-500 tabular-nums">
+            {status.asset_records.toLocaleString()} 资产
+          </span>
+          <span className="text-zinc-700">|</span>
+          <span>更新 {status.last_updated}</span>
           {status.is_stale && (
             <span className="text-yellow-500">(stale)</span>
           )}
