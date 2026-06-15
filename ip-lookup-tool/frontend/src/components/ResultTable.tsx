@@ -77,12 +77,12 @@ const ASSET_DUPLICATES_CLASSIFICATION = new Set(["is_tor", "is_vpn", "is_proxy"]
 function assetBadges(r: LookupResult): { label: string; detail: string; key: string }[] {
   const out: { label: string; detail: string; key: string }[] = [];
   const classTypes = new Set(Object.keys(r.classifications));
-  for (const [key, stmts] of Object.entries(r.attributes)) {
+  for (const [key, stmts] of Object.entries(r.attributes ?? {})) {
     if (!ASSET_LABELS[key]) continue;
     // De-dup: if classification already covers this, skip
     if (ASSET_DUPLICATES_CLASSIFICATION.has(key)) {
-      const ctype = key === "is_tor" ? "tor" : "proxy";
-      if (classTypes.has(ctype)) continue;
+      const ctype: Record<string, string> = { is_tor: "tor", is_proxy: "proxy", is_vpn: "vpn" };
+      if (classTypes.has(ctype[key])) continue;
     }
     const first = stmts[0];
     if (!first) continue;
