@@ -30,7 +30,8 @@ class IpListSource:
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir
         self._path = data_dir / self.filename
-        self._tree: Optional[pytricia.PyTricia] = None
+        self._mmdb_path = data_dir / f"{self.filename}.mmdb"
+        self._reader: Optional["maxminddb.Reader"] = None
         self._count: int = 0
         self._loaded_at: float = 0.0
 
@@ -49,7 +50,7 @@ class IpListSource:
         ]
 
     def get_insert_data(self) -> dict:
-        """Value to store in pytricia for each CIDR.
+        """Value to store in MMDB for each CIDR.
 
         If the source declares a fusion `classification_type`, emit the evidence
         dict {classification_type, verdict}; otherwise fall back to the legacy
@@ -85,42 +86,43 @@ class IpListSource:
 
     def load(self) -> int:
         import ipaddress as _ipa
+        from ._mmdb import write_mmdb, open_reader, needs_convert
 
-        tree = pytricia.PyTricia(32)
-        count = 0
         if not self._path.exists():
-            self._tree = tree
+            self._reader = None
             return 0
-        insert_data = self.get_insert_data()
-        with open(self._path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                # Strip inline comments (e.g. spamhaus "CIDR ; SBLxxxx")
-                for sep in (";", "#"):
-                    if sep in line:
-                        line = line.split(sep, 1)[0].strip()
-                if not line:
-                    continue
-                try:
-                    net = _ipa.IPv4Network(line, strict=False)
-                except (_ipa.AddressValueError, ValueError):
-                    continue
-                tree.insert(str(net), [insert_data])
-                count += 1
-        self._tree = tree
-        self._count = count
+        if needs_convert(self._path, self._mmdb_path):
+            insert_data = self.get_insert_data()
+            records = []
+            with open(self._path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    for sep in (";", "#"):
+                        if sep in line:
+                            line = line.split(sep, 1)[0].strip()
+                    if not line:
+                        continue
+                    try:
+                        net = _ipa.IPv4Network(line, strict=False)
+                    except (_ipa.AddressValueError, ValueError):
+                        continue
+                    records.append((str(net), [insert_data]))
+            write_mmdb(records, self._mmdb_path)
+            self._mmdb_path.with_suffix(".count").write_text(str(len(records)))
+
+        self._reader = open_reader(self._mmdb_path)
+        count_path = self._mmdb_path.with_suffix(".count")
+        self._count = int(count_path.read_text()) if count_path.exists() else 0
         self._loaded_at = time.time()
-        return count
+        return self._count
 
     def query(self, ip: str) -> Any:
-        if self._tree is None:
+        if self._reader is None:
             return {}
-        try:
-            return self._tree[ip]
-        except KeyError:
-            return {}
+        result = self._reader.get(ip)
+        return result if result is not None else {}
 
     def health(self) -> SourceHealth:
         file_mtime = None
@@ -135,7 +137,7 @@ class IpListSource:
             time.time() - file_mtime > self.stale_days * 86400)
         return SourceHealth(
             name=self.name,
-            loaded=self._tree is not None,
+            loaded=self._reader is not None,
             record_count=self._count,
             last_updated=last_updated,
             is_stale=is_stale,
@@ -161,64 +163,64 @@ class CsvSource(IpListSource):
         raise NotImplementedError("CsvSource subclasses must implement parse_row()")
 
     def load(self) -> int:
-        import ipaddress as _ipa
         import csv as _csv
+        import ipaddress as _ipa
+        from ._mmdb import write_mmdb, open_reader, needs_convert
 
-        tree = pytricia.PyTricia(32)
         if not self._path.exists():
-            self._tree = tree
+            self._reader = None
             return 0
 
         # cidr_str -> list[evidence dict], deduped by (classification_type, verdict, malware_name, native_type)
         acc: dict[str, list[dict]] = {}
-        count = 0
-        with open(self._path, "r", encoding="utf-8") as f:
-            for _ in range(self.skip_lines):
-                next(f, None)
-            reader = _csv.reader(f, delimiter=self.delimiter)
-            for row in reader:
-                if not row:
-                    continue
-                parsed = self.parse_row(row)
-                if parsed is None:
-                    continue
-                ip_str = parsed.pop("_ip", row[0].strip())
-                cidr_str = parsed.pop("_cidr", None)
-                try:
-                    if cidr_str:
-                        net = _ipa.IPv4Network(cidr_str, strict=False)
-                    elif "/" in ip_str:
-                        net = _ipa.IPv4Network(ip_str, strict=False)
-                    else:
-                        _ipa.IPv4Address(ip_str)
-                        net = _ipa.IPv4Network(f"{ip_str}/32", strict=False)
-                except (_ipa.AddressValueError, ValueError):
-                    continue
-                key = str(net)
-                bucket = acc.setdefault(key, [])
-                dedup = (
-                    parsed.get("classification_type"),
-                    parsed.get("verdict"),
-                    parsed.get("malware_name"),
-                    (parsed.get("extra") or {}).get("native_type"),
-                )
-                if any(
-                    (o.get("classification_type"), o.get("verdict"),
-                     o.get("malware_name"),
-                     (o.get("extra") or {}).get("native_type")) == dedup
-                    for o in bucket
-                ):
-                    continue
-                bucket.append(parsed)
+        if needs_convert(self._path, self._mmdb_path):
+            with open(self._path, "r", encoding="utf-8") as f:
+                for _ in range(self.skip_lines):
+                    next(f, None)
+                reader = _csv.reader(f, delimiter=self.delimiter)
+                for row in reader:
+                    if not row:
+                        continue
+                    parsed = self.parse_row(row)
+                    if parsed is None:
+                        continue
+                    ip_str = parsed.pop("_ip", row[0].strip())
+                    cidr_str = parsed.pop("_cidr", None)
+                    try:
+                        if cidr_str:
+                            net = _ipa.IPv4Network(cidr_str, strict=False)
+                        elif "/" in ip_str:
+                            net = _ipa.IPv4Network(ip_str, strict=False)
+                        else:
+                            _ipa.IPv4Address(ip_str)
+                            net = _ipa.IPv4Network(f"{ip_str}/32", strict=False)
+                    except (_ipa.AddressValueError, ValueError):
+                        continue
+                    key = str(net)
+                    bucket = acc.setdefault(key, [])
+                    dedup = (
+                        parsed.get("classification_type"),
+                        parsed.get("verdict"),
+                        parsed.get("malware_name"),
+                        (parsed.get("extra") or {}).get("native_type"),
+                    )
+                    if any(
+                        (o.get("classification_type"), o.get("verdict"),
+                         o.get("malware_name"),
+                         (o.get("extra") or {}).get("native_type")) == dedup
+                        for o in bucket
+                    ):
+                        continue
+                    bucket.append(parsed)
+            write_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path)
+            self._mmdb_path.with_suffix(".count").write_text(
+                str(sum(len(v) for v in acc.values())))
 
-        for key, bucket in acc.items():
-            tree.insert(key, bucket)
-            count += len(bucket)
-
-        self._tree = tree
-        self._count = count
+        self._reader = open_reader(self._mmdb_path)
+        count_path = self._mmdb_path.with_suffix(".count")
+        self._count = int(count_path.read_text()) if count_path.exists() else 0
         self._loaded_at = time.time()
-        return count
+        return self._count
 
 
 class ApiSource:
