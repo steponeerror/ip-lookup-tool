@@ -36,6 +36,19 @@ def load_db() -> None:
 ### 为什么选 MMDB
 
 - **为这个问题而生的事实标准**：MaxMind、IPinfo、DB-IP 三家主流 geo DB 厂商**全部用 MMDB 格式**。用户最大的源（IPinfo）的提供方自己就发 MMDB。
+
+### MMDB 的容量边界与缓解
+
+**格式上限**：MMDB 数据部分指针为 32 位，单文件最大 ≈ 4GB（数据段）+ 搜索树 + 元数据。写入器（`mmdb-writer`）在构建期也将整个树 + 数据字典放在内存中。
+
+**对本项目的实际影响**（这是「每源一文件」设计的关键理由）：
+
+| 约束 | 本项目情况 | 结论 |
+|---|---|---|
+| 单文件 4GB 上限 | 每源各一个 `.mmdb`，当前最大源 ipinfo_lite CSV 288MB → MMDB 只会更小（指针复用压缩 string value） | 不构成风险 |
+| 写入器构建期 RAM | 只发生在 raw→MMDB 一次转换时（cached 后只 mmap 不构建）。ipinfo_lite 3-4M 行可能耗尽内存，但分两步缓解：(a) IPinfo 若原生 MMDB 则免转换；(b) 转换失败可回到 pytricia | 记录为风险（风险表已有） |
+| 源数增长 | 每加一个源就多一个 `.mmdb` 文件 + 一个 mmap fd。普通 Linux/macOS fd 上限 256-∞，Windows 有限。几百个源之前不会触发 fd 问题 | 可接受 |
+| 多 reader 查询性能 | 每次 lookup 遍历所有源、调每个 reader.get()。与当前模型一致（遍历所有 pytricia tree） | 不变 |
 - **mmap 内存模型对症**：每个源 = 一个 mmap 文件 + 一个 reader，RSS ≈ **工作集**（最近查过的页），OS 在内存紧张时自动换出冷页。**数据涨 10×、RSS 不涨 10×**。
 - **成熟工具链**：`maxminddb`（reader，mmap，μs 级，纯 Python + 可选 C 扩展）+ `mmdb-writer`（写自定义 MMDB）。
 - **value 表达力够**：MMDB 支持 map / array / 嵌套对象，能表达威胁源「一个 CIDR 多条证据」的数组语义。
@@ -158,11 +171,12 @@ def open_reader(mmdb_path: Path) -> maxminddb.Reader:
 
 | 风险 | 应对 |
 |---|---|
-| `mmdb-writer` 写 288MB CSV 性能可能慢 | 转换缓存（一次性）；若 IPinfo 原生 MMDB 则 ipinfo_lite 免转换。Phase 2 实测。 |
-| Windows wheel：`mmdb-writer` 是否纯 Python | `maxminddb` 有官方 wheel；`mmdb-writer` 实测确认。已趟过 pytricia wheel 流程。 |
+| `mmdb-writer` 写 288MB CSV 性能可能慢；ipinfo_lite 3-4M 行写入器可能 OOM | 转换缓存（一次性）；若 IPinfo 原生 MMDB 则 ipinfo_lite 免转换；最坏方案：ipinfo_lite 保留 pytricia 不迁移。Phase 2 实测。 |
+| Windows wheel：`mmdb-writer` 是否纯 Python | `maxminddb` 有官方 wheel；`mmdb-writer` 纯 Python + `netaddr` 纯 Python = Windows 无 C 编译需求（比 pytricia 省事太多）。 |
 | 冷区域首查有缺页延迟（μs–ms） | 交互式查询工具完全可接受；热区后常驻变快。诚实边界，非阻塞。 |
 | 威胁源多证据数组累积语义 | 现有 per-CIDR 累积模式直接平移；转换测试覆盖多证据场景。 |
 | 便宜模型「IPinfo 原生 MMDB」结论 | 实现期用真实 token 实测；不成立则走 mmdb-writer 转换，方案仍有效。 |
+| **MMDB 单文件 4GB 上限 + 写入器构建期高内存**（本次新增） | **每源各一文件**天然不触及 4GB。写入器 RAM 峰值仅发生在首次转换，cached 后消失。预计最大源 ipinfo_lite (3-4M 行) 构建 RAM 可能偏高，归入上方 mmdb-writer 性能风险一并实测。ip2proxy/cn_isp/misp/threatfox 等行数少 1-2 个量级，无风险。 |
 
 ## 验收标准（goal-driven，可独立循环验证）
 

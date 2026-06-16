@@ -4,7 +4,9 @@
 
 **Goal:** Migrate all offline IP-intelligence sources from pytricia (Python-dict values, RSS scales linearly with total data) to MaxMind MMDB + mmap (RSS ≈ working set), removing pytricia entirely, while keeping the `OfflineSource` contract and `registry.lookup()` pipeline unchanged.
 
-**Architecture:** Each source's `load()` builds an MMDB file (cached by raw-file mtime) and opens an mmap reader; `query(ip)` calls `reader.get(ip)` (returns value or `None`). 11 of 14 sources share `_base.py`'s `IpListSource`/`CsvSource`, so migrating `_base.py` migrates them in one change; the 3 standalone sources (ipinfo_lite, cn_isp, misp) migrate individually. `registry.py` is untouched.
+**Architecture:** Per-source MMDB files — not one monolithic database. Each source's `load()` builds its own `.mmdb` file (cached by raw-file mtime) and opens an mmap reader; `query(ip)` calls `reader.get(ip)`. 11 of 14 sources share `_base.py`'s `IpListSource`/`CsvSource`, so migrating `_base.py` migrates them in one change; the 3 standalone sources (ipinfo_lite, cn_isp, misp) migrate individually. `registry.py` is untouched.
+
+**MMDB capacity note:** MMDB has a ~4GB-per-file limit (data-section pointers are 32bit). Per-source files keep each well under this: current largest (ipinfo_lite, 288MB CSV → MMDB with value dedup is smaller). Writer memory during first conversion of ipinfo_lite (3-4M rows) is the practical concern — acknowledged in Task 6's test fallback.
 
 **Tech Stack:** Python 3, `maxminddb==3.1.1` (reader, mmap, C-ext optional), `mmdb-writer==0.2.7` (writer, pure-Python, pulls `netaddr`), pytest. Removing: `pytricia==1.0.2`.
 
@@ -308,36 +310,25 @@ New `CsvSource.load` (replaces existing `CsvSource.load`, lines 163-221). Parsin
                         continue
                     bucket.append(parsed)
             write_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path)
+            self._mmdb_path.with_suffix(".count").write_text(str(sum(len(v) for v in acc.values())))
 
-        self._reader = open_reader(self._mmdb_path)
-        self._count = sum(len(v) for v in acc.values()) if acc else 0
-        # If we skipped convert (cached mmdb), recompute count from a metadata-free
-        # source of truth: count CIDRs by iterating is expensive, so store count
-        # in a sidecar file on convert and read it back.
-        self._loaded_at = time.time()
-        return self._count
-```
-
-**Important — count persistence:** when the MMDB is cached (convert skipped), `acc` is empty and `self._count` would read 0. Store the count alongside the MMDB. Update `write_mmdb` calls to also persist count. Simplest fix: after `write_mmdb(...)`, write a sidecar `self._mmdb_path.with_suffix(".count")` containing the count, and on the cached path read it. Replace the last three lines of `CsvSource.load` with:
-
-```python
         self._reader = open_reader(self._mmdb_path)
         count_path = self._mmdb_path.with_suffix(".count")
-        if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
-            self._count = sum(len(v) for v in acc.values())
-        else:
-            self._count = int(count_path.read_text().strip())
+        self._count = int(count_path.read_text()) if count_path.exists() else 0
         self._loaded_at = time.time()
         return self._count
 ```
 
-And in `IpListSource.load`, after `write_mmdb(records, self._mmdb_path)`, add:
+**Sidecar `.count` rationale:** `maxminddb.metadata.record_count` counts nodes, not accumulated evidence records in array values. CsvSource's per-CIDR evidence count (`len(bucket)` summed) is the semantics we need — hence a sidecar file. On convert path the sidecar is written alongside the mmdb; on cached path it's read back. (For IpListSource, `len(records)` in the convert path is the record count — persist it identically.)
+
+IpListSource.load also needs the sidecar persist after `write_mmdb`:
 
 ```python
+            write_mmdb(records, self._mmdb_path)
             self._mmdb_path.with_suffix(".count").write_text(str(len(records)))
 ```
 
-and change the count-assignment line to read the sidecar when cached (mirror the CsvSource pattern).
+And replace its count assignment (line `self._count = self._reader.metadata().record_count ...`) with the same sidecar read pattern.
 
 - [ ] **Step 2: Update `health()` to report `loaded` from the reader**
 
