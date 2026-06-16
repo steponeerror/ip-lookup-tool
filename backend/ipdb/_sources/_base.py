@@ -90,6 +90,9 @@ class IpListSource:
             self._reader = None
             return 0
         if needs_convert(self._path, self._mmdb_path):
+            if self._reader is not None:
+                self._reader.close()
+                self._reader = None
             insert_data = self.get_insert_data()
             records = []
             with open(self._path, "r", encoding="utf-8") as f:
@@ -172,6 +175,9 @@ class CsvSource(IpListSource):
         # cidr_str -> list[evidence dict], deduped by (classification_type, verdict, malware_name, native_type)
         acc: dict[str, list[dict]] = {}
         if needs_convert(self._path, self._mmdb_path):
+            if self._reader is not None:
+                self._reader.close()
+                self._reader = None
             with open(self._path, "r", encoding="utf-8") as f:
                 for _ in range(self.skip_lines):
                     next(f, None)

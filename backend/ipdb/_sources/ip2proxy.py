@@ -68,6 +68,9 @@ class IP2ProxySource(CsvSource):
                  or actual.stat().st_mtime > self._mmdb_path.stat().st_mtime
                  or not count_path.exists())
         if stale:
+            if self._reader is not None:
+                self._reader.close()
+                self._reader = None
             extracted = None
             src = actual
             if zipfile.is_zipfile(actual):

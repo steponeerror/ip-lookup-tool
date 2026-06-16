@@ -73,6 +73,9 @@ class IPinfoLiteSource:
             return 0
         count_path = self._mmdb_path.with_suffix(".count")
         if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
+            if self._reader is not None:
+                self._reader.close()
+                self._reader = None
             import csv as _csv
             records = []
             with open(self._path, "r", encoding="utf-8") as f:
