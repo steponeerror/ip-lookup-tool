@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-# 打包 Windows 分发包 — 解压即用（含 Portable Python + 依赖 + 数据 + 前端）
+# 打包 Windows 分发包 — 含代码 + 前端 + 数据 + 预编译 pytricia wheel。
+# Python 运行时与依赖不在本机安装/打包，统一由 build.bat 在 Windows 端首次运行时安装。
 set -e
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 ZIP_NAME="IPRadar-Windows.zip"
-
-PYTHON_VERSION="3.11.9"
-PYTHON_URL="https://www.python.org/ftp/python/${PYTHON_VERSION}/python-${PYTHON_VERSION}-embed-amd64.zip"
-GETPIP_URL="https://bootstrap.pypa.io/get-pip.py"
-
-# pytricia 预编译 wheel（已提交在 release/，由 .github/workflows/wheels.yml 在 CI 上构建）
-# 随包分发后，build.bat 直接安装，Windows 用户无需 MSVC
-PYTRICIA_WHEEL="pytricia-1.0.2-cp311-cp311-win_amd64.whl"
 
 RELEASE_DIR="$PROJECT_ROOT/release"
 
@@ -31,7 +24,8 @@ echo "  → frontend/dist/ 构建完成"
 echo ""
 echo "[2/5] 同步后端代码..."
 cd "$PROJECT_ROOT"
-rm -rf "$RELEASE_DIR/app/ipdb"
+mkdir -p "$RELEASE_DIR/app"
+rm -rf "$RELEASE_DIR/app/ipdb" "$RELEASE_DIR/python"
 cp -r backend/ipdb "$RELEASE_DIR/app/ipdb"
 cp backend/main.py "$RELEASE_DIR/app/main.py"
 find "$RELEASE_DIR/app" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
@@ -40,6 +34,7 @@ echo "  → app/ 同步完成"
 # 3. 同步前端静态文件
 echo ""
 echo "[3/5] 同步前端静态文件..."
+mkdir -p "$RELEASE_DIR/static"
 rm -rf "$RELEASE_DIR/static/"*
 cp -r frontend/dist/* "$RELEASE_DIR/static/"
 echo "  → static/ 同步完成"
@@ -52,64 +47,24 @@ cp -r backend/data "$RELEASE_DIR/data"
 find "$RELEASE_DIR/data" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 echo "  → data/ 同步完成"
 
-# 5. 下载 Portable Python + 安装依赖
+# 5. Python + 依赖：不在本机安装，由 build.bat 在 Windows 端首次运行时安装
 echo ""
-echo "[5/5] 下载 Portable Python + 安装依赖..."
-PYTHON_DIR="$RELEASE_DIR/python"
-
-if [ -f "$PYTHON_DIR/python.exe" ]; then
-    echo "  Python 已存在，跳过下载"
-else
-    echo "  下载 Python ${PYTHON_VERSION} embeddable..."
-    curl -L -o /tmp/python-embed.zip "$PYTHON_URL"
-    mkdir -p "$PYTHON_DIR"
-    unzip -q -o /tmp/python-embed.zip -d "$PYTHON_DIR"
-    rm /tmp/python-embed.zip
-
-    # 启用 site-packages（改 ._pth 文件）
-    for pth in "$PYTHON_DIR"/*._pth; do
-        if [ -f "$pth" ]; then
-            sed -i 's/#import site/import site/' "$pth"
-        fi
-    done
-    echo "  Python 解压 + 配置完成"
-fi
-
-# 安装 pip（如果还没有）
-if [ ! -f "$PYTHON_DIR/Scripts/pip.exe" ]; then
-    echo "  安装 pip..."
-    curl -L -o /tmp/get-pip.py "$GETPIP_URL"
-    "$PYTHON_DIR/python.exe" /tmp/get-pip.py
-    rm /tmp/get-pip.py
-fi
-
-# 安装项目依赖
-echo "  下载项目依赖（纯 Python 包 + 预编译 wheel）..."
-"$PYTHON_DIR/python.exe" -m pip install \
-    --only-binary :all: \
-    --platform win_amd64 \
-    --python-version 3.11 \
-    --target "$PYTHON_DIR/Lib/site-packages" \
-    -q fastapi uvicorn python-multipart python-dotenv \
-    2>&1 || echo "  (部分底层包需在 Windows 上编译完成)"
-
-# pytricia：预编译 wheel 已提交在 release/，随包分发（build.bat 直接安装，用户无需 MSVC）
+echo "[5/5] Python + 依赖：不在本机安装，由 build.bat 在 Windows 端首次运行时安装"
+PYTRICIA_WHEEL="pytricia-1.0.2-cp311-cp311-win_amd64.whl"
 if [ -f "$RELEASE_DIR/$PYTRICIA_WHEEL" ]; then
-    echo "  → pytricia 预编译 wheel 就绪（随 zip 分发）"
+    echo "  → 预编译 pytricia wheel 就绪（随 zip 分发，build.bat 直接安装，用户无需 MSVC）"
 else
-    echo "  [警告] release/$PYTRICIA_WHEEL 不存在，build.bat 将在 Windows 上编译（需 MSVC）"
-    echo "         可运行 .github/workflows/wheels.yml 生成后放入 release/"
+    echo "  [警告] release/$PYTRICIA_WHEEL 不存在"
+    echo "         build.bat 将在 Windows 上从源码编译（需 MSVC），或先运行 .github/workflows/wheels.yml 生成 wheel 放入 release/"
 fi
 
-# 把依赖写进 requirements.txt（build.bat 会补完安装）
+# requirements.txt（build.bat / 用户参考用）
 echo "fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
 pytricia>=1.0.0
 python-multipart>=0.0.20
 python-dotenv>=1.1.0
 cabby>=0.1.0" > "$RELEASE_DIR/requirements.txt"
-echo "  ✅ 依赖准备完成（pytricia 需在 Windows 上编译）
-         → 解压后首次运行: build.bat"
 
 # 拷贝 .env（如果有）
 if [ -f "$PROJECT_ROOT/backend/.env" ]; then
@@ -157,13 +112,6 @@ with zipfile.ZipFile('../$ZIP_NAME', 'w', zipfile.ZIP_DEFLATED) as zf:
             full = os.path.join(root, f)
             zf.write(full, full)
 
-    # python/
-    for root, dirs, files in os.walk('python'):
-        dirs[:] = [d for d in dirs if d != '__pycache__']
-        for f in files:
-            full = os.path.join(root, f)
-            zf.write(full, full)
-
     # static/
     for root, dirs, files in os.walk('static'):
         for f in files:
@@ -186,6 +134,7 @@ echo ""
 echo "═══════════════════════════════════════════"
 echo "  使用方式:"
 echo "  1. 解压 $ZIP_NAME 到任意目录"
-echo "  2. 双击 start.bat 启动"
-echo "  3. 浏览器打开 http://127.0.0.1:8000"
+echo "  2. 双击 build.bat 安装 Python + 依赖（仅首次）"
+echo "  3. 双击 start.bat 启动"
+echo "  4. 浏览器打开 http://127.0.0.1:8000"
 echo "═══════════════════════════════════════════"

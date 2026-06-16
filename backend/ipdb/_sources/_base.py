@@ -76,7 +76,7 @@ class IpListSource:
             entries = self.parse_raw(data)
             if not entries:
                 raise RuntimeError(f"No entries parsed from {self.name} response")
-            with open(self._path, "w") as f:
+            with open(self._path, "w", encoding="utf-8") as f:
                 f.write("\n".join(entries) + "\n")
             logger.info(f"Downloaded {self.name} ({len(entries)} entries)")
         except Exception:
@@ -92,7 +92,7 @@ class IpListSource:
             self._tree = tree
             return 0
         insert_data = self.get_insert_data()
-        with open(self._path) as f:
+        with open(self._path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):

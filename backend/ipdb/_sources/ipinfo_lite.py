@@ -54,7 +54,7 @@ class IPinfoLiteSource:
             with gzip.open(self._gz_path, "rb") as f_in:
                 with open(self._path, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
-            with open(self._path, "r") as f:
+            with open(self._path, "r", encoding="utf-8") as f:
                 line_count = sum(1 for _ in f)
             if line_count == 0:
                 raise RuntimeError("Downloaded file is empty")
