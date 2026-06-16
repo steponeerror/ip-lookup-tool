@@ -89,7 +89,7 @@ class ChineseISPSource:
                         existing = best.get(line)
                         if existing and existing["isp"] != "其他" and label == "其他":
                             continue
-                        best[line] = {"country_code": country, "isp": label}
+                        best[line] = {"country_code": country, "isp": label, "_net": line}
             write_mmdb(((k, v) for k, v in best.items()), self._mmdb_path,
                        database_type="IP-Radar-cn-isp")
             count_path.write_text(str(len(best)))
@@ -100,19 +100,17 @@ class ChineseISPSource:
         return self._count
 
     def query(self, ip: str) -> dict:
-        import ipaddress as _ipa
         if self._reader is None:
             return {}
         node = self._reader.get(ip)
         if node is None:
             return {}
-        _, plen = self._reader.get_with_prefix_len(ip)
         return {
             "country_code": node["country_code"],
             "as_name": node["isp"],
             "is_isp": True,
             "carrier": node["isp"],
-            "ip_range": str(_ipa.ip_network(f"{ip}/{plen}", strict=False)),
+            "ip_range": node["_net"],
         }
 
     def health(self):

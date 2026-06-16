@@ -93,6 +93,7 @@ class IPtoASNSource:
                             "asn": asn,
                             "country_code": parts[3],
                             "as_name": parts[4],
+                            "_net": str(cidr),
                         }))
             n = write_mmdb(records, self._mmdb_path,
                            database_type="IP-Radar-iptoasn")
@@ -109,14 +110,12 @@ class IPtoASNSource:
         node = self._reader.get(ip)
         if node is None:
             return {}
-        result: dict[str, Any] = {}
+        result: dict[str, Any] = {"ip_range": node["_net"]}
         if node["asn"] != 0:
             result["asn"] = node["asn"]
             result["as_name"] = node["as_name"]
         if node.get("country_code"):
             result["country_code"] = node["country_code"]
-        _, plen = self._reader.get_with_prefix_len(ip)
-        result["ip_range"] = str(ipaddress.ip_network(f"{ip}/{plen}", strict=False))
         return result
 
     def health(self):

@@ -1,5 +1,4 @@
 """Round-trip tests for MMDB write/read helpers."""
-import time
 from pathlib import Path
 
 from ipdb._sources._mmdb import write_mmdb, open_reader, needs_convert
@@ -43,15 +42,15 @@ def test_prefix_len_available(tmp_path):
 
 
 def test_needs_convert_respects_mtime(tmp_path):
+    import os
     raw = tmp_path / "raw.csv"
     raw.write_text("x")
     mmdb = tmp_path / "out.mmdb"
     assert needs_convert(raw, mmdb) is True            # no mmdb yet
-    time.sleep(1.1)                                     # ensure mmdb is strictly newer
     write_mmdb([("8.8.8.0/24", {"v": 1})], mmdb)
-    assert needs_convert(raw, mmdb) is False           # mmdb newer than raw
-    time.sleep(1.1)                                     # ensure raw is strictly newer
-    raw.write_text("y")                                 # touch raw newer
+    os.utime(mmdb, (raw.stat().st_mtime + 100,) * 2)   # mmdb strictly newer (deterministic)
+    assert needs_convert(raw, mmdb) is False
+    os.utime(raw, (mmdb.stat().st_mtime + 100,) * 2)   # raw strictly newer
     assert needs_convert(raw, mmdb) is True
 
 
@@ -85,7 +84,7 @@ def test_reload_closes_prior_reader(tmp_path, monkeypatch):
     Without this, reload_db() leaks an mmap + fd per source per reload, and on
     Windows the prior reader locks the .mmdb so the rewrite fails.
     """
-    import time as _time
+    import os
     from ipdb._sources.ipinfo_lite import IPinfoLiteSource
 
     csv = tmp_path / "ipinfo_lite.csv"
@@ -99,8 +98,31 @@ def test_reload_closes_prior_reader(tmp_path, monkeypatch):
     closed = []
     monkeypatch.setattr(first, "close", lambda: closed.append(1))
 
-    _time.sleep(1.1)                                    # force strictly-newer raw mtime
-    csv.write_text(csv.read_text())
+    # force reconvert via deterministic mtime (wall-clock sleep is flaky under load)
+    os.utime(csv, (src._mmdb_path.stat().st_mtime + 100,) * 2)
     src.load()                                          # triggers reconvert
 
     assert closed == [1], "prior reader must be closed before reconversion"
+
+
+def test_ip_range_uses_stored_cidr_not_tree_depth(tmp_path):
+    """For nested CIDRs, ip_range must be the stored network key, not the
+    search-tree node depth (which MMDB tightens when a child carves a parent).
+
+    pytricia's get_key() returned the exact stored CIDR; get_with_prefix_len
+    returns the tree-node depth, which diverges for nested ranges. Source
+    query() must therefore read the stored CIDR from the value, not rebuild
+    from prefix_len.
+    """
+    from ipdb._sources.ipinfo_lite import IPinfoLiteSource
+
+    csv = tmp_path / "ipinfo_lite.csv"
+    csv.write_text(
+        "n,a,c,d,e,f,g,h\n"                              # 8-col header
+        "1.2.0.0/16,x,US,x,x,AS1,Parent,parent.com\n"
+        "1.2.3.0/24,x,US,x,x,AS2,Child,child.com\n")
+    src = IPinfoLiteSource(data_dir=tmp_path)
+    src.load()
+    r = src.query("1.2.4.5")                             # in /16, outside /24
+    assert r["ip_range"] == "1.2.0.0/16", (
+        f"expected stored /16, got {r.get('ip_range')!r} (tree-depth tightening bug)")
