@@ -1,11 +1,8 @@
-import ipaddress
 import logging
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any, Optional
-
-import pytricia
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +29,8 @@ class ChineseISPSource:
     def __init__(self, data_dir: Path):
         self._isp_dir = data_dir / "isp"
         self._data_dir = data_dir
-        self._tree: Optional[pytricia.PyTricia] = None
+        self._mmdb_path = data_dir / "cn_isp.mmdb"
+        self._reader: Optional["maxminddb.Reader"] = None
         self._count: int = 0
         self._loaded_at: float = 0.0
 
@@ -59,48 +57,60 @@ class ChineseISPSource:
                 logger.error(f"Failed to download {isp_name}.txt: {e}")
 
     def load(self) -> int:
-        tree = pytricia.PyTricia(32)
-        count = 0
-        for isp_name, (country, label) in _ISP_FILES.items():
-            path = self._isp_dir / f"{isp_name}.txt"
-            if not path.exists():
-                logger.warning(f"Missing ISP file: {path}")
-                continue
-            with open(path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        ipaddress.IPv4Network(line, strict=False)
-                    except (ipaddress.AddressValueError, ValueError):
-                        continue
-                    if line in tree:
-                        existing = tree[line]
-                        if existing["isp"] == "其他" and label != "其他":
-                            tree.insert(line, {"country_code": country, "isp": label})
-                        continue
-                    tree.insert(line, {"country_code": country, "isp": label})
-                    count += 1
-        self._tree = tree
-        self._count = count
-        self._loaded_at = time.time()
-        return count
+        import ipaddress as _ipa
+        from ._mmdb import write_mmdb, open_reader, needs_convert
 
-    def query(self, ip: str) -> dict[str, Any]:
-        if self._tree is None:
+        # newest raw mtime across all ISP files drives cache invalidation
+        raw_mtimes = [p.stat().st_mtime for isp_name in _ISP_FILES
+                      if (p := self._isp_dir / f"{isp_name}.txt").exists()]
+        raw_newest = max(raw_mtimes) if raw_mtimes else 0.0
+        count_path = self._mmdb_path.with_suffix(".count")
+        cache_fresh = (self._mmdb_path.exists()
+                       and self._mmdb_path.stat().st_mtime >= raw_newest)
+        if not cache_fresh or not count_path.exists():
+            best: dict[str, dict] = {}
+            for isp_name, (country, label) in _ISP_FILES.items():
+                path = self._isp_dir / f"{isp_name}.txt"
+                if not path.exists():
+                    logger.warning(f"Missing ISP file: {path}")
+                    continue
+                with open(path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            _ipa.IPv4Network(line, strict=False)
+                        except (_ipa.AddressValueError, ValueError):
+                            continue
+                        existing = best.get(line)
+                        if existing and existing["isp"] != "其他" and label == "其他":
+                            continue
+                        best[line] = {"country_code": country, "isp": label}
+            write_mmdb(((k, v) for k, v in best.items()), self._mmdb_path,
+                       database_type="IP-Radar-cn-isp")
+            count_path.write_text(str(len(best)))
+
+        self._reader = open_reader(self._mmdb_path)
+        self._count = int(count_path.read_text().strip())
+        self._loaded_at = time.time()
+        return self._count
+
+    def query(self, ip: str) -> dict:
+        import ipaddress as _ipa
+        if self._reader is None:
             return {}
-        try:
-            node = self._tree[ip]
-            return {
-                "country_code": node["country_code"],
-                "as_name": node["isp"],
-                "is_isp": True,
-                "carrier": node["isp"],
-                "ip_range": str(self._tree.get_key(ip)),
-            }
-        except KeyError:
+        node = self._reader.get(ip)
+        if node is None:
             return {}
+        _, plen = self._reader.get_with_prefix_len(ip)
+        return {
+            "country_code": node["country_code"],
+            "as_name": node["isp"],
+            "is_isp": True,
+            "carrier": node["isp"],
+            "ip_range": str(_ipa.ip_network(f"{ip}/{plen}", strict=False)),
+        }
 
     def health(self):
         from .._types import SourceHealth
@@ -118,7 +128,7 @@ class ChineseISPSource:
             time.time() - file_mtime > self.stale_days * 86400)
         return SourceHealth(
             name=self.name,
-            loaded=self._tree is not None,
+            loaded=self._reader is not None,
             record_count=self._count,
             last_updated=last_updated,
             is_stale=is_stale,
