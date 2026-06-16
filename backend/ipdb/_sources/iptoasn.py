@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
-import pytricia
+import maxminddb
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,8 @@ class IPtoASNSource:
     def __init__(self, data_dir: Path):
         self._path = data_dir / "ip-to-asn.tsv"
         self._data_dir = data_dir
-        self._tree: Optional[pytricia.PyTricia] = None
+        self._mmdb_path = data_dir / "ip-to-asn.tsv.mmdb"
+        self._reader: Optional[maxminddb.Reader] = None
         self._count: int = 0
         self._loaded_at: float = 0.0
 
@@ -55,61 +56,65 @@ class IPtoASNSource:
                 gz_path.unlink(missing_ok=True)
 
     def load(self) -> int:
-        tree = pytricia.PyTricia(32)
-        count = 0
+        import ipaddress as _ipa
+        from ._mmdb import write_mmdb, open_reader, needs_convert
+
         if not self._path.exists():
-            self._tree = tree
+            self._reader = None
             return 0
-        with open(self._path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split("\t")
-                if len(parts) < 5:
-                    continue
-                try:
-                    start = ipaddress.IPv4Address(parts[0])
-                    end = ipaddress.IPv4Address(parts[1])
-                    asn = int(parts[2])
-                except (ipaddress.AddressValueError, ValueError):
-                    continue
-                if asn == 0:
-                    continue
-                cidrs = ipaddress.summarize_address_range(
-                    ipaddress.IPv4Network(f"{start}/32").network_address,
-                    ipaddress.IPv4Network(f"{end}/32").network_address,
-                )
-                for cidr in cidrs:
-                    tree.insert(
-                        str(cidr),
-                        {
+        count_path = self._mmdb_path.with_suffix(".count")
+        if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
+            records = []
+            with open(self._path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split("\t")
+                    if len(parts) < 5:
+                        continue
+                    try:
+                        start = _ipa.IPv4Address(parts[0])
+                        end = _ipa.IPv4Address(parts[1])
+                        asn = int(parts[2])
+                    except (_ipa.AddressValueError, ValueError):
+                        continue
+                    if asn == 0:
+                        continue
+                    cidrs = _ipa.summarize_address_range(
+                        _ipa.IPv4Network(f"{start}/32").network_address,
+                        _ipa.IPv4Network(f"{end}/32").network_address,
+                    )
+                    for cidr in cidrs:
+                        records.append((str(cidr), {
                             "asn": asn,
                             "country_code": parts[3],
                             "as_name": parts[4],
-                        },
-                    )
-                    count += 1
-        self._tree = tree
-        self._count = count
+                        }))
+            n = write_mmdb(records, self._mmdb_path,
+                           database_type="IP-Radar-iptoasn")
+            count_path.write_text(str(n))
+
+        self._reader = open_reader(self._mmdb_path)
+        self._count = int(count_path.read_text().strip())
         self._loaded_at = time.time()
-        return count
+        return self._count
 
     def query(self, ip: str) -> dict[str, Any]:
-        if self._tree is None:
+        if self._reader is None:
             return {}
-        try:
-            node = self._tree[ip]
-            result: dict[str, Any] = {}
-            if node["asn"] != 0:
-                result["asn"] = node["asn"]
-                result["as_name"] = node["as_name"]
-            if node.get("country_code"):
-                result["country_code"] = node["country_code"]
-            result["ip_range"] = str(self._tree.get_key(ip))
-            return result
-        except KeyError:
+        node = self._reader.get(ip)
+        if node is None:
             return {}
+        result: dict[str, Any] = {}
+        if node["asn"] != 0:
+            result["asn"] = node["asn"]
+            result["as_name"] = node["as_name"]
+        if node.get("country_code"):
+            result["country_code"] = node["country_code"]
+        _, plen = self._reader.get_with_prefix_len(ip)
+        result["ip_range"] = str(ipaddress.ip_network(f"{ip}/{plen}", strict=False))
+        return result
 
     def health(self):
         from .._types import SourceHealth
@@ -123,7 +128,7 @@ class IPtoASNSource:
             time.time() - file_mtime > self.stale_days * 86400)
         return SourceHealth(
             name=self.name,
-            loaded=self._tree is not None,
+            loaded=self._reader is not None,
             record_count=self._count,
             last_updated=last_updated,
             is_stale=is_stale,
