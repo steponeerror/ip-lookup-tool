@@ -109,6 +109,9 @@ class MispSource:
             self._count = 0
             return 0
         if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
+            if self._reader is not None:
+                self._reader.close()
+                self._reader = None
             with open(self._path, "r", encoding="utf-8") as f:
                 doc = json.load(f)
             # accumulate per-CIDR in a plain dict (exact key) — same pattern as

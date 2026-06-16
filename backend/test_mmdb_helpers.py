@@ -77,3 +77,30 @@ def test_write_mmdb_atomic_on_failure(tmp_path, monkeypatch):
 
     assert mmdb.read_bytes() == good_bytes              # original untouched
     assert not (tmp_path / "x.mmdb.tmp").exists()       # no partial left behind
+
+
+def test_reload_closes_prior_reader(tmp_path, monkeypatch):
+    """Re-loading (reconvert on 2nd load) must close the prior mmap reader.
+
+    Without this, reload_db() leaks an mmap + fd per source per reload, and on
+    Windows the prior reader locks the .mmdb so the rewrite fails.
+    """
+    import time as _time
+    from ipdb._sources.ipinfo_lite import IPinfoLiteSource
+
+    csv = tmp_path / "ipinfo_lite.csv"
+    csv.write_text(
+        "start_ip,end_ip,country,region,city,asn,as_name,as_domain\n"
+        "8.8.8.0,8.8.8.255,US,CA,LA,AS15169,Google LLC,google.com\n")
+    src = IPinfoLiteSource(data_dir=tmp_path)
+    src.load()
+    first = src._reader
+    assert first is not None
+    closed = []
+    monkeypatch.setattr(first, "close", lambda: closed.append(1))
+
+    _time.sleep(1.1)                                    # force strictly-newer raw mtime
+    csv.write_text(csv.read_text())
+    src.load()                                          # triggers reconvert
+
+    assert closed == [1], "prior reader must be closed before reconversion"

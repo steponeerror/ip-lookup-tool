@@ -60,6 +60,9 @@ class FireholBlocklistSource(IpListSource):
         cache_fresh = (self._mmdb_path.exists()
                        and self._mmdb_path.stat().st_mtime >= raw_newest)
         if not cache_fresh or not count_path.exists():
+            if self._reader is not None:
+                self._reader.close()
+                self._reader = None
             records = []
             for list_name in self._lists:
                 p = self._path / f"{list_name}.netset"
