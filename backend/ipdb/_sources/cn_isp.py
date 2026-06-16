@@ -48,6 +48,7 @@ class ChineseISPSource:
                     data = resp.read()
                 if not data.strip():
                     logger.warning(f"Empty response for {isp_name}")
+                    dest.unlink(missing_ok=True)   # don't leave stale to be mixed in
                     continue
                 with open(dest, "wb") as f:
                     f.write(data)
@@ -55,6 +56,7 @@ class ChineseISPSource:
                 logger.info(f"Downloaded {isp_name}.txt ({data.count(newline)} lines)")
             except Exception as e:
                 logger.error(f"Failed to download {isp_name}.txt: {e}")
+                dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
 
     def load(self) -> int:
         import ipaddress as _ipa

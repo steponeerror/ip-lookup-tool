@@ -40,11 +40,13 @@ class FireholBlocklistSource(IpListSource):
                 with urllib.request.urlopen(req, timeout=120) as resp:
                     data = resp.read()
                 if not data.strip():
+                    dest.unlink(missing_ok=True)   # don't leave stale to be mixed in
                     continue
                 with open(dest, "wb") as f:
                     f.write(data)
             except Exception as e:
                 logger.error(f"Failed to download {list_name}: {e}")
+                dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
 
     def load(self) -> int:
         import ipaddress as _ipa

@@ -163,3 +163,31 @@ def test_base_csv_reconverts_when_count_sidecar_missing(tmp_path):
     (tmp_path / "c.csv.count").unlink()
     os.utime(raw, (src._mmdb_path.stat().st_mtime - 100,) * 2)
     assert src.load() == 2, "_base CsvSource should reconvert when .count missing"
+
+def test_cn_isp_download_drops_file_on_per_file_failure(tmp_path, monkeypatch):
+    """A failed per-file download must drop the stale file, not leave it to be
+    mixed into load() as if current (cn_isp/firehol iterate many files)."""
+    from ipdb._sources import cn_isp as mod
+    from ipdb._sources.cn_isp import ChineseISPSource
+
+    src = ChineseISPSource(data_dir=tmp_path)
+    src._isp_dir.mkdir(parents=True, exist_ok=True)
+    for name in mod._ISP_FILES:                       # pre-populate stale content
+        (src._isp_dir / f"{name}.txt").write_text("1.2.3.0/24\n")
+    fail_name = next(iter(mod._ISP_FILES))
+
+    class _Resp:
+        def __init__(self, b): self._b = b
+        def read(self): return self._b
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout=30):
+        if fail_name in req.full_url:
+            raise OSError("network blip")
+        return _Resp(b"5.6.7.0/24\n")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    src.download()
+    assert not (src._isp_dir / f"{fail_name}.txt").exists(), (
+        "failed download must drop the stale file, not leave it to be mixed in")
