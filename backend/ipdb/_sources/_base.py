@@ -89,7 +89,8 @@ class IpListSource:
         if not self._path.exists():
             self._reader = None
             return 0
-        if needs_convert(self._path, self._mmdb_path):
+        count_path = self._mmdb_path.with_suffix(".count")
+        if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
             if self._reader is not None:
                 self._reader.close()
                 self._reader = None
@@ -111,10 +112,9 @@ class IpListSource:
                         continue
                     records.append((str(net), [insert_data]))
             write_mmdb(records, self._mmdb_path)
-            self._mmdb_path.with_suffix(".count").write_text(str(len(records)))
+            count_path.write_text(str(len(records)))
 
         self._reader = open_reader(self._mmdb_path)
-        count_path = self._mmdb_path.with_suffix(".count")
         self._count = int(count_path.read_text()) if count_path.exists() else 0
         self._loaded_at = time.time()
         return self._count
@@ -174,7 +174,8 @@ class CsvSource(IpListSource):
 
         # cidr_str -> list[evidence dict], deduped by (classification_type, verdict, malware_name, native_type)
         acc: dict[str, list[dict]] = {}
-        if needs_convert(self._path, self._mmdb_path):
+        count_path = self._mmdb_path.with_suffix(".count")
+        if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
             if self._reader is not None:
                 self._reader.close()
                 self._reader = None
@@ -217,11 +218,9 @@ class CsvSource(IpListSource):
                         continue
                     bucket.append(parsed)
             write_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path)
-            self._mmdb_path.with_suffix(".count").write_text(
-                str(sum(len(v) for v in acc.values())))
+            count_path.write_text(str(sum(len(v) for v in acc.values())))
 
         self._reader = open_reader(self._mmdb_path)
-        count_path = self._mmdb_path.with_suffix(".count")
         self._count = int(count_path.read_text()) if count_path.exists() else 0
         self._loaded_at = time.time()
         return self._count
