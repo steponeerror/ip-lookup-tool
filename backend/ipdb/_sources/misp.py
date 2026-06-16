@@ -2,7 +2,7 @@
 
 Pulls IP-type attributes (ip-src / ip-dst / ip-src|port / ip-dst|port) from a
 MISP instance via `POST /attributes/restSearch`, stores the JSON response, and
-loads the IPv4s into a pytricia trie with per-attribute evidence. Classification
+loads the IPv4s into an MMDB database with per-attribute evidence. Classification
 is derived from the MISP attribute `category` (normalized to IntelMQ; raw
 category preserved in `extra.native_type`).
 

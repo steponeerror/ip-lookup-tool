@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 打包 Windows 分发包 — 含代码 + 前端 + 数据 + 预编译 pytricia wheel。
+# 打包 Windows 分发包 — 含代码 + 前端 + 数据。
 # Python 运行时与依赖不在本机安装/打包，统一由 build.bat 在 Windows 端首次运行时安装。
 set -e
 
@@ -50,18 +50,13 @@ echo "  → data/ 同步完成"
 # 5. Python + 依赖：不在本机安装，由 build.bat 在 Windows 端首次运行时安装
 echo ""
 echo "[5/5] Python + 依赖：不在本机安装，由 build.bat 在 Windows 端首次运行时安装"
-PYTRICIA_WHEEL="pytricia-1.0.2-cp311-cp311-win_amd64.whl"
-if [ -f "$RELEASE_DIR/$PYTRICIA_WHEEL" ]; then
-    echo "  → 预编译 pytricia wheel 就绪（随 zip 分发，build.bat 直接安装，用户无需 MSVC）"
-else
-    echo "  [警告] release/$PYTRICIA_WHEEL 不存在"
-    echo "         build.bat 将在 Windows 上从源码编译（需 MSVC），或先运行 .github/workflows/wheels.yml 生成 wheel 放入 release/"
-fi
+echo "  → 依赖（maxminddb 有官方 wheel、mmdb-writer 纯 Python）build.bat 直接 pip install，无需预编译 wheel"
 
 # requirements.txt（build.bat / 用户参考用）
 echo "fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
-pytricia>=1.0.0
+maxminddb>=3.1.0
+mmdb-writer>=0.2.0
 python-multipart>=0.0.20
 python-dotenv>=1.1.0
 cabby>=0.1.0" > "$RELEASE_DIR/requirements.txt"
@@ -99,11 +94,6 @@ with zipfile.ZipFile('../$ZIP_NAME', 'w', zipfile.ZIP_DEFLATED) as zf:
         p = os.path.join('.', f)
         if os.path.exists(p):
             zf.write(p, f)
-
-    # pytricia 预编译 wheel（放 zip 根，build.bat 直接安装）
-    pytricia_wheel = 'pytricia-1.0.2-cp311-cp311-win_amd64.whl'
-    if os.path.exists(pytricia_wheel):
-        zf.write(pytricia_wheel, pytricia_wheel)
 
     # app/
     for root, dirs, files in os.walk('app'):

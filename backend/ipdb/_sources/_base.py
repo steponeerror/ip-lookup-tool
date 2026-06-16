@@ -1,12 +1,10 @@
 """Base classes for IP data sources — eliminate ~70% boilerplate across sources."""
-import ipaddress
 import logging
 import time
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
-import pytricia
 from .._types import SourceHealth
 
 logger = logging.getLogger(__name__)

@@ -50,38 +50,7 @@ REM --- Install project dependencies ---
 echo.
 echo [INSTALL] Installing project dependencies...
 REM First install packages with pre-built wheels
-"%PYTHON_DIR%\python.exe" -m pip install fastapi uvicorn[standard] python-multipart python-dotenv cabby -q
-
-REM pytricia: install bundled prebuilt wheel (no MSVC needed)
-if exist "pytricia-1.0.2-cp311-cp311-win_amd64.whl" (
-    echo [OK] Installing bundled pytricia wheel...
-    "%PYTHON_DIR%\python.exe" -m pip install "pytricia-1.0.2-cp311-cp311-win_amd64.whl" -q
-    goto :build_done
-)
-
-REM Fallback: compile from source (requires Microsoft C++ Build Tools)
-"%PYTHON_DIR%\python.exe" -m pip install pytricia -q
-if errorlevel 1 (
-    echo.
-    echo [WARNING] pytricia compilation failed ^(needs MSVC^)
-    echo.
-    echo ========================================
-    echo   To build pytricia on Windows:
-    echo   1. Install Visual Studio Build Tools:
-    echo      https://visualstudio.microsoft.com/visual-cpp-build-tools/
-    echo   2. During install, select "Desktop development with C++"
-    echo   3. Re-run build.bat
-    echo.
-    echo   After successful compilation, the wheel
-    echo   will be cached for future use.
-    echo ========================================
-) else (
-    REM Compilation succeeded - save the wheel for future use
-    echo [OK] Caching pytricia wheel for future builds...
-    "%PYTHON_DIR%\python.exe" -m pip wheel --no-deps pytricia -q -d .
-)
-
-:build_done
+"%PYTHON_DIR%\python.exe" -m pip install fastapi uvicorn[standard] python-multipart python-dotenv cabby maxminddb mmdb-writer -q
 
 echo.
 echo ========================================
