@@ -53,3 +53,27 @@ def test_needs_convert_respects_mtime(tmp_path):
     time.sleep(1.1)                                     # ensure raw is strictly newer
     raw.write_text("y")                                 # touch raw newer
     assert needs_convert(raw, mmdb) is True
+
+
+def test_write_mmdb_atomic_on_failure(tmp_path, monkeypatch):
+    """A failed write must not corrupt an existing .mmdb or leave a .tmp.
+
+    Locks in the fix for the 'crash mid-conversion bricks the source' bug: the
+    mtime cache stays coherent only if mmdb_path is never observed half-written.
+    """
+    from mmdb_writer import MMDBWriter
+    import pytest
+
+    mmdb = tmp_path / "x.mmdb"
+    write_mmdb([("8.8.8.0/24", {"v": 1})], mmdb)       # pre-existing good file
+    good_bytes = mmdb.read_bytes()
+
+    def boom(self, fname):
+        raise RuntimeError("simulated crash mid-write")
+    monkeypatch.setattr(MMDBWriter, "to_db_file", boom)
+
+    with pytest.raises(RuntimeError):
+        write_mmdb([("1.2.3.0/24", {"v": 2})], mmdb)
+
+    assert mmdb.read_bytes() == good_bytes              # original untouched
+    assert not (tmp_path / "x.mmdb.tmp").exists()       # no partial left behind
