@@ -126,3 +126,40 @@ def test_ip_range_uses_stored_cidr_not_tree_depth(tmp_path):
     r = src.query("1.2.4.5")                             # in /16, outside /24
     assert r["ip_range"] == "1.2.0.0/16", (
         f"expected stored /16, got {r.get('ip_range')!r} (tree-depth tightening bug)")
+
+
+def test_base_iplist_reconverts_when_count_sidecar_missing(tmp_path):
+    """_base IpListSource must self-heal when .count is deleted (match standalone
+    sources that guard with 'or not count_path.exists()')."""
+    import os
+    from ipdb._sources._base import IpListSource
+
+    class _S(IpListSource):
+        name, filename, fields = "t", "t.txt", ("is_malicious",)
+
+    raw = tmp_path / "t.txt"
+    raw.write_text("8.8.8.0/24\n1.2.3.0/24\n")
+    src = _S(data_dir=tmp_path)
+    assert src.load() == 2
+    (tmp_path / "t.txt.count").unlink()                 # sidecar gone, mmdb fresh
+    os.utime(raw, (src._mmdb_path.stat().st_mtime - 100,) * 2)
+    assert src.load() == 2, "_base should reconvert when .count missing"
+
+
+def test_base_csv_reconverts_when_count_sidecar_missing(tmp_path):
+    """Same self-heal for _base CsvSource."""
+    import os
+    from ipdb._sources._base import CsvSource
+
+    class _S(CsvSource):
+        name, filename, fields = "c", "c.csv", ("is_malicious",)
+        def parse_row(self, row):
+            return {"_ip": row[0], "classification_type": "x", "verdict": "m"}
+
+    raw = tmp_path / "c.csv"
+    raw.write_text("1.2.3.4\n5.6.7.8\n")
+    src = _S(data_dir=tmp_path)
+    assert src.load() == 2
+    (tmp_path / "c.csv.count").unlink()
+    os.utime(raw, (src._mmdb_path.stat().st_mtime - 100,) * 2)
+    assert src.load() == 2, "_base CsvSource should reconvert when .count missing"
