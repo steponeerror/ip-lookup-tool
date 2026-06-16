@@ -4,6 +4,7 @@ Verified against maxminddb 3.1.1 + mmdb-writer 0.2.7. The writer stores
 one value per CIDR; the reader mmap's the file so RSS tracks the working
 set, not total data size.
 """
+import os
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -17,13 +18,21 @@ def write_mmdb(records: Iterable[tuple[str, object]], mmdb_path: Path,
     """Write (cidr_str, value) records to an MMDB file. Returns record count.
 
     value may be a dict (scalar sources) or list[dict] (threat multi-evidence).
+    Atomic: builds to a sibling .tmp then os.replace, so a crash mid-write
+    never leaves a corrupt/partial file at mmdb_path (which would defeat the
+    mtime cache and brick the source until manual cleanup).
     """
     writer = MMDBWriter(ip_version=ip_version, database_type=database_type)
     count = 0
     for cidr, value in records:
         writer.insert_network(netaddr.IPSet([cidr]), value)
         count += 1
-    writer.to_db_file(str(mmdb_path))
+    tmp = mmdb_path.parent / (mmdb_path.name + ".tmp")
+    try:
+        writer.to_db_file(str(tmp))
+        os.replace(str(tmp), str(mmdb_path))
+    finally:
+        tmp.unlink(missing_ok=True)
     return count
 
 
