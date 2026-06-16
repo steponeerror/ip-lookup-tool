@@ -107,6 +107,7 @@ class IPinfoLiteSource:
                         "asn": asn_val,
                         "as_name": as_name or as_domain or "N/A",
                         "has_asn": has_asn,
+                        "_net": network,
                     }))
             n = write_mmdb(records, self._mmdb_path,
                            database_type="IP-Radar-ipinfo-lite")
@@ -118,15 +119,12 @@ class IPinfoLiteSource:
         return self._count
 
     def query(self, ip: str) -> dict:
-        import ipaddress as _ipa
         if self._reader is None:
             return {}
         node = self._reader.get(ip)
         if node is None:
             return {}
-        result: dict = {"country_code": node["country_code"]}
-        _, plen = self._reader.get_with_prefix_len(ip)
-        result["ip_range"] = str(_ipa.ip_network(f"{ip}/{plen}", strict=False))
+        result: dict = {"country_code": node["country_code"], "ip_range": node["_net"]}
         if node["has_asn"]:
             result["asn"] = node["asn"]
             result["as_name"] = node["as_name"]
