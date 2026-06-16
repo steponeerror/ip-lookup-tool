@@ -59,7 +59,7 @@ class FireholBlocklistSource(IpListSource):
             p = self._path / f"{list_name}.netset"
             if not p.exists():
                 continue
-            with open(p) as f:
+            with open(p, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith("#"):

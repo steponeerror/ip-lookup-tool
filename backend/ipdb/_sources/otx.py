@@ -173,7 +173,7 @@ class OtxSource(CsvSource):
 
         # Persist cursor for next incremental fetch
         today = time.strftime("%Y-%m-%d")
-        with open(self._cursor_path, "w") as f:
+        with open(self._cursor_path, "w", encoding="utf-8") as f:
             f.write(today + "\n")
 
         n_rows = sum(len(pairs) for pairs in collected.values())

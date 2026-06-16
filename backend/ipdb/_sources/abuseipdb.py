@@ -76,6 +76,6 @@ class AbuseIPDBSource(IpListSource):
         entries = self.parse_raw(data)
         if not entries:
             raise RuntimeError(f"No entries parsed from {self.name} response")
-        with open(self._path, "w") as f:
+        with open(self._path, "w", encoding="utf-8") as f:
             f.write("\n".join(entries) + "\n")
         logger.info(f"Downloaded {self.name} ({len(entries)} entries)")

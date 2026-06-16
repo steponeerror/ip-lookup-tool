@@ -41,7 +41,7 @@ class IPtoASNSource:
             with gzip.open(gz_path, "rb") as f_in:
                 with open(tmp_path, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
-            with open(tmp_path, "r") as f:
+            with open(tmp_path, "r", encoding="utf-8") as f:
                 line_count = sum(1 for _ in f)
             if line_count == 0:
                 raise RuntimeError("Downloaded file is empty")
@@ -60,7 +60,7 @@ class IPtoASNSource:
         if not self._path.exists():
             self._tree = tree
             return 0
-        with open(self._path, "r") as f:
+        with open(self._path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:

@@ -9,6 +9,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+import os
+import sys
+
+# Release runs `uvicorn app.main:app` from the package root, so this file's
+# directory (holding the sibling `ipdb/` package) isn't on sys.path. Dev runs
+# `main:app` from backend/, where cwd already covers it. Insert the dir so
+# `from ipdb import ...` resolves in both layouts.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from ipdb import (
     load_db, lookup, get_status, refresh_stale,
     get_download_steps,

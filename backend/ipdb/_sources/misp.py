@@ -108,7 +108,7 @@ class MispSource:
         if not self._path.exists():
             self._tree = tree
             return 0
-        with open(self._path) as f:
+        with open(self._path, "r", encoding="utf-8") as f:
             doc = json.load(f)
         # accumulate per-CIDR in a plain dict (exact key), then bulk-insert into
         # the trie — same pattern as CsvSource.load(), to avoid pytricia's

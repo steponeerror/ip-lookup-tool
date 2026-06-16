@@ -53,7 +53,8 @@ class ChineseISPSource:
                     continue
                 with open(dest, "wb") as f:
                     f.write(data)
-                logger.info(f"Downloaded {isp_name}.txt ({data.count(b'\\n')} lines)")
+                newline = b'\n'
+                logger.info(f"Downloaded {isp_name}.txt ({data.count(newline)} lines)")
             except Exception as e:
                 logger.error(f"Failed to download {isp_name}.txt: {e}")
 
@@ -65,7 +66,7 @@ class ChineseISPSource:
             if not path.exists():
                 logger.warning(f"Missing ISP file: {path}")
                 continue
-            with open(path, "r") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
