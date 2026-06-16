@@ -53,60 +53,68 @@ class IP2ProxySource(CsvSource):
 
     def load(self) -> int:
         import ipaddress as _ipa
-        import pytricia
         import csv as _csv
         import time as _time
+        from ._mmdb import write_mmdb, open_reader
 
         actual = self._zip_path if self._zip_path.exists() else self._path
         if not actual.exists():
-            self._tree = pytricia.PyTricia(32)
+            self._reader = None
             return 0
 
-        extracted = None
-        if zipfile.is_zipfile(actual):
-            with zipfile.ZipFile(actual) as zf:
-                csv_names = [
-                    n for n in zf.namelist()
-                    if n.lower().endswith(".csv") and "/" not in n and "\\" not in n
-                ]
-                if not csv_names:
-                    self._tree = pytricia.PyTricia(32)
-                    return 0
-                zf.extract(csv_names[0], actual.parent)
-                extracted = actual.parent / csv_names[0]
-                actual = extracted
+        count_path = self._mmdb_path.with_suffix(".count")
+        # cache invalidates when the zip/raw source is newer than the mmdb
+        stale = (not self._mmdb_path.exists()
+                 or actual.stat().st_mtime > self._mmdb_path.stat().st_mtime
+                 or not count_path.exists())
+        if stale:
+            extracted = None
+            src = actual
+            if zipfile.is_zipfile(actual):
+                with zipfile.ZipFile(actual) as zf:
+                    csv_names = [
+                        n for n in zf.namelist()
+                        if n.lower().endswith(".csv") and "/" not in n and "\\" not in n
+                    ]
+                    if not csv_names:
+                        self._reader = None
+                        return 0
+                    zf.extract(csv_names[0], actual.parent)
+                    extracted = actual.parent / csv_names[0]
+                    src = extracted
+            records = []
+            try:
+                with open(src, "r", encoding="utf-8") as f:
+                    reader = _csv.reader(f)
+                    next(reader, None)  # skip header
+                    for row in reader:
+                        if len(row) < 3:
+                            continue
+                        raw_start, raw_end, proxy_type = (
+                            row[0].strip(), row[1].strip(), row[2].strip())
+                        start_ip = _int_to_ip(raw_start) or raw_start
+                        end_ip = _int_to_ip(raw_end) or raw_end
+                        try:
+                            sa = _ipa.IPv4Address(start_ip)
+                            ea = _ipa.IPv4Address(end_ip)
+                        except (_ipa.AddressValueError, ValueError):
+                            continue
+                        evidence = _proxy_evidence(proxy_type)
+                        if evidence is None:
+                            continue
+                        for cidr in _ipa.summarize_address_range(sa, ea):
+                            records.append((str(cidr), [evidence]))
+            finally:
+                if extracted and extracted.exists():
+                    extracted.unlink()
+            n = write_mmdb(records, self._mmdb_path,
+                           database_type="IP-Radar-ip2proxy")
+            count_path.write_text(str(n))
 
-        tree = pytricia.PyTricia(32)
-        count = 0
-        try:
-            with open(actual, "r", encoding="utf-8") as f:
-                reader = _csv.reader(f)
-                next(reader, None)  # skip header
-                for row in reader:
-                    if len(row) < 3:
-                        continue
-                    raw_start, raw_end, proxy_type = row[0].strip(), row[1].strip(), row[2].strip()
-                    start_ip = _int_to_ip(raw_start) or raw_start
-                    end_ip = _int_to_ip(raw_end) or raw_end
-                    try:
-                        sa = _ipa.IPv4Address(start_ip)
-                        ea = _ipa.IPv4Address(end_ip)
-                    except (_ipa.AddressValueError, ValueError):
-                        continue
-                    evidence = _proxy_evidence(proxy_type)
-                    if evidence is None:
-                        continue
-                    for cidr in _ipa.summarize_address_range(sa, ea):
-                        tree.insert(str(cidr), [evidence])
-                        count += 1
-        finally:
-            if extracted and extracted.exists():
-                extracted.unlink()
-
-        self._tree = tree
-        self._count = count
+        self._reader = open_reader(self._mmdb_path)
+        self._count = int(count_path.read_text().strip())
         self._loaded_at = _time.time()
-        return count
+        return self._count
 
     def health(self) -> SourceHealth:
         import time as _time
@@ -122,7 +130,7 @@ class IP2ProxySource(CsvSource):
             _time.time() - file_mtime > self.stale_days * 86400)
         return SourceHealth(
             name=self.name,
-            loaded=self._tree is not None,
+            loaded=self._reader is not None,
             record_count=self._count,
             last_updated=last_updated,
             is_stale=is_stale,

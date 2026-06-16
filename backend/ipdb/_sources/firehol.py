@@ -48,34 +48,45 @@ class FireholBlocklistSource(IpListSource):
 
     def load(self) -> int:
         import ipaddress as _ipa
-        import pytricia
+        from ._mmdb import write_mmdb, open_reader
 
-        tree = pytricia.PyTricia(32)
-        count = 0
         if not self._path.exists():
-            self._tree = tree
+            self._reader = None
             return 0
-        for list_name in self._lists:
-            p = self._path / f"{list_name}.netset"
-            if not p.exists():
-                continue
-            with open(p, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    try:
-                        net = _ipa.IPv4Network(line, strict=False)
-                    except (_ipa.AddressValueError, ValueError):
-                        continue
-                    tree.insert(str(net), [{"classification_type": self.classification_type,
-                                            "verdict": self.verdict,
-                                            "extra": {"native_type": self.classification_type}}])
-                    count += 1
-        self._tree = tree
-        self._count = count
+        # cache invalidates on newest netset mtime (multi-file, like cn_isp)
+        netset_mtimes = [p.stat().st_mtime for p in self._files if p.exists()]
+        raw_newest = max(netset_mtimes) if netset_mtimes else 0.0
+        count_path = self._mmdb_path.with_suffix(".count")
+        cache_fresh = (self._mmdb_path.exists()
+                       and self._mmdb_path.stat().st_mtime >= raw_newest)
+        if not cache_fresh or not count_path.exists():
+            records = []
+            for list_name in self._lists:
+                p = self._path / f"{list_name}.netset"
+                if not p.exists():
+                    continue
+                with open(p, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        try:
+                            net = _ipa.IPv4Network(line, strict=False)
+                        except (_ipa.AddressValueError, ValueError):
+                            continue
+                        records.append((str(net), [{
+                            "classification_type": self.classification_type,
+                            "verdict": self.verdict,
+                            "extra": {"native_type": self.classification_type},
+                        }]))
+            n = write_mmdb(records, self._mmdb_path,
+                           database_type="IP-Radar-firehol")
+            count_path.write_text(str(n))
+
+        self._reader = open_reader(self._mmdb_path)
+        self._count = int(count_path.read_text().strip())
         self._loaded_at = time.time()
-        return count
+        return self._count
 
     def health(self) -> SourceHealth:
         import time
@@ -92,7 +103,7 @@ class FireholBlocklistSource(IpListSource):
             time.time() - file_mtime > self.stale_days * 86400)
         return SourceHealth(
             name=self.name,
-            loaded=self._tree is not None,
+            loaded=self._reader is not None,
             record_count=self._count,
             last_updated=last_updated,
             is_stale=is_stale,
