@@ -1,15 +1,11 @@
-import csv
 import gzip
-import ipaddress
 import logging
 import os
 import shutil
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any, Optional
-
-import pytricia
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +20,8 @@ class IPinfoLiteSource:
         self._path = data_dir / "ipinfo_lite.csv"
         self._gz_path = data_dir / "ipinfo_lite.csv.gz"
         self._data_dir = data_dir
-        self._tree: Optional[pytricia.PyTricia] = None
+        self._mmdb_path = data_dir / "ipinfo_lite.csv.mmdb"
+        self._reader: Optional["maxminddb.Reader"] = None
         self._count: int = 0
         self._loaded_at: float = 0.0
 
@@ -68,72 +65,69 @@ class IPinfoLiteSource:
                 self._gz_path.unlink(missing_ok=True)
 
     def load(self) -> int:
-        tree = pytricia.PyTricia(32)
-        count = 0
+        import ipaddress as _ipa
+        from ._mmdb import write_mmdb, open_reader, needs_convert
+
         if not self._path.exists():
-            self._tree = tree
+            self._reader = None
             return 0
-        with open(self._path, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            next(reader, None)
-            for row in reader:
-                if len(row) < 8:
-                    continue
-                network, country_code, asn, as_name, as_domain = (
-                    row[0],
-                    row[2],
-                    row[5],
-                    row[6],
-                    row[7],
-                )
-                try:
-                    ipaddress.IPv4Network(network, strict=False)
-                except (ipaddress.AddressValueError, ValueError):
-                    continue
-                asn_val: int | str = "N/A"
-                has_asn = False
-                if asn.startswith("AS"):
+        count_path = self._mmdb_path.with_suffix(".count")
+        if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
+            import csv as _csv
+            records = []
+            with open(self._path, "r", encoding="utf-8") as f:
+                reader = _csv.reader(f)
+                next(reader, None)
+                for row in reader:
+                    if len(row) < 8:
+                        continue
+                    network, country_code, asn, as_name, as_domain = (
+                        row[0], row[2], row[5], row[6], row[7])
                     try:
-                        asn_val = int(asn[2:])
-                        has_asn = True
-                    except ValueError:
-                        pass
-                elif asn:
-                    try:
-                        asn_val = int(asn)
-                        has_asn = True
-                    except ValueError:
-                        pass
-                tree.insert(
-                    network,
-                    {
+                        _ipa.IPv4Network(network, strict=False)
+                    except (_ipa.AddressValueError, ValueError):
+                        continue
+                    asn_val: int | str = "N/A"
+                    has_asn = False
+                    if asn.startswith("AS"):
+                        try:
+                            asn_val = int(asn[2:]); has_asn = True
+                        except ValueError:
+                            pass
+                    elif asn:
+                        try:
+                            asn_val = int(asn); has_asn = True
+                        except ValueError:
+                            pass
+                    records.append((network, {
                         "country_code": country_code,
                         "asn": asn_val,
                         "as_name": as_name or as_domain or "N/A",
                         "has_asn": has_asn,
-                    },
-                )
-                count += 1
-        self._tree = tree
-        self._count = count
-        self._loaded_at = time.time()
-        return count
+                    }))
+            n = write_mmdb(records, self._mmdb_path,
+                           database_type="IP-Radar-ipinfo-lite")
+            count_path.write_text(str(n))
 
-    def query(self, ip: str) -> dict[str, Any]:
-        if self._tree is None:
+        self._reader = open_reader(self._mmdb_path)
+        self._count = int(count_path.read_text().strip())
+        self._loaded_at = time.time()
+        return self._count
+
+    def query(self, ip: str) -> dict:
+        import ipaddress as _ipa
+        if self._reader is None:
             return {}
-        try:
-            node = self._tree[ip]
-            result: dict[str, Any] = {
-                "country_code": node["country_code"],
-                "ip_range": str(self._tree.get_key(ip)),
-            }
-            if node["has_asn"]:
-                result["asn"] = node["asn"]
-                result["as_name"] = node["as_name"]
-            return result
-        except KeyError:
+        node = self._reader.get(ip)
+        if node is None:
             return {}
+        result: dict = {"country_code": node["country_code"]}
+        _, plen = self._reader.get_with_prefix_len(ip)
+        result["ip_range"] = str(_ipa.ip_network(f"{ip}/{plen}", strict=False))
+        if node["has_asn"]:
+            result["asn"] = node["asn"]
+            result["as_name"] = node["as_name"]
+        return result
 
     def health(self):
         from .._types import SourceHealth
@@ -147,7 +141,7 @@ class IPinfoLiteSource:
             time.time() - file_mtime > self.stale_days * 86400)
         return SourceHealth(
             name=self.name,
-            loaded=self._tree is not None,
+            loaded=self._reader is not None,
             record_count=self._count,
             last_updated=last_updated,
             is_stale=is_stale,
