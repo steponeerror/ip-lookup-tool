@@ -34,3 +34,33 @@ def test_category_known_and_unknown():
     assert reg._category("spamhaus") == "threat"
     assert reg._category("tor_exits") == "asset"
     assert reg._category("never_heard_of_it") == "other"
+
+
+def test_lookup_skips_disabled_source(monkeypatch):
+    """lookup() must not call query() on a disabled source."""
+    calls = []
+
+    class FakeSrc:
+        def __init__(self, name):
+            self.name = name
+            self.reliability = 0.5
+            self.authoritative_for = []
+
+        def query(self, ip):
+            calls.append(self.name)
+            return {}
+
+        def health(self):
+            from ipdb._types import SourceHealth
+            return SourceHealth(name=self.name, loaded=True, record_count=0,
+                                last_updated=None, is_stale=False)
+
+    enabled_src = FakeSrc("ipinfo_lite")
+    disabled_src = FakeSrc("iptoasn")
+    monkeypatch.setattr(reg, "_sources", [enabled_src, disabled_src])
+    monkeypatch.setattr(reg, "_disabled", {"iptoasn"})
+
+    reg.lookup("1.2.3.4")
+
+    assert "ipinfo_lite" in calls
+    assert "iptoasn" not in calls
