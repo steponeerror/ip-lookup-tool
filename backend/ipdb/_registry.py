@@ -190,6 +190,20 @@ def set_source_enabled(name: str, enabled: bool) -> dict:
     return _source_info(source)
 
 
+def update_source(name: str) -> dict:
+    """Force re-download + reload of one source. Returns updated source info.
+
+    Works regardless of enabled state (refreshes the data file on disk).
+    Raises ValueError for unknown names.
+    """
+    source = _find_source(name)
+    if source is None:
+        raise ValueError(f"unknown source: {name}")
+    source.download()
+    source.load()
+    return _source_info(source)
+
+
 # --- Public API ---
 
 def load_db() -> None:
