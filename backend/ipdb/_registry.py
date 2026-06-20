@@ -4,6 +4,7 @@ import importlib
 import ipaddress
 import logging
 import os
+import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable
@@ -77,6 +78,7 @@ def _instantiate_source(cls, data_dir: Path) -> list:
 
 _sources = _discover_sources(DATA_DIR)
 _disabled = load_disabled(_STATE_PATH)
+_state_lock = threading.Lock()
 
 # --- Enricher instances ---
 
@@ -159,6 +161,33 @@ def _source_info(source) -> dict:
 def list_sources() -> list[dict]:
     """Metadata + health + enabled flag for every discovered source."""
     return [_source_info(s) for s in _sources]
+
+
+def _find_source(name: str):
+    for s in _sources:
+        if s.name == name:
+            return s
+    return None
+
+
+def set_source_enabled(name: str, enabled: bool) -> dict:
+    """Toggle a source on/off, persist the choice, and load when enabling.
+
+    Returns the updated source info dict. Raises ValueError for unknown names.
+    """
+    global _disabled
+    source = _find_source(name)
+    if source is None:
+        raise ValueError(f"unknown source: {name}")
+    with _state_lock:
+        _disabled = (_disabled - {name}) if enabled else (_disabled | {name})
+        save_disabled(set(_disabled), _STATE_PATH)
+    if enabled:
+        try:
+            source.load()
+        except Exception as e:
+            logger.warning(f"{name} load-on-enable failed: {e}")
+    return _source_info(source)
 
 
 # --- Public API ---

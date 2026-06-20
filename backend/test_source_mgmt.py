@@ -135,3 +135,56 @@ def test_list_sources_includes_disabled_with_flag(tmp_path, monkeypatch):
     monkeypatch.setattr(reg, "_disabled", {"ipinfo_lite"})
     info = reg.list_sources()[0]
     assert info["enabled"] is False
+
+
+def test_set_enabled_unknown_name_raises(monkeypatch):
+    monkeypatch.setattr(reg, "_sources", [_fake("a")])
+    monkeypatch.setattr(reg, "_STATE_PATH", None)  # not used on the error path
+    with pytest.raises(ValueError):
+        reg.set_source_enabled("nope", True)
+
+
+def test_disable_persists_and_flags(tmp_path, monkeypatch):
+    class Src:
+        name = "ipinfo_lite"
+        def health(self):
+            from ipdb._types import SourceHealth
+            return SourceHealth(name="ipinfo_lite", loaded=True, record_count=0,
+                                last_updated=None, is_stale=False)
+
+    monkeypatch.setattr(reg, "_sources", [Src()])
+    monkeypatch.setattr(reg, "_disabled", set())
+    monkeypatch.setattr(reg, "_STATE_PATH", tmp_path / "state.json")
+
+    info = reg.set_source_enabled("ipinfo_lite", False)
+
+    assert info["enabled"] is False
+    assert reg.is_enabled("ipinfo_lite") is False
+    # Persisted to disk.
+    from ipdb._source_state import load_disabled
+    assert load_disabled(tmp_path / "state.json") == {"ipinfo_lite"}
+
+def test_enable_loads_source_and_clears_disabled(tmp_path, monkeypatch):
+    loaded = []
+
+    class Src:
+        name = "ipinfo_lite"
+        fields = ("country_code",)
+        reliability = 0.8
+        authoritative_for = []
+        def load(self):
+            loaded.append(True)
+        def health(self):
+            from ipdb._types import SourceHealth
+            return SourceHealth(name="ipinfo_lite", loaded=True, record_count=0,
+                                last_updated=None, is_stale=False)
+
+    monkeypatch.setattr(reg, "_sources", [Src()])
+    monkeypatch.setattr(reg, "_disabled", {"ipinfo_lite"})
+    monkeypatch.setattr(reg, "_STATE_PATH", tmp_path / "state.json")
+
+    info = reg.set_source_enabled("ipinfo_lite", True)
+
+    assert info["enabled"] is True
+    assert loaded == [True]
+    assert reg.is_enabled("ipinfo_lite") is True
