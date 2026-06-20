@@ -249,3 +249,58 @@ export async function uploadFileStream(
     clear();
   }
 }
+
+export interface SourceHealth {
+  name: string;
+  loaded: boolean;
+  record_count: number;
+  last_updated: string | null;
+  is_stale: boolean;
+  error: string | null;
+}
+
+export interface SourceInfo {
+  name: string;
+  enabled: boolean;
+  category: "geo_asn" | "threat" | "asset" | "other";
+  archetype: "offline" | "online";
+  fields: string[];
+  reliability: number;
+  authoritative_for: string[];
+  classification_type: string | null;
+  url: string | null;
+  stale_days: number | null;
+  health: SourceHealth;
+}
+
+async function jsonOrThrow(res: Response, fallback: string) {
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail || detail;
+    } catch (e) {
+      throw new Error(detail || fallback, { cause: e });
+    }
+    throw new Error(detail || fallback);
+  }
+  return res.json();
+}
+
+export async function getSources(): Promise<SourceInfo[]> {
+  return jsonOrThrow(await fetch("/api/sources"), "Failed to load sources");
+}
+
+export async function setSourceEnabled(name: string, enabled: boolean): Promise<SourceInfo> {
+  const res = await fetch(`/api/sources/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  return jsonOrThrow(res, "Failed to update source");
+}
+
+export async function updateSource(name: string): Promise<SourceInfo> {
+  const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update`, { method: "POST" });
+  return jsonOrThrow(res, "Failed to refresh source");
+}
