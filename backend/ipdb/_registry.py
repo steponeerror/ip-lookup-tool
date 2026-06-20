@@ -180,7 +180,7 @@ def lookup(ip: str) -> LookupResult:
     field_values: dict[str, dict[str, Any]] = defaultdict(dict)
     observations = []
     attributes: dict[str, list] = defaultdict(list)
-    for source in _sources:
+    for source in _enabled_sources():
         try:
             raw = source.query(ip)
         except Exception as e:
