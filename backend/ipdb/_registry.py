@@ -135,12 +135,13 @@ def _enabled_sources() -> list:
 # --- Public API ---
 
 def load_db() -> None:
-    for source in _sources:
+    enabled = _enabled_sources()
+    for source in enabled:
         try:
             source.load()
         except Exception as e:
             logger.warning(f"{source.name} load failed: {e}")
-    counts = " + ".join(f"{s.health().record_count} {s.name}" for s in _sources)
+    counts = " + ".join(f"{s.health().record_count} {s.name}" for s in enabled)
     logger.info(f"Loaded {counts} records")
 
 
@@ -152,7 +153,7 @@ def refresh_stale() -> None:
     avoids re-downloading fresh data on every restart — staleness now reflects
     the data file's mtime, not in-memory load time.
     """
-    for source in _sources:
+    for source in _enabled_sources():
         try:
             if source.health().is_stale:
                 logger.info(f"{source.name}: data file stale/missing, downloading...")
@@ -263,33 +264,18 @@ def _error_result(ip: str) -> LookupResult:
 
 
 def get_status() -> dict:
-    by_name = {s.name: s for s in _sources}
-    healths = [s.health() for s in _sources]
+    enabled = _enabled_sources()
+    healths = [s.health() for s in enabled]
     mtimes = [h.last_updated for h in healths if h.last_updated]
     last_updated = max(mtimes) if mtimes else "N/A"
-    # Defensive: these three are expected, but auto-discovery may skip a source
-    # whose constructor failed — fall back rather than 500.
-    lite_h = by_name.get("ipinfo_lite")
-    tsv_h = by_name.get("iptoasn")
-    cn_h = by_name.get("cn_isp")
-    lite_count = lite_h.health().record_count if lite_h else 0
-    tsv_count = tsv_h.health().record_count if tsv_h else 0
-    cn_count = cn_h.health().record_count if cn_h else 0
-    # Accumulate total across all sources + per-category breakdowns
+    by_name = {s.name: s for s in enabled}
+    lite_count = by_name["ipinfo_lite"].health().record_count if "ipinfo_lite" in by_name else 0
+    tsv_count = by_name["iptoasn"].health().record_count if "iptoasn" in by_name else 0
+    cn_count = by_name["cn_isp"].health().record_count if "cn_isp" in by_name else 0
     total_count = sum(h.record_count for h in healths)
-    # Categorize sources by type
-    scalar_keys = ("ipinfo_lite", "iptoasn", "cn_isp")
-    threat_keys = (
-        "threatfox", "otx", "spamhaus", "blocklist_de",
-        "emerging_threats", "ipsum", "firehol", "abuseipdb", "misp",
-    )
-    asset_keys = ("ip2proxy", "tor_exits", "x4bnet_vpn")
-    scalar_total = sum(by_name[k].health().record_count
-                       for k in scalar_keys if k in by_name)
-    threat_total = sum(by_name[k].health().record_count
-                       for k in threat_keys if k in by_name)
-    asset_total = sum(by_name[k].health().record_count
-                      for k in asset_keys if k in by_name)
+    scalar_total = sum(h.record_count for h in healths if _category(h.name) == "geo_asn")
+    threat_total = sum(h.record_count for h in healths if _category(h.name) == "threat")
+    asset_total = sum(h.record_count for h in healths if _category(h.name) == "asset")
     return {
         "last_updated": last_updated,
         "record_count": lite_count + tsv_count,
@@ -308,7 +294,7 @@ def is_db_stale() -> bool:
 
 def reload_db() -> dict:
     errors = []
-    for source in _sources:
+    for source in _enabled_sources():
         try:
             source.download()
         except Exception as e:
@@ -322,7 +308,7 @@ def reload_db() -> dict:
 
 
 def get_download_steps() -> list[tuple[str, Callable]]:
-    return [(s.name, s.download) for s in _sources]
+    return [(s.name, s.download) for s in _enabled_sources()]
 
 
 def enrich_with_ipapi(ips: list[str]) -> dict[str, dict]:
