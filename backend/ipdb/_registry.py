@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import load_dotenv
-
+from ipdb._source_state import load_disabled, save_disabled
 from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment, AssetStatement
 from ._merge import (
     FactualVoting,
@@ -31,6 +31,9 @@ load_dotenv(_app_dir / ".env")
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(os.environ.get("IP_RADAR_DATA_DIR", str(_app_dir / "data")))
+
+_STATE_PATH = Path(os.environ.get(
+    "SOURCE_STATE_PATH", str(DATA_DIR / "source_state.json")))
 
 
 def _discover_sources(data_dir: Path) -> list:
@@ -72,6 +75,7 @@ def _instantiate_source(cls, data_dir: Path) -> list:
 
 
 _sources = _discover_sources(DATA_DIR)
+_disabled = load_disabled(_STATE_PATH)
 
 # --- Enricher instances ---
 
@@ -93,6 +97,39 @@ _strategies = {
 # Asset attributes collected into LookupResult.attributes (pure陈述, no scoring).
 # Explicit whitelist — sources emitting keys not in this set are ignored.
 _ASSET_KEYS = ("is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier")
+
+
+# --- Source categories (single source of truth; used by get_status + list_sources) ---
+
+SOURCE_CATEGORIES = {
+    "ipinfo_lite": "geo_asn",
+    "iptoasn": "geo_asn",
+    "cn_isp": "geo_asn",
+    "threatfox": "threat",
+    "otx": "threat",
+    "spamhaus": "threat",
+    "blocklist_de": "threat",
+    "emerging_threats": "threat",
+    "ipsum": "threat",
+    "firehol": "threat",
+    "abuseipdb": "threat",
+    "misp": "threat",
+    "ip2proxy": "asset",
+    "tor_exits": "asset",
+    "x4bnet_vpn": "asset",
+}
+
+
+def _category(name: str) -> str:
+    return SOURCE_CATEGORIES.get(name, "other")
+
+
+def is_enabled(name: str) -> bool:
+    return name not in _disabled
+
+
+def _enabled_sources() -> list:
+    return [s for s in _sources if is_enabled(s.name)]
 
 
 # --- Public API ---
