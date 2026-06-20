@@ -7,6 +7,7 @@ import os
 import time
 from collections import defaultdict
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
 
@@ -130,6 +131,34 @@ def is_enabled(name: str) -> bool:
 
 def _enabled_sources() -> list:
     return [s for s in _sources if is_enabled(s.name)]
+
+
+def _archetype(source) -> str:
+    """online = query-on-demand ApiSource; offline = file-backed."""
+    from ipdb._sources._base import ApiSource
+    return "online" if isinstance(source, ApiSource) else "offline"
+
+
+def _source_info(source) -> dict:
+    health = source.health()
+    return {
+        "name": source.name,
+        "enabled": is_enabled(source.name),
+        "category": _category(source.name),
+        "archetype": _archetype(source),
+        "fields": list(getattr(source, "fields", ())),
+        "reliability": getattr(source, "reliability", 0.5),
+        "authoritative_for": list(getattr(source, "authoritative_for", [])),
+        "classification_type": getattr(source, "classification_type", None),
+        "url": getattr(source, "url", None),
+        "stale_days": getattr(source, "stale_days", None),
+        "health": asdict(health),
+    }
+
+
+def list_sources() -> list[dict]:
+    """Metadata + health + enabled flag for every discovered source."""
+    return [_source_info(s) for s in _sources]
 
 
 # --- Public API ---
