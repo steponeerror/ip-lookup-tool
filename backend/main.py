@@ -8,6 +8,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 import os
 import sys
@@ -22,6 +23,7 @@ from ipdb import (
     load_db, lookup, get_status, refresh_stale,
     get_download_steps,
     enrich_with_ipapi, enrich_with_ipapi_is,
+    list_sources, set_source_enabled, update_source,
 )
 
 import os
@@ -32,6 +34,10 @@ logging.basicConfig(level=logging.INFO)
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
 LOOKUP_CHUNK = 200
 ENRICH_CHUNK = 100
+
+
+class SourceEnabledPatch(BaseModel):
+    enabled: bool
 
 
 async def _enrich_results(
@@ -178,18 +184,16 @@ async def db_status():
     return get_status()
 
 
-_DOWNLOAD_STEPS = get_download_steps()
-
-
 async def _stream_update_db() -> AsyncIterator:
     """Stream database update progress as NDJSON events."""
-    total = len(_DOWNLOAD_STEPS) + 1
+    steps = get_download_steps()
+    total = len(steps) + 1
     errors: list[str] = []
     done = 0
 
     yield json.dumps({"type": "start", "total": total}) + "\n"
 
-    for name, fn in _DOWNLOAD_STEPS:
+    for name, fn in steps:
         yield json.dumps({
             "type": "step", "done": done, "total": total,
             "name": name, "status": "downloading",
@@ -264,6 +268,27 @@ async def lookup_stix(ip: str):
             "STIX export unavailable: install stix2 package (pip install stix2)",
         )
     return bundle
+
+
+@app.get("/api/sources")
+async def list_sources_route():
+    return list_sources()
+
+
+@app.patch("/api/sources/{name}")
+async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
+    try:
+        return await asyncio.to_thread(set_source_enabled, name, patch.enabled)
+    except ValueError:
+        raise HTTPException(404, f"unknown source: {name}")
+
+
+@app.post("/api/sources/{name}/update")
+async def update_source_route(name: str):
+    try:
+        return await asyncio.to_thread(update_source, name)
+    except ValueError:
+        raise HTTPException(404, f"unknown source: {name}")
 
 
 # ── Static file serving for production frontend ──

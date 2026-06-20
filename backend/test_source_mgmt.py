@@ -217,3 +217,65 @@ def test_update_source_downloads_and_loads(monkeypatch):
     info = reg.update_source("ipinfo_lite")
     assert calls == ["download", "load"]
     assert info["health"]["record_count"] == 42
+
+
+def test_get_sources_route_returns_list(monkeypatch):
+    from fastapi.testclient import TestClient
+    import main
+
+    monkeypatch.setattr(main, "list_sources", lambda: [{"name": "ipinfo_lite", "enabled": True}])
+    client = TestClient(main.app)
+    resp = client.get("/api/sources")
+    assert resp.status_code == 200
+    assert resp.json() == [{"name": "ipinfo_lite", "enabled": True}]
+
+
+def test_patch_source_route_calls_set_enabled(monkeypatch):
+    from fastapi.testclient import TestClient
+    import main
+
+    captured = {}
+    monkeypatch.setattr(main, "set_source_enabled",
+                        lambda name, enabled: captured.update(name=name, enabled=enabled) or
+                        {"name": name, "enabled": enabled})
+    client = TestClient(main.app)
+    resp = client.patch("/api/sources/spamhaus", json={"enabled": False})
+    assert resp.status_code == 200
+    assert resp.json()["enabled"] is False
+    assert captured == {"name": "spamhaus", "enabled": False}
+
+
+def test_patch_source_unknown_returns_404(monkeypatch):
+    from fastapi.testclient import TestClient
+    import main
+
+    def _raise(name, enabled):
+        raise ValueError("unknown")
+    monkeypatch.setattr(main, "set_source_enabled", _raise)
+    client = TestClient(main.app)
+    resp = client.patch("/api/sources/nope", json={"enabled": True})
+    assert resp.status_code == 404
+
+
+def test_update_source_route_calls_update(monkeypatch):
+    from fastapi.testclient import TestClient
+    import main
+
+    monkeypatch.setattr(main, "update_source",
+                        lambda name: {"name": name, "health": {"record_count": 7}})
+    client = TestClient(main.app)
+    resp = client.post("/api/sources/spamhaus/update")
+    assert resp.status_code == 200
+    assert resp.json()["health"]["record_count"] == 7
+
+
+def test_update_source_unknown_returns_404(monkeypatch):
+    from fastapi.testclient import TestClient
+    import main
+
+    def _raise(name):
+        raise ValueError("unknown")
+    monkeypatch.setattr(main, "update_source", _raise)
+    client = TestClient(main.app)
+    resp = client.post("/api/sources/nope/update")
+    assert resp.status_code == 404
