@@ -102,3 +102,36 @@ def test_get_status_counts_only_enabled(monkeypatch):
     assert status["total_records"] == 100
     assert status["scalar_records"] == 100
     assert status["record_count"] == 100  # lite + tsv, tsv disabled
+
+
+def test_list_sources_includes_disabled_with_flag(tmp_path, monkeypatch):
+    from ipdb._sources._base import IpListSource
+
+    class ListSrc(IpListSource):
+        name = "ipinfo_lite"
+        url = "https://example.com/x.txt"
+        filename = "x.txt"
+        fields = ("country_code",)
+        reliability = 0.8
+        authoritative_for = ["country_code"]
+
+    src = ListSrc(data_dir=tmp_path)
+    monkeypatch.setattr(reg, "_sources", [src])
+    monkeypatch.setattr(reg, "_disabled", set())
+
+    info_list = reg.list_sources()
+    assert len(info_list) == 1
+    info = info_list[0]
+    assert info["name"] == "ipinfo_lite"
+    assert info["enabled"] is True
+    assert info["category"] == "geo_asn"
+    assert info["archetype"] == "offline"
+    assert info["fields"] == ["country_code"]
+    assert info["reliability"] == 0.8
+    assert info["classification_type"] is None
+    assert "health" in info and "record_count" in info["health"]
+
+    # Disable it; list_sources still includes it, now flagged disabled.
+    monkeypatch.setattr(reg, "_disabled", {"ipinfo_lite"})
+    info = reg.list_sources()[0]
+    assert info["enabled"] is False
