@@ -188,3 +188,32 @@ def test_enable_loads_source_and_clears_disabled(tmp_path, monkeypatch):
     assert info["enabled"] is True
     assert loaded == [True]
     assert reg.is_enabled("ipinfo_lite") is True
+
+
+def test_update_source_unknown_raises(monkeypatch):
+    monkeypatch.setattr(reg, "_sources", [_fake("a")])
+    with pytest.raises(ValueError):
+        reg.update_source("nope")
+
+
+def test_update_source_downloads_and_loads(monkeypatch):
+    calls = []
+
+    class Src:
+        name = "ipinfo_lite"
+        fields = ("country_code",)
+        reliability = 0.8
+        authoritative_for = []
+        def download(self):
+            calls.append("download")
+        def load(self):
+            calls.append("load")
+        def health(self):
+            from ipdb._types import SourceHealth
+            return SourceHealth(name="ipinfo_lite", loaded=True, record_count=42,
+                                last_updated="2026-06-20T00:00:00Z", is_stale=False)
+
+    monkeypatch.setattr(reg, "_sources", [Src()])
+    info = reg.update_source("ipinfo_lite")
+    assert calls == ["download", "load"]
+    assert info["health"]["record_count"] == 42
