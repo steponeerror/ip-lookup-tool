@@ -242,7 +242,7 @@ def expected_counts() -> dict[str, int]:
 
 def lookup(ip: str) -> LookupResult:
     """Look up an IP address and return a typed LookupResult."""
-    if not any(s.health().loaded for s in _sources):
+    if not any(s.health().loaded for s in _enabled_sources()):
         raise RuntimeError("Database not loaded")
     try:
         ipaddress.IPv4Address(ip)
@@ -361,7 +361,7 @@ def get_status() -> dict:
 
 
 def is_db_stale() -> bool:
-    return any(s.health().is_stale for s in _sources)
+    return any(s.health().is_stale for s in _enabled_sources())
 
 
 def reload_db() -> dict:

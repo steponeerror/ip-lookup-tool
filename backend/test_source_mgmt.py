@@ -279,3 +279,16 @@ def test_update_source_unknown_returns_404(monkeypatch):
     client = TestClient(main.app)
     resp = client.post("/api/sources/nope/update")
     assert resp.status_code == 404
+
+
+def test_is_db_stale_ignores_disabled_sources(monkeypatch):
+    from ipdb._types import SourceHealth
+    # A stale source that is DISABLED must NOT make is_db_stale() true.
+    stale_disabled = type("S", (), {
+        "name": "spamhaus",
+        "health": lambda self: SourceHealth(name="spamhaus", loaded=True, record_count=0,
+                                             last_updated="2026-06-01T00:00:00Z", is_stale=True),
+    })()
+    monkeypatch.setattr(reg, "_sources", [stale_disabled])
+    monkeypatch.setattr(reg, "_disabled", {"spamhaus"})
+    assert reg.is_db_stale() is False
