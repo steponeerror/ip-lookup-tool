@@ -64,3 +64,41 @@ def test_lookup_skips_disabled_source(monkeypatch):
 
     assert "ipinfo_lite" in calls
     assert "iptoasn" not in calls
+
+
+def test_get_download_steps_excludes_disabled(monkeypatch):
+    # _fake only carries .name; get_download_steps also reads .download,
+    # so give each fake a no-op download stub.
+    def src(name):
+        s = _fake(name)
+        s.download = lambda: None
+        return s
+
+    monkeypatch.setattr(reg, "_sources", [src("a"), src("b")])
+    monkeypatch.setattr(reg, "_disabled", {"b"})
+    steps = reg.get_download_steps()
+    names = [n for n, _ in steps]
+    assert names == ["a"]
+
+
+def test_get_status_counts_only_enabled(monkeypatch):
+    from ipdb._types import SourceHealth
+
+    def mk(name, count):
+        cls = type("S", (), {"name": name})
+
+        def health(self, n=name, c=count):
+            return SourceHealth(
+                name=n, loaded=True, record_count=c,
+                last_updated="2026-06-20T00:00:00Z", is_stale=False)
+
+        cls.health = health
+        return cls()
+
+    monkeypatch.setattr(reg, "_sources", [mk("ipinfo_lite", 100), mk("iptoasn", 50)])
+    monkeypatch.setattr(reg, "_disabled", {"iptoasn"})
+    status = reg.get_status()
+    # ipinfo_lite is geo_asn (scalar); iptoasn disabled so excluded everywhere
+    assert status["total_records"] == 100
+    assert status["scalar_records"] == 100
+    assert status["record_count"] == 100  # lite + tsv, tsv disabled
