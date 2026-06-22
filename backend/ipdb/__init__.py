@@ -9,6 +9,7 @@ from ipdb._registry import (
     list_sources,
     set_source_enabled,
     update_source,
+    update_source_streaming,
     enrich_with_ipapi,
     enrich_with_ipapi_is,
     get_download_steps,

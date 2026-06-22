@@ -3,8 +3,8 @@ import { motion, useReducedMotion } from "motion/react";
 import {
   getSources,
   setSourceEnabled,
-  updateSource,
   updateDbStream,
+  updateSourceStream,
 } from "../api";
 import type { SourceInfo } from "../api";
 
@@ -70,7 +70,8 @@ export default function SourcesPage() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busyName, setBusyName] = useState<string | null>(null);
+  const [busyNames, setBusyNames] = useState<Set<string>>(() => new Set());
+  const [progress, setProgress] = useState<Record<string, "downloading" | "loading">>({});
   const [refreshingAll, setRefreshingAll] = useState(false);
   const reduce = useReducedMotion();
 
@@ -107,14 +108,30 @@ export default function SourcesPage() {
   };
 
   const handleUpdate = async (name: string) => {
-    setBusyName(name);
+    setBusyNames((prev) => {
+      const next = new Set(prev);
+      next.add(name);
+      return next;
+    });
     try {
-      const updated = await updateSource(name);
+      const updated = await updateSourceStream(name, (p) => {
+        setProgress((prev) => ({ ...prev, [name]: p.phase }));
+      });
       patch(name, { health: updated.health });
     } catch (e) {
       setError(e instanceof Error ? e.message : `Failed to update ${name}`);
     } finally {
-      setBusyName(null);
+      setBusyNames((prev) => {
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
+      setProgress((prev) => {
+        if (!(name in prev)) return prev;
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
     }
   };
 
@@ -178,7 +195,8 @@ export default function SourcesPage() {
             >
               {items.map((s) => {
                 const st = statusOf(s);
-                const busy = busyName === s.name;
+                const busy = busyNames.has(s.name);
+                const phase = progress[s.name];
                 return (
                   <li key={s.name} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                     <span className="w-32 shrink-0 font-mono text-sm text-zinc-200">{s.name}</span>
@@ -202,7 +220,7 @@ export default function SourcesPage() {
                         disabled={busy || refreshingAll}
                         className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {busy ? "Updating..." : "Update"}
+                        {busy ? (phase === "loading" ? "Loading…" : "Downloading…") : "Update"}
                       </button>
                     </div>
                   </li>

@@ -23,7 +23,7 @@ from ipdb import (
     load_db, lookup, get_status, refresh_stale,
     get_download_steps,
     enrich_with_ipapi, enrich_with_ipapi_is,
-    list_sources, set_source_enabled, update_source,
+    list_sources, set_source_enabled, update_source, update_source_streaming,
 )
 
 import os
@@ -289,6 +289,17 @@ async def update_source_route(name: str):
         return await asyncio.to_thread(update_source, name)
     except ValueError:
         raise HTTPException(404, f"unknown source: {name}")
+
+
+@app.post("/api/sources/{name}/update/stream")
+async def update_source_stream_route(name: str):
+    async def gen():
+        try:
+            for evt in update_source_streaming(name):
+                yield json.dumps(evt) + "\n"
+        except ValueError:
+            yield json.dumps({"type": "error", "error": f"unknown source: {name}"}) + "\n"
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 
 # ── Static file serving for production frontend ──

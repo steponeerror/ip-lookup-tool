@@ -383,3 +383,81 @@ def test_refresh_stale_does_not_block_on_async_source(monkeypatch):
         f"refresh_stale blocked {elapsed:.2f}s — async_refresh source "
         "was not backgrounded")
     assert finished.wait(timeout=3), "async source download never ran in background"
+
+
+def test_update_source_streaming_emits_phases(monkeypatch):
+    """update_source_streaming yields start → downloading → loading → complete,
+    calling download() then load() in order."""
+    from ipdb._types import SourceHealth
+
+    order = []
+
+    class FakeSrc:
+        name = "spamhaus"
+        fields = ("is_malicious",)
+
+        def download(self):
+            order.append("download")
+
+        def load(self):
+            order.append("load")
+
+        def health(self):
+            return SourceHealth(name="spamhaus", loaded=True, record_count=42,
+                                last_updated=None, is_stale=False)
+
+    monkeypatch.setattr(reg, "_sources", [FakeSrc()])
+    events = list(reg.update_source_streaming("spamhaus"))
+
+    assert events[0] == {"type": "start", "name": "spamhaus"}
+    phases = [e["phase"] for e in events if e["type"] == "phase"]
+    assert phases == ["downloading", "loading"]
+    assert events[-1]["type"] == "complete"
+    assert events[-1]["source"]["health"]["record_count"] == 42
+    assert order == ["download", "load"]
+
+
+def test_update_source_streaming_emits_error_event(monkeypatch):
+    """A failing download surfaces as an error event, not an exception."""
+    class FakeSrc:
+        name = "boom"
+
+        def download(self):
+            raise RuntimeError("network down")
+
+        def load(self):
+            pass
+
+        def health(self):
+            ...
+
+    monkeypatch.setattr(reg, "_sources", [FakeSrc()])
+    events = list(reg.update_source_streaming("boom"))
+    assert events[-1]["type"] == "error"
+    assert "network down" in events[-1]["error"]
+
+
+def test_update_source_streaming_unknown_raises():
+    with pytest.raises(ValueError):
+        list(reg.update_source_streaming("nope"))
+
+
+def test_update_source_stream_route_returns_ndjson(monkeypatch):
+    """The streaming route forwards registry events as NDJSON lines."""
+    import json as _json
+    from fastapi.testclient import TestClient
+    import main
+
+    def _fake_stream(name):
+        yield {"type": "start", "name": name}
+        yield {"type": "phase", "phase": "downloading"}
+        yield {"type": "complete",
+               "source": {"name": name, "health": {"record_count": 5}}}
+
+    monkeypatch.setattr(main, "update_source_streaming", _fake_stream)
+    client = TestClient(main.app)
+    resp = client.post("/api/sources/spamhaus/update/stream")
+    assert resp.status_code == 200
+    lines = [_json.loads(l) for l in resp.text.splitlines() if l.strip()]
+    assert lines[0]["type"] == "start"
+    assert lines[-1]["type"] == "complete"
