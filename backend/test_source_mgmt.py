@@ -346,3 +346,40 @@ def test_update_source_serializes_same_source(monkeypatch):
 
     assert not overlapped.is_set(), \
         "update_source calls overlapped — concurrent download() corrupts the raw data file"
+
+
+def test_refresh_stale_does_not_block_on_async_source(monkeypatch):
+    """A source flagged async_refresh=True must download in a background thread,
+    so refresh_stale() returns promptly instead of blocking startup on its
+    (slow) download. The download must still actually run."""
+    from ipdb._types import SourceHealth
+
+    finished = threading.Event()
+
+    class SlowAsyncSrc:
+        name = "slowasync"
+        async_refresh = True
+
+        def download(self):
+            time.sleep(1.0)  # simulate a slow paginating source (e.g. OTX)
+            finished.set()
+
+        def load(self):
+            pass
+
+        def health(self):
+            return SourceHealth(name="slowasync", loaded=False, record_count=0,
+                                last_updated=None, is_stale=True)
+
+    src = SlowAsyncSrc()
+    monkeypatch.setattr(reg, "_sources", [src])
+    monkeypatch.setattr(reg, "_disabled", set())
+
+    t0 = time.time()
+    reg.refresh_stale()
+    elapsed = time.time() - t0
+
+    assert elapsed < 0.4, (
+        f"refresh_stale blocked {elapsed:.2f}s — async_refresh source "
+        "was not backgrounded")
+    assert finished.wait(timeout=3), "async source download never ran in background"
