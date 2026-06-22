@@ -304,3 +304,50 @@ export async function updateSource(name: string): Promise<SourceInfo> {
   const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update`, { method: "POST" });
   return jsonOrThrow(res, "Failed to refresh source");
 }
+
+export interface SourceUpdateProgress {
+  phase: "downloading" | "loading";
+}
+
+/** Stream a single-source update (start → downloading → loading → complete). */
+export async function updateSourceStream(
+  name: string,
+  onProgress: (p: SourceUpdateProgress) => void,
+): Promise<SourceInfo> {
+  const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update/stream`, { method: "POST" });
+  if (!res.ok) {
+    let detail: string;
+    try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
+    throw new Error(detail || `Failed to update ${name}`);
+  }
+  if (!res.body) throw new Error("Streaming not supported");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let final: SourceInfo | null = null;
+  let streamError: string | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop()!;
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let evt: any;
+      try { evt = JSON.parse(line); } catch { continue; }
+      if (evt.type === "phase") {
+        onProgress({ phase: evt.phase });
+      } else if (evt.type === "complete") {
+        final = evt.source as SourceInfo;
+      } else if (evt.type === "error") {
+        streamError = evt.error as string;
+      }
+    }
+  }
+  if (streamError) throw new Error(streamError);
+  if (!final) throw new Error(`Failed to update ${name}`);
+  return final;
+}

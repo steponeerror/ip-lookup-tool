@@ -4,10 +4,11 @@ import importlib
 import ipaddress
 import logging
 import os
+import queue
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
@@ -218,6 +219,43 @@ def update_source(name: str) -> dict:
         source.download()
         source.load()
     return _source_info(source)
+
+
+def update_source_streaming(name: str) -> Iterator[dict]:
+    """Stream per-source update progress as event dicts.
+
+    Yields start → phase(downloading) → phase(loading) → complete(source_info),
+    or an error event if download/load raises. Download+load run on a worker
+    thread holding the per-source lock, so the caller's event loop stays free
+    and same-source calls still serialize (different sources run in parallel).
+    """
+    source = _find_source(name)
+    if source is None:
+        raise ValueError(f"unknown source: {name}")
+
+    q: queue.Queue = queue.Queue()
+    _DONE = object()
+
+    def worker():
+        try:
+            with _update_lock_for(name):
+                q.put({"type": "phase", "phase": "downloading"})
+                source.download()
+                q.put({"type": "phase", "phase": "loading"})
+                source.load()
+            q.put({"type": "complete", "source": _source_info(source)})
+        except Exception as e:
+            q.put({"type": "error", "error": str(e)})
+        finally:
+            q.put(_DONE)
+
+    threading.Thread(target=worker, daemon=True).start()
+    yield {"type": "start", "name": name}
+    while True:
+        item = q.get()
+        if item is _DONE:
+            return
+        yield item
 
 
 # --- Public API ---
