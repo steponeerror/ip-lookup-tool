@@ -5,6 +5,8 @@ short comment. Add per-source `{native: intelmq}` maps alongside the source.
 No separate YAML/versioning process (YAGNI for this tool's scale).
 """
 
+import re
+
 # IntelMQ classification.type subset relevant to IP threat intel. Extensible.
 CLASSIFICATION_TYPES = frozenset({
     "blacklist",            # generic curated blocklist, no subcategory available
@@ -101,3 +103,82 @@ def normalize(raw_type, mapping: dict) -> str:
     if mapped and mapped in CLASSIFICATION_TYPES:
         return mapped
     return "other"
+
+
+# ── MISP severity + type inference ──────────────────────────────────────────
+# MISP attribute category alone is too coarse: ~99.8% of IP attributes land in
+# "Network activity" (→ "other") regardless of what the event is actually about.
+# These resolvers use the signals MISP already gives us — Event.threat_level_id
+# (severity), the event title (what the event is about), and to_ids — to produce
+# a faithful classification instead of a blanket malicious/other.
+
+# Event.threat_level_id (1=High … 4=Undefined) → (verdict, reliability).
+# Reliability scales the merged confidence (mean reliability × 100) per attribute.
+MISP_THREAT_LEVEL: dict[str, tuple[str, float]] = {
+    "1": ("malicious", 0.80),   # High
+    "2": ("malicious", 0.60),   # Medium
+    "3": ("suspicious", 0.40),  # Low
+    "4": ("suspicious", 0.25),  # Undefined
+}
+
+# Event-title keyword → IntelMQ type, checked in priority order (first match
+# wins). Patterns are lowercase-matched against the lowercased title. Order
+# matters: c2 before malware (CobaltStrike is C2), brute before scan
+# (pop3gropers is a brute-force feed), etc.
+_MISP_TITLE_RULES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\b(c2|c&c|cnc|command[- ]?and[- ]?control|cobalt\s*strike)\b"), "c2-server"),
+    (re.compile(r"phish"), "phishing"),
+    (re.compile(r"(brute|pop3gropers)"), "brute-force"),
+    (re.compile(r"\bscan"), "scanner"),
+    (re.compile(r"botnet|mirai|fbot|hajime"), "botnet"),
+    (re.compile(r"(malware|trojan|backdoor|worm|stealer|loader|ransom|infosteal|vawtrak|emotet|njrat|locky|trickbot)"), "malware"),
+    (re.compile(r"\bspam"), "spam"),
+    (re.compile(r"ddos"), "ddos"),
+    (re.compile(r"\bvpn\b|astrill"), "proxy"),
+    (re.compile(r"\bproxy\b"), "proxy"),
+    (re.compile(r"\btor\b"), "tor"),
+]
+# Generic OSINT IOC/blocklist dumps (no subcategory available) → blacklist
+# rather than a misleading concrete type or "other".
+_MISP_GENERIC_BLOCKLIST = re.compile(r"(maltrail|\bioc\b|osint.*(indicator|intel)|blocklist|\bfeed\b)")
+
+# Recognised malware family names for inline tag display. Lowercased, hyphenated.
+_MISP_FAMILY_RE = re.compile(
+    r"(mirai[-/]?(?:fbot)?|fbot|vawtrak|emotet|njrat|locky|trickbot|vidar|redline|dcrat|hajime|cobalt\s*strike)",
+    re.IGNORECASE,
+)
+
+
+def resolve_misp_type(category: str, info: str) -> str:
+    """Infer an IntelMQ classification.type from a MISP attribute's category
+    and event title.
+
+    Order: concrete title keyword → mapped category → generic blocklist rescue
+    → "other". The title is usually the richest signal; the category map covers
+    the rare explicit categories (Payload delivery, etc.); the blocklist rescue
+    turns generic IOC dumps into "blacklist" instead of the vague "other".
+    """
+    title = (info or "").lower()
+    for pattern, ctype in _MISP_TITLE_RULES:
+        if pattern.search(title):
+            return ctype
+    mapped = normalize(category, MISP_CATEGORY_MAP)
+    if mapped != "other":
+        return mapped
+    if _MISP_GENERIC_BLOCKLIST.search(title):
+        return "blacklist"
+    return "other"
+
+
+def extract_malware_family(info: str) -> str | None:
+    """Pull a short malware-family name from the event title, or None.
+
+    Returned lowercase with normalised separators (e.g. "Mirai-Fbot" →
+    "mirai-fbot", "CobaltStrike" → "cobalt-strike") so it renders cleanly as a
+    threat-tag suffix.
+    """
+    m = _MISP_FAMILY_RE.search(info or "")
+    if not m:
+        return None
+    return re.sub(r"[\s/]+", "-", m.group(1).lower())
+

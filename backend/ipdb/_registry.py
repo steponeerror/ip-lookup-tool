@@ -345,7 +345,7 @@ def lookup(ip: str) -> LookupResult:
                     source.name, item,
                     classification_type=item["classification_type"],
                     verdict=item.get("verdict", "malicious"),
-                    reliability=getattr(source, "reliability", 0.5)))
+                    reliability=item.get("reliability", getattr(source, "reliability", 0.5))))
             native_types = item.get("_native_types") or {}
             for akey in _ASSET_KEYS:
                 if akey in item:

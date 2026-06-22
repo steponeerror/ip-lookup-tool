@@ -12,7 +12,9 @@ needs MISP_URL + MISP_KEY. No PyMISP dependency: it speaks the REST API directly
 with urllib (house style, like the other sources).
 
 Default pull: IP attributes updated in the last 7 days, no tag filter, high
-limit. Tunable via MISP_LAST / MISP_TAGS / MISP_LIMIT.
+limit. Tunable via MISP_LAST / MISP_TAGS / MISP_LIMIT. Only attributes whose
+event MISP rates threat_level 1 (High) or 2 (Medium) are loaded — the Low/
+Undefined majority is incidental infrastructure noise (see _MAX_THREAT_LEVEL).
 
 Only IPv4 is loaded (the rest of the tool is IPv4-only); IPv6 and non-IP
 attribute values are skipped. Multiple attributes for the same CIDR accumulate
@@ -28,13 +30,23 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
-from .._classification import normalize, MISP_CATEGORY_MAP
+from .._classification import (
+    MISP_THREAT_LEVEL,
+    extract_malware_family,
+    resolve_misp_type,
+)
 from .._types import SourceHealth
 
 logger = logging.getLogger(__name__)
 
 # MISP attribute types that carry an IPv4 — value may be "IP" or "IP|port".
 _IP_TYPES = ("ip-src", "ip-dst", "ip-src|port", "ip-dst|port")
+
+# Only ingest attributes whose event MISP itself rates High (1) or Medium (2).
+# The feed is dominated by Low (3) / Undefined (4) "Network activity" entries
+# where the IP is often incidental infrastructure (e.g. 8.8.8.8 as DNS a malware
+# sample contacted) — ingesting those mass-produces false positives. Tunable.
+_MAX_THREAT_LEVEL = 2
 
 
 class MispSource:
@@ -67,6 +79,7 @@ class MispSource:
             "type": {"OR": list(_IP_TYPES)},
             "last": self._last,
             "limit": self._limit,
+            "include_tags": True,
         }
         if self._tags:
             body["tags"] = self._tags
@@ -128,11 +141,45 @@ class MispSource:
                 except (ipaddress.AddressValueError, ValueError):
                     continue
                 category = a.get("category") or "Network activity"
+                ev = a.get("Event") or {}
+                info = ev.get("info") or ""
+                tl = ev.get("threat_level_id") or ""
+                # Drop Low/Undefined-severity entries: the IP is usually
+                # incidental infrastructure, not an actionable IOC.
+                try:
+                    keep = 1 <= int(tl) <= _MAX_THREAT_LEVEL
+                except ValueError:
+                    keep = False
+                if not keep:
+                    continue
+                # Severity from MISP's own threat_level_id (was: blanket malicious/0.7).
+                verdict, rel = MISP_THREAT_LEVEL.get(tl, ("suspicious", 0.30))
+                # to_ids=False = analyst marked "not for detection": demote so the
+                # mention still shows but can never drive a malicious verdict.
+                if not a.get("to_ids"):
+                    verdict = "suspicious"
+                    rel = min(rel, 0.15)
+                tags = a.get("Tag") or []
+                tlp = ""
+                for t in tags:
+                    nm = str(t.get("name", "")) if isinstance(t, dict) else ""
+                    if nm.lower().startswith("tlp:"):
+                        tlp = nm[4:]
+                        break
+                extra = {"native_type": category, "threat_level": tl,
+                         "to_ids": bool(a.get("to_ids"))}
+                if tlp:
+                    extra["tlp"] = tlp
                 evidence = {
-                    "classification_type": normalize(category, MISP_CATEGORY_MAP),
-                    "verdict": "malicious",
-                    "extra": {"native_type": category},
+                    "classification_type": resolve_misp_type(category, info),
+                    "verdict": verdict,
+                    "reliability": rel,
+                    "comment": info[:200],
+                    "extra": extra,
                 }
+                family = extract_malware_family(info)
+                if family:
+                    evidence["malware_name"] = family
                 bucket = acc.setdefault(str(net), [])
                 if evidence not in bucket:           # dedup identical evidence per CIDR
                     bucket.append(evidence)
