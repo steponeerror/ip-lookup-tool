@@ -1,4 +1,7 @@
 """Tests for source enable/disable plumbing in the registry."""
+import threading
+import time
+
 import pytest
 
 import ipdb._registry as reg
@@ -292,3 +295,54 @@ def test_is_db_stale_ignores_disabled_sources(monkeypatch):
     monkeypatch.setattr(reg, "_sources", [stale_disabled])
     monkeypatch.setattr(reg, "_disabled", {"spamhaus"})
     assert reg.is_db_stale() is False
+
+
+def test_update_source_serializes_same_source(monkeypatch):
+    """Concurrent update_source() calls on the SAME source must not overlap.
+
+    IpListSource.download() writes the raw data file in place (open(path,"w")),
+    so two interleaved updates corrupt the file — and update_source does
+    download() then load(), so a sibling download can truncate the file while
+    another thread's load() is reading it. Same-source updates must serialize.
+    """
+    active = []
+    active_lock = threading.Lock()
+    overlapped = threading.Event()
+
+    class Src:
+        name = "ipinfo_lite"
+        fields = ("country_code",)
+        reliability = 0.8
+        authoritative_for = []
+        classification_type = None
+        url = None
+        stale_days = None
+
+        def download(self):
+            with active_lock:
+                active.append(1)
+                if len(active) > 1:
+                    overlapped.set()
+            time.sleep(0.05)  # hold the section so siblings arrive inside it
+            with active_lock:
+                active.pop()
+
+        def load(self):
+            pass
+
+        def health(self):
+            from ipdb._types import SourceHealth
+            return SourceHealth(name="ipinfo_lite", loaded=True, record_count=1,
+                                last_updated="2026-06-22T00:00:00Z", is_stale=False)
+
+    monkeypatch.setattr(reg, "_sources", [Src()])
+
+    threads = [threading.Thread(target=reg.update_source, args=("ipinfo_lite",))
+               for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not overlapped.is_set(), \
+        "update_source calls overlapped — concurrent download() corrupts the raw data file"

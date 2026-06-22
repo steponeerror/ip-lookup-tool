@@ -79,6 +79,21 @@ def _instantiate_source(cls, data_dir: Path) -> list:
 _sources = _discover_sources(DATA_DIR)
 _disabled = load_disabled(_STATE_PATH)
 _state_lock = threading.Lock()
+_update_locks: dict[str, threading.Lock] = {}
+_update_locks_guard = threading.Lock()
+
+
+def _update_lock_for(name: str) -> threading.Lock:
+    """Per-source lock so concurrent update_source calls on the SAME source
+    serialize. IpListSource.download() writes its data file in place, so
+    overlapping updates (or download racing another thread's load) corrupt it.
+    Different sources still update in parallel."""
+    with _update_locks_guard:
+        lock = _update_locks.get(name)
+        if lock is None:
+            lock = threading.Lock()
+            _update_locks[name] = lock
+        return lock
 
 # --- Enricher instances ---
 
@@ -199,8 +214,9 @@ def update_source(name: str) -> dict:
     source = _find_source(name)
     if source is None:
         raise ValueError(f"unknown source: {name}")
-    source.download()
-    source.load()
+    with _update_lock_for(name):
+        source.download()
+        source.load()
     return _source_info(source)
 
 
