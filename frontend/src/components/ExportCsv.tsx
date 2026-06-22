@@ -1,4 +1,5 @@
 import type { LookupResult } from "../api";
+import { threatSummary, classLabel, familyShort } from "./ResultTable";
 
 interface ExportCsvProps {
   results: LookupResult[];
@@ -20,22 +21,33 @@ export function ExportCsv({ results }: ExportCsvProps) {
     return stmts[0].native_type ?? "";
   };
 
+  // Readable threat tags mirroring the table's 威胁标签 cell: classLabel · malware family.
+  const threatTags = (r: LookupResult): string => {
+    const tags = Object.keys(r.classifications)
+      .filter((t) => {
+        const ca = r.classifications[t];
+        return ca.detected && ca.confidence > 0;
+      })
+      .map((type) => {
+        const ca = r.classifications[type];
+        const label = classLabel(type);
+        const family = ca.malware_names.length > 0 ? familyShort(ca.malware_names[0]) : null;
+        return family ? `${label}·${family}` : label;
+      });
+    return tags.join(" | ");
+  };
+
   const handleExport = () => {
-    // Fixed schema mirroring the frontend table columns.
+    // Columns mirror the page table: identity fields, verdict (判定), threat tags
+    // (威胁标签), range, then inline asset badges.
     const header =
       "ip,asn,asn_confidence,country,country_confidence,as_name,as_name_confidence," +
-      "is_isp,classifications,ip_range,range_confidence,error," +
+      "is_isp,verdict,verdict_confidence,threat_tags,ip_range,range_confidence,error," +
       "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier\n";
 
     const rows = results
       .map((r) => {
-        const classifications = Object.keys(r.classifications)
-          .map((type) => {
-            const ca = r.classifications[type];
-            return `${type}:${ca.verdict}:${ca.confidence}`;
-          })
-          .join(" | ");
-
+        const summary = threatSummary(r);
         return [
           csvEscape(r.ip),
           csvEscape(String(r.asn.value)),
@@ -45,7 +57,9 @@ export function ExportCsv({ results }: ExportCsvProps) {
           csvEscape(r.as_name.value),
           String(r.as_name.confidence),
           String(r.is_isp),
-          csvEscape(classifications),
+          csvEscape(summary.verdict),
+          String(summary.confidence),
+          csvEscape(threatTags(r)),
           csvEscape(r.ip_range.value),
           String(r.ip_range.confidence),
           csvEscape(r.error ?? ""),

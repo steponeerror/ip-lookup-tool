@@ -127,18 +127,18 @@ function classPalette(type: string): string {
   return isInfra(t) ? INFRA_FALLBACK : BEHAVIORAL_FALLBACK;
 }
 
-function classLabel(type: string): string {
+export function classLabel(type: string): string {
   const t = normType(type);
   return CLASS_LABELS[t] ?? t.replace(/_/g, " ");
 }
 
 // Shorten a malware family for inline chip: "win.dcrat" → "dcrat".
-function familyShort(name: string): string {
+export function familyShort(name: string): string {
   return name.replace(/^(win|linux|mac|osx|android|ios|trojan|worm|backdoor)[._-]/i, "");
 }
 
 // Aggregate threat signal across all classifications on one IP.
-function threatSummary(r: LookupResult): {
+export function threatSummary(r: LookupResult): {
   verdict: string; confidence: number; sourceCount: number;
   corroborated: boolean; conflict: boolean; hasThreats: boolean;
 } {
