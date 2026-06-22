@@ -7,32 +7,58 @@ def _sample_doc() -> dict:
     """A representative MISP /attributes/restSearch JSON response."""
     return {"response": {"Attribute": [
         {"type": "ip-dst", "category": "Network activity", "value": "1.2.3.4",
-         "Tag": [{"name": "tlp:white"}]},
-        {"type": "ip-dst|port", "category": "Network activity", "value": "5.6.7.8|443"},
-        {"type": "ip-src", "category": "Payload delivery", "value": "9.10.11.12"},
-        {"type": "domain", "category": "Network activity", "value": "evil.example"},   # non-IP type → skip
+         "to_ids": True, "Tag": [{"name": "tlp:white"}],
+         "Event": {"threat_level_id": "2", "info": "benign-looking event"}},
+        {"type": "ip-dst|port", "category": "Network activity", "value": "5.6.7.8|443",
+         "to_ids": False, "Event": {"threat_level_id": "1", "info": "SSH scanners hitting us"}},
+        {"type": "ip-src", "category": "Payload delivery", "value": "9.10.11.12",
+         "to_ids": True, "Event": {"threat_level_id": "2", "info": "CobaltStrike C2 server"}},
+        {"type": "ip-dst", "category": "Network activity", "value": "11.12.13.14",
+         "to_ids": True, "Event": {"threat_level_id": "3", "info": "Low-severity noise"}},
+        {"type": "ip-dst", "category": "Network activity", "value": "14.15.16.17",
+         "to_ids": True},   # no Event → no threat_level
+        {"type": "domain", "category": "Network activity", "value": "evil.example"},   # non-IP → skip
         {"type": "ip-dst", "category": "Network activity", "value": "not-an-ip"},        # invalid → skip
-        {"type": "ip-dst", "category": "Network activity", "value": "1.2.3.4"},          # dup → deduped
+        {"type": "ip-dst", "category": "Network activity", "value": "1.2.3.4",
+         "to_ids": True, "Tag": [{"name": "tlp:white"}],
+         "Event": {"threat_level_id": "2", "info": "benign-looking event"}},   # true dup → deduped
     ]}}
 
 
 def test_misp_loads_attributes(tmp_path):
     (tmp_path / "misp.json").write_text(json.dumps(_sample_doc()))
     s = MispSource(data_dir=tmp_path)
-    assert s.load() == 3   # 1.2.3.4 (deduped), 5.6.7.8 (port stripped), 9.10.11.12
+    assert s.load() == 3   # 1.2.3.4 (deduped), 5.6.7.8, 9.10.11.12
 
+    # Network activity, threat_level 2, to_ids=True → 'other' / malicious / 0.60.
     hit = s.query("1.2.3.4")
     assert hit, "expected a hit for a listed IP"
-    # "Network activity" has no honest IntelMQ mapping → other; raw preserved
-    assert hit[0]["classification_type"] == "other"
-    assert hit[0]["extra"] == {"native_type": "Network activity"}
+    e = hit[0]
+    assert e["classification_type"] == "other"
+    assert e["verdict"] == "malicious"               # threat_level 2
+    assert e["reliability"] == 0.60
+    assert e["extra"]["native_type"] == "Network activity"
+    assert e["extra"]["threat_level"] == "2"
+    assert e["extra"]["tlp"] == "white"              # Tag → TLP extracted
 
+    # threat_level 1 but to_ids=False → demoted to suspicious (analyst: not for detection).
+    hit58 = s.query("5.6.7.8")
+    assert hit58 and hit58[0]["classification_type"] == "scanner"
+    assert hit58[0]["verdict"] == "suspicious"
+    assert hit58[0]["reliability"] <= 0.15
+    assert hit58[0]["extra"]["to_ids"] is False
+
+    # Title beats category; threat_level drives malicious verdict; family extracted.
     hit2 = s.query("9.10.11.12")
-    assert hit2[0]["classification_type"] == "malware-distribution"   # Payload delivery
-    assert hit2[0]["extra"] == {"native_type": "Payload delivery"}
+    assert hit2[0]["classification_type"] == "c2-server"   # CobaltStrike title wins
+    assert hit2[0]["verdict"] == "malicious"
+    assert hit2[0]["reliability"] == 0.60
+    assert hit2[0]["malware_name"] == "cobaltstrike"
 
-    assert s.query("5.6.7.8")           # ip|port split worked
-    assert s.query("8.8.8.8") == {}      # not in the feed
+    # Low / missing threat_level → filtered out entirely (the 8.8.8.8 fix).
+    assert s.query("11.12.13.14") == {}      # threat_level 3
+    assert s.query("14.15.16.17") == {}      # no threat_level
+    assert s.query("8.8.8.8") == {}          # not in the feed
 
 
 def test_misp_health_file_mtime_staleness(tmp_path):
