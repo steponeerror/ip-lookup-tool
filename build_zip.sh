@@ -61,10 +61,11 @@ python-multipart>=0.0.20
 python-dotenv>=1.1.0
 cabby>=0.1.0" > "$RELEASE_DIR/requirements.txt"
 
-# 拷贝 .env（如果有）
+# 拷贝 .env 到 app/（_registry.py 用 _app_dir/.env 加载，发布布局下 _app_dir=app/）
 if [ -f "$PROJECT_ROOT/backend/.env" ]; then
-    cp "$PROJECT_ROOT/backend/.env" "$RELEASE_DIR/.env"
-    echo "  .env 配置已包含"
+    rm -f "$RELEASE_DIR/.env"
+    cp "$PROJECT_ROOT/backend/.env" "$RELEASE_DIR/app/.env"
+    echo "  .env 配置已包含 (app/.env)"
 fi
 
 # 打包 zip
@@ -90,7 +91,7 @@ def write_bat(zf, name):
 with zipfile.ZipFile('../$ZIP_NAME', 'w', zipfile.ZIP_DEFLATED) as zf:
     for f in ['start.bat', 'build.bat']:
         write_bat(zf, f)
-    for f in ['requirements.txt', '.env']:
+    for f in ['requirements.txt']:
         p = os.path.join('.', f)
         if os.path.exists(p):
             zf.write(p, f)
