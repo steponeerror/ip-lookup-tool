@@ -40,3 +40,40 @@ class TestStixUnavailable:
         monkeypatch.setitem(sys.modules, "stix2", None)  # force ImportError
         result = to_stix_bundle(_result())
         assert result is None
+
+
+try:
+    import stix2 as _stix2  # noqa: F401
+    _HAS_STIX2 = True
+except ImportError:
+    _HAS_STIX2 = False
+
+
+@pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")
+def test_stix_surfaces_extra_details_malware_names_verdict_conflict():
+    """Field-loss point #5: extra/details/malware_names/verdict_conflict must
+    reach the STIX bundle via the extension-definition bag (NOT new x_* props)."""
+    ca = ClassificationAssessment(
+        type="c2-server", verdict="malicious", detected=True, confidence=85,
+        algorithm="corroboration",
+        sources=[SourceAttribution("misp", True, 0.7, False)],
+        corroborated=False, reporter_total=1, verdict_conflict=True,
+        malware_names=["win.vidar"],
+        details=[{"source": "misp", "reliability": 0.7,
+                  "extra": {"port": 443, "native_type": "c2-server"}}],
+    )
+    lr = LookupResult(
+        ip="1.2.3.4",
+        country=MergedField("N/A", 0, "voting", []),
+        asn=MergedField(0, 0, "voting", []),
+        as_name=MergedField("N/A", 0, "voting", []),
+        ip_range=MergedField("N/A", 0, "voting", []),
+        is_isp=False,
+        classifications={"c2-server": ca},
+    )
+    bundle = to_stix_bundle(lr)
+    assert bundle is not None
+    blob = str(bundle)
+    assert "443" in blob                 # details[].extra.port surfaced
+    assert "win.vidar" in blob           # malware_names surfaced
+    assert "verdict_conflict" in blob    # verdict_conflict key present
