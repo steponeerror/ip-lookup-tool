@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 from ipdb._source_state import load_disabled, save_disabled
+from ._evidence import route_record, SCALAR_SLOTS, ASSET_SLOTS, ALL_KNOWN
 from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment, AssetStatement
 from ._merge import (
     FactualVoting,
@@ -114,8 +115,8 @@ _strategies = {
 }
 
 # Asset attributes collected into LookupResult.attributes (pure陈述, no scoring).
-# Explicit whitelist — sources emitting keys not in this set are ignored.
-_ASSET_KEYS = ("is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier")
+# Schema-driven via ASSET_SLOTS (imported from ._evidence) — sources emitting
+# keys not in ASSET_SLOTS fold into `extra` via route_record.
 
 
 # --- Source categories (single source of truth; used by get_status + list_sources) ---
@@ -337,7 +338,8 @@ def lookup(ip: str) -> LookupResult:
             continue
         items = raw if isinstance(raw, list) else [raw]
         for item in items:
-            for key in ("country_code", "asn", "as_name", "ip_range", "is_isp"):
+            item = route_record(item)          # map-first: unknown → extra
+            for key in SCALAR_SLOTS | {"is_isp"}:
                 if key in item:
                     field_values[key][source.name] = item[key]
             if "classification_type" in item:
@@ -347,7 +349,7 @@ def lookup(ip: str) -> LookupResult:
                     verdict=item.get("verdict", "malicious"),
                     reliability=item.get("reliability", getattr(source, "reliability", 0.5))))
             native_types = item.get("_native_types") or {}
-            for akey in _ASSET_KEYS:
+            for akey in ASSET_SLOTS:            # schema-driven, was _ASSET_KEYS
                 if akey in item:
                     stmt = AssetStatement(
                         source=source.name, value=item[akey],
