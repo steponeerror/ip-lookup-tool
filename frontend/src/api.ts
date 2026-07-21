@@ -24,7 +24,10 @@ export interface ClassificationDetail {
   malware_name?: string;
   native_confidence?: number;
   first_seen?: string;
-  native_type?: string;
+  comment?: string;
+  tags?: string[];
+  reporter_count?: number;
+  extra?: Record<string, unknown>;
 }
 
 export interface ClassificationAssessment {
