@@ -45,6 +45,8 @@ class ThreatFoxSource(Source):
     def download(self) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         data = self._http_get(self.url)
+        if not data.strip():
+            raise RuntimeError(f"Empty response from {self.url}")
         if data[:4] == b"PK\x03\x04":           # abuse.ch serves a ZIP
             with zipfile.ZipFile(io.BytesIO(data)) as z:
                 name = next((n for n in z.namelist() if n.endswith(".csv")), None)
@@ -54,32 +56,23 @@ class ThreatFoxSource(Source):
         self._path.write_bytes(data)
 
     def harvest(self):
-        """Yield (ip, Evidence) per row, classifying each via THREATFOX_MAP.
-
-        native_type rides in `extra` (NOT as the canonical `native_type` slot)
-        because the read path (`to_observation` / details loop) reads
-        `extra["native_type"]`; putting it at top level would collide with
-        Evidence's canonical slot and KeyError the test's assertion.
-        """
+        """Yield (ip, Evidence) per row by delegating to parse_row (the single
+        abuse.ch column parser), so the load path and the column-mapping tests
+        share one parsing path."""
         with open(self._path, "r", encoding="utf-8") as f:
             for _ in range(self.skip_lines):
                 next(f, None)
             for row in csv.reader(f):
-                if len(row) < 4 or _clean(row[3]) != "ip:port":
+                parsed = self.parse_row(row)
+                if parsed is None:
                     continue
-                ip = _clean(row[2]).split(":")[0].strip()
-                raw_type = _clean(row[4])
-                try:
-                    conf = int(_clean(row[9]))
-                except (ValueError, IndexError):
-                    conf = 50
-                yield ip, Evidence(
-                    classification_type=normalize(raw_type, THREATFOX_MAP),
-                    verdict="malicious",
-                    malware_name=_clean(row[5]),
-                    confidence=conf,
-                    first_seen=_clean(row[0]),
-                    extra={"native_type": raw_type},
+                yield parsed["_ip"], Evidence(
+                    classification_type=parsed["classification_type"],
+                    verdict=parsed["verdict"],
+                    malware_name=parsed["malware_name"],
+                    confidence=parsed["confidence"],
+                    first_seen=parsed["first_seen"],
+                    extra=parsed["extra"],
                 )
 
     # ── legacy helper (column-mapping tests depend on this shape) ──
