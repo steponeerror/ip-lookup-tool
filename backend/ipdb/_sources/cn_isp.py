@@ -2,7 +2,8 @@ import logging
 import time
 import urllib.request
 from pathlib import Path
-from typing import Optional
+
+from .._source_base import Source
 
 logger = logging.getLogger(__name__)
 
@@ -21,18 +22,15 @@ _ISP_FILES = {
 }
 
 
-class ChineseISPSource:
+class ChineseISPSource(Source):
     name = "cn_isp"
     fields = ("country_code", "as_name", "is_isp", "ip_range")
     stale_days = 7
+    filename = "cn_isp"   # Source base sets _mmdb_path = data_dir/"cn_isp.mmdb"
 
     def __init__(self, data_dir: Path):
+        super().__init__(data_dir)   # _data_dir, _path, _mmdb_path, _reader, _count, _loaded_at
         self._isp_dir = data_dir / "isp"
-        self._data_dir = data_dir
-        self._mmdb_path = data_dir / "cn_isp.mmdb"
-        self._reader: Optional["maxminddb.Reader"] = None
-        self._count: int = 0
-        self._loaded_at: float = 0.0
 
     def download(self) -> None:
         self._isp_dir.mkdir(parents=True, exist_ok=True)
