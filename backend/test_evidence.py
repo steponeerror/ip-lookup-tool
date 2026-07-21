@@ -55,3 +55,12 @@ def test_evidence_reliability_default_not_serialized():
     assert "reliability" not in d               # None → omitted, lookup falls back to source attr
     e2 = Evidence(classification_type="proxy", reliability=0.8)
     assert e2.to_dict()["reliability"] == 0.8   # explicit reliability IS serialized
+
+
+def test_route_record_keeps_is_isp_at_top_level():
+    # is_isp is a lookup-path scalar (cn_isp sets it); it must stay top-level
+    # so lookup's SCALAR_SLOTS | {"is_isp"} collection finds it (regression guard).
+    raw = {"country_code": "CN", "is_isp": True, "ip_range": "1.0.0.0/24"}
+    out = route_record(raw)
+    assert out["is_isp"] is True                       # kept at top level
+    assert "is_isp" not in (out.get("extra") or {})    # NOT folded into extra

@@ -90,7 +90,9 @@ def route_record(raw: dict) -> dict:
     for k, v in raw.items():
         if k in _INTERNAL or k == "extra":
             continue
-        if k in ALL_KNOWN:
+        # is_isp is a lookup-path scalar (not a canonical slot), kept at top
+        # level so lookup's SCALAR_SLOTS | {"is_isp"} collection can see it.
+        if k in ALL_KNOWN or k == "is_isp":
             out[k] = v
         else:
             extra[k] = v
