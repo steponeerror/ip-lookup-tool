@@ -62,6 +62,10 @@ def _discover_sources(data_dir: Path) -> list:
                     and obj.__module__ == mod.__name__):
                 try:
                     instances = _instantiate_source(obj, data_dir)
+                    from ._validate import validate_source
+                    for inst in instances:
+                        for prob in validate_source(inst):
+                            logger.warning(f"source {inst.name}: {prob}")
                     sources.extend(instances)
                 except Exception as e:
                     logger.warning(
