@@ -48,17 +48,17 @@ class IpListSource:
         ]
 
     def get_insert_data(self) -> dict:
-        """Value to store in MMDB for each CIDR.
-
-        If the source declares a fusion `classification_type`, emit the evidence
-        dict {classification_type, verdict}; otherwise fall back to the legacy
-        single-boolean shape {fields[0]: True}.
-        """
+        """Evidence-shaped value stored per CIDR. Constructs via Evidence so the
+        dict is the canonical contract form (routes losslessly at query time)."""
+        from .._evidence import Evidence
         if getattr(self, "classification_type", None):
-            return {"classification_type": self.classification_type,
-                    "verdict": getattr(self, "verdict", "malicious"),
-                    "extra": {"native_type": self.classification_type}}
-        return {self.fields[0]: True}
+            return Evidence(
+                classification_type=self.classification_type,
+                verdict=getattr(self, "verdict", "malicious"),
+                reliability=getattr(self, "reliability", 0.5),
+                extra={"native_type": self.classification_type},
+            ).to_dict()
+        return {self.fields[0]: True}   # legacy non-threat list shape
 
     # ── Standard lifecycle ──
 
