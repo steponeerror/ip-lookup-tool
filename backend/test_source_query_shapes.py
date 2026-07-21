@@ -1,6 +1,7 @@
 """Contract guardrail: every evidence source query() returns list[dict];
 scalar sources return dict. See spec §1."""
 from ipdb._sources._base import IpListSource, CsvSource
+from ipdb._source_base import Source
 from ipdb._sources.firehol import FireholBlocklistSource
 from ipdb._sources.ip2proxy import IP2ProxySource
 from ipdb._sources.threatfox import ThreatFoxSource
@@ -16,10 +17,12 @@ EVIDENCE_SOURCES = [
 
 
 def test_evidence_sources_subclass_contract():
-    """Custom-load sources must still be IpListSource/CsvSource subclasses
-    so the list contract applies to them."""
+    """Custom-load sources must subclass a base contract so the list shape
+    applies to them. ip2proxy + threatfox migrated to the unified Source base
+    (Task 3.2/3.3); CsvSource is still the base for simple CSV sources."""
     assert issubclass(FireholBlocklistSource, IpListSource)
-    assert issubclass(IP2ProxySource, CsvSource)
+    assert issubclass(IP2ProxySource, Source)
+    assert issubclass(ThreatFoxSource, Source)
 
 
 def test_ip2proxy_has_no_custom_query():

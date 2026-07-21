@@ -1,18 +1,24 @@
-"""IP2Proxy PX2 LITE source — CsvSource subclass with ZIP handling."""
+"""IP2Proxy PX2 LITE source — Source subclass with ZIP handling.
+
+Range→CIDR expansion via ipaddress.summarize_address_range; one CSV row
+yields one or more (cidr, Evidence) pairs. Asset labels (is_proxy /
+is_hosting / is_tor) ride the Evidence slots; per-asset native labels
+(used by the attributes channel) ride native_types → _native_types.
+"""
+import csv
 import ipaddress
 import logging
 import os
-import urllib.request
 import zipfile
 from pathlib import Path
 
-from ._base import CsvSource
+from .._source_base import Source
 from .._types import SourceHealth
 
 logger = logging.getLogger(__name__)
 
 
-class IP2ProxySource(CsvSource):
+class IP2ProxySource(Source):
     name = "ip2proxy"
     filename = "ip2proxy_px2.csv"  # post-extraction
     fields = ("is_proxy", "is_hosting")
@@ -39,10 +45,7 @@ class IP2ProxySource(CsvSource):
             return
         logger.info("Downloading IP2Proxy PX2 LITE...")
         try:
-            req = urllib.request.Request(
-                self.url, headers={"User-Agent": "ip-lookup-tool/1.0"})
-            with urllib.request.urlopen(req, timeout=900) as resp:
-                data = resp.read()
+            data = self._http_get(self.url, timeout=900)
             if not data:
                 raise RuntimeError("Empty response")
             with open(self._zip_path, "wb") as f:
@@ -51,73 +54,50 @@ class IP2ProxySource(CsvSource):
             self._zip_path.unlink(missing_ok=True)
             raise
 
-    def load(self) -> int:
-        import ipaddress as _ipa
-        import csv as _csv
-        import time as _time
-        from ._mmdb import write_mmdb, open_reader
-
+    def harvest(self):
+        """Parse the CSV (extracting from the ZIP first if needed) and yield
+        (cidr, Evidence) per CIDR. Range→CIDR expansion means one CSV row
+        may yield several pairs."""
         actual = self._zip_path if self._zip_path.exists() else self._path
         if not actual.exists():
-            self._reader = None
-            return 0
-
-        count_path = self._mmdb_path.with_suffix(".count")
-        # cache invalidates when the zip/raw source is newer than the mmdb
-        stale = (not self._mmdb_path.exists()
-                 or actual.stat().st_mtime > self._mmdb_path.stat().st_mtime
-                 or not count_path.exists())
-        if stale:
-            if self._reader is not None:
-                self._reader.close()
-                self._reader = None
-            extracted = None
-            src = actual
-            if zipfile.is_zipfile(actual):
-                with zipfile.ZipFile(actual) as zf:
-                    csv_names = [
-                        n for n in zf.namelist()
-                        if n.lower().endswith(".csv") and "/" not in n and "\\" not in n
-                    ]
-                    if not csv_names:
-                        self._reader = None
-                        return 0
-                    zf.extract(csv_names[0], actual.parent)
-                    extracted = actual.parent / csv_names[0]
-                    src = extracted
-            records = []
-            try:
-                with open(src, "r", encoding="utf-8") as f:
-                    reader = _csv.reader(f)
-                    next(reader, None)  # skip header
-                    for row in reader:
-                        if len(row) < 3:
-                            continue
-                        raw_start, raw_end, proxy_type = (
-                            row[0].strip(), row[1].strip(), row[2].strip())
-                        start_ip = _int_to_ip(raw_start) or raw_start
-                        end_ip = _int_to_ip(raw_end) or raw_end
-                        try:
-                            sa = _ipa.IPv4Address(start_ip)
-                            ea = _ipa.IPv4Address(end_ip)
-                        except (_ipa.AddressValueError, ValueError):
-                            continue
-                        evidence = _proxy_evidence(proxy_type)
-                        if evidence is None:
-                            continue
-                        for cidr in _ipa.summarize_address_range(sa, ea):
-                            records.append((str(cidr), [evidence]))
-            finally:
-                if extracted and extracted.exists():
-                    extracted.unlink()
-            n = write_mmdb(records, self._mmdb_path,
-                           database_type="IP-Radar-ip2proxy")
-            count_path.write_text(str(n))
-
-        self._reader = open_reader(self._mmdb_path)
-        self._count = int(count_path.read_text().strip())
-        self._loaded_at = _time.time()
-        return self._count
+            return
+        extracted = None
+        src = actual
+        if zipfile.is_zipfile(actual):
+            with zipfile.ZipFile(actual) as zf:
+                csv_names = [
+                    n for n in zf.namelist()
+                    if n.lower().endswith(".csv") and "/" not in n and "\\" not in n
+                ]
+                if not csv_names:
+                    return
+                zf.extract(csv_names[0], actual.parent)
+                extracted = actual.parent / csv_names[0]
+                src = extracted
+        try:
+            with open(src, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                next(reader, None)  # skip header
+                for row in reader:
+                    if len(row) < 3:
+                        continue
+                    raw_start, raw_end, proxy_type = (
+                        row[0].strip(), row[1].strip(), row[2].strip())
+                    start_ip = _int_to_ip(raw_start) or raw_start
+                    end_ip = _int_to_ip(raw_end) or raw_end
+                    try:
+                        sa = ipaddress.IPv4Address(start_ip)
+                        ea = ipaddress.IPv4Address(end_ip)
+                    except (ipaddress.AddressValueError, ValueError):
+                        continue
+                    ev = _proxy_evidence(proxy_type)
+                    if ev is None:
+                        continue
+                    for cidr in ipaddress.summarize_address_range(sa, ea):
+                        yield str(cidr), ev
+        finally:
+            if extracted and extracted.exists():
+                extracted.unlink()
 
     def health(self) -> SourceHealth:
         import time as _time
@@ -150,35 +130,33 @@ def _int_to_ip(s: str) -> str | None:
         return None
 
 
-def _proxy_evidence(proxy_type: str) -> dict | None:
-    """Map an IP2Proxy proxy_type to a fusion evidence dict, or None to drop.
+def _proxy_evidence(proxy_type: str):
+    """Map an IP2Proxy proxy_type to Evidence (or None to drop).
 
-    Keeps VPN/PUB (proxy), TOR (tor), DCH (hosting). Drops other types
-    (SES/WEB/...) which are not meaningfully proxy/tor/hosting for this tool.
-    Emits asset keys (is_proxy/is_hosting/is_tor) + _native_types for the
-    attributes channel; classification_type for the threat channel.
+    Keeps VPN/PUB (proxy), TOR (tor), DCH (hosting). Drops SES/WEB/etc.
+    native_type rides in extra; per-asset labels in native_types (→ _native_types).
     """
     from .._classification import normalize, PROXY_MAP
-
+    from .._evidence import Evidence
     pt = proxy_type.strip().upper()
     if pt not in ("VPN", "PUB", "DCH", "TOR"):
         return None
-    cls = normalize(pt, PROXY_MAP)
-    evidence = {
-        "classification_type": cls,
-        "verdict": "suspicious",
-        "extra": {"native_type": pt},
-    }
+    is_proxy = pt in ("VPN", "PUB")
+    is_hosting = pt == "DCH"
+    is_tor = pt == "TOR"
     native = {}
-    if pt in ("VPN", "PUB"):
-        evidence["is_proxy"] = True
+    if is_proxy:
         native["is_proxy"] = pt
-    if pt == "DCH":
-        evidence["is_hosting"] = True
+    if is_hosting:
         native["is_hosting"] = "DCH"
-    if pt == "TOR":
-        evidence["is_tor"] = True
+    if is_tor:
         native["is_tor"] = "TOR"
-    if native:
-        evidence["_native_types"] = native
-    return evidence
+    return Evidence(
+        classification_type=normalize(pt, PROXY_MAP),
+        verdict="suspicious",
+        is_proxy=is_proxy or None,
+        is_hosting=is_hosting or None,
+        is_tor=is_tor or None,
+        native_types=native,
+        extra={"native_type": pt},
+    )

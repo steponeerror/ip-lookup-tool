@@ -39,26 +39,26 @@ from pathlib import Path
 
 
 def test_ip2proxy_proxy_evidence_vpn_emits_asset_keys():
-    e = _proxy_evidence("VPN")
+    e = _proxy_evidence("VPN").to_dict()
     assert e["is_proxy"] is True
     assert e["_native_types"] == {"is_proxy": "VPN"}
     assert e["extra"]["native_type"] == "VPN"
 
 
 def test_ip2proxy_proxy_evidence_pub_emits_asset_keys():
-    e = _proxy_evidence("PUB")
+    e = _proxy_evidence("PUB").to_dict()
     assert e["is_proxy"] is True
     assert e["_native_types"] == {"is_proxy": "PUB"}
 
 
 def test_ip2proxy_proxy_evidence_dch_emits_hosting():
-    e = _proxy_evidence("DCH")
+    e = _proxy_evidence("DCH").to_dict()
     assert e["is_hosting"] is True
     assert e["_native_types"] == {"is_hosting": "DCH"}
 
 
 def test_ip2proxy_proxy_evidence_tor_emits_is_tor():
-    e = _proxy_evidence("TOR")
+    e = _proxy_evidence("TOR").to_dict()
     assert e["is_tor"] is True
     assert e["_native_types"] == {"is_tor": "TOR"}
 
