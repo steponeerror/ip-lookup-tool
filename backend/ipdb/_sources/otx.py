@@ -5,6 +5,10 @@ the ``cabby`` library, and returned all indicators under a single hardcoded
 ``c2-server`` classification. The REST activity feed returns real-time
 attacker IPv4s from auto-generated intrusion pulses. Per-entry classification
 is derived from the protocol keyword in the pulse name (e.g. SMTP → brute-force).
+
+Migrated from CsvSource onto the unified Source base (Task 4.1): the complex
+REST pagination state machine in ``download()`` is preserved verbatim, while
+``harvest()`` is the single CSV parser (replacing the former ``parse_row``).
 """
 
 import csv
@@ -16,7 +20,8 @@ import re
 import time
 import urllib.request
 
-from ._base import CsvSource
+from .._source_base import Source
+from .._evidence import Evidence
 from .._classification import OTX_PROTOCOL_MAP
 
 logger = logging.getLogger(__name__)
@@ -57,7 +62,7 @@ def _classify(protocol: str | None) -> str:
     return "scanner"
 
 
-class OtxSource(CsvSource):
+class OtxSource(Source):
     name = "otx"
     url = "https://otx.alienvault.com/api/v1/pulses/activity"
     filename = "otx_ips.csv"
@@ -169,7 +174,7 @@ class OtxSource(CsvSource):
             raise RuntimeError(
                 f"{self.name}: no IPv4 indicators harvested")
 
-        # Write CSV for CsvSource.load() to consume
+        # Write CSV for harvest() to consume
         self._data_dir.mkdir(parents=True, exist_ok=True)
         with open(self._path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -205,21 +210,28 @@ class OtxSource(CsvSource):
             days=_DEFAULT_LOOKBACK_DAYS)
         return d.isoformat()
 
-    # ── Per-row classification ──
+    # ── CSV parser (single source of truth, replaces former parse_row) ──
 
-    def parse_row(self, row: list[str]) -> dict | None:
-        if len(row) < 2:
-            return None
-        ip_or_cidr = row[0].strip()
-        ctype = row[1].strip()
-        protocol = row[2].strip() if len(row) > 2 else ""
-        if not ip_or_cidr or not ctype:
-            return None
-        result = {
-            "_ip": ip_or_cidr,
-            "classification_type": ctype,
-            "verdict": "malicious",
-        }
-        if protocol:
-            result["extra"] = {"native_type": protocol}
-        return result
+    def harvest(self):
+        """Yield (ip_or_cidr, Evidence) per CSV row written by download().
+
+        Each row is ``[indicator, classification_type, protocol]``. The
+        protocol is carried in ``extra.native_type`` (matches the read path).
+        ``reliability`` is left as None so lookup falls back to the source's
+        class-level 0.75.
+        """
+        with open(self._path, "r", newline="", encoding="utf-8") as f:
+            for row in csv.reader(f):
+                if len(row) < 2:
+                    continue
+                ip_or_cidr = row[0].strip()
+                ctype = row[1].strip()
+                protocol = row[2].strip() if len(row) > 2 else ""
+                if not ip_or_cidr or not ctype:
+                    continue
+                extra = {"native_type": protocol} if protocol else {}
+                yield ip_or_cidr, Evidence(
+                    classification_type=ctype,
+                    verdict="malicious",
+                    extra=extra,
+                )
