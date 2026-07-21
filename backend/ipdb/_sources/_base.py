@@ -203,18 +203,11 @@ class CsvSource(IpListSource):
                         continue
                     key = str(net)
                     bucket = acc.setdefault(key, [])
-                    dedup = (
-                        parsed.get("classification_type"),
-                        parsed.get("verdict"),
-                        parsed.get("malware_name"),
-                        (parsed.get("extra") or {}).get("native_type"),
-                    )
-                    if any(
-                        (o.get("classification_type"), o.get("verdict"),
-                         o.get("malware_name"),
-                         (o.get("extra") or {}).get("native_type")) == dedup
-                        for o in bucket
-                    ):
+                    # Dedup on the FULL evidence (not just 4-tuple): two rows
+                    # with same classification/verdict/malware/native_type but
+                    # different confidence/first_seen/comment are distinct
+                    # evidence and must both survive (field-loss fix #6).
+                    if any(parsed == o for o in bucket):
                         continue
                     bucket.append(parsed)
             write_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path)
