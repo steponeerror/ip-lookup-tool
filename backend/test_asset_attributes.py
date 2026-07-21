@@ -20,8 +20,9 @@ class _Ip2ProxyFixture(CsvSource):
         ev = _proxy_evidence(row[1])
         if ev is None:
             return None
-        ev["_ip"] = row[0].strip()
-        return ev
+        d = ev.to_dict()
+        d["_ip"] = row[0].strip()
+        return d
 
 
 class _TorFixture(CsvSource):
