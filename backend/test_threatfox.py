@@ -145,3 +145,18 @@ def test_parse_row_botnet_cc(tmp_path):
            "", "", "", "90"]
     parsed = src.parse_row(row)
     assert parsed["classification_type"] == "c2-server"
+
+
+def test_threatfox_harvest_per_row_classification(tmp_path):
+    from ipdb._sources.threatfox import ThreatFoxSource
+    # write a 10-line abuse.ch-style file (9 header + 1 data row)
+    lines = ["#hdr"] * 9 + ['"2026-01-01","ip","1.2.3.4:80","ip:port","botnet_cc","win.vidar","","","2026-01-01","85",']
+    (tmp_path / "threatfox.csv").write_text("\n".join(lines) + "\n")
+    s = ThreatFoxSource(data_dir=tmp_path)
+    s._path = tmp_path / "threatfox.csv"
+    s.load()
+    rec = s.query("1.2.3.4")
+    assert rec[0]["classification_type"] == "c2-server"   # botnet_cc → c2-server
+    assert rec[0]["malware_name"] == "win.vidar"
+    assert rec[0]["confidence"] == 85
+    assert rec[0]["extra"]["native_type"] == "botnet_cc"
