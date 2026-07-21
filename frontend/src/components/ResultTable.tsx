@@ -322,9 +322,9 @@ function ClassificationDetailPanel({ classifications }: { classifications: Recor
                   {ca.details.map((d, idx) => (
                     <span key={d.source + idx} className="text-[10px] leading-relaxed">
                       <span className="text-zinc-600">{d.source}</span>
-                      {d.extra?.native_type && (
+                      {d.extra?.native_type != null && (
                         <span className="text-zinc-500 ml-1" title="源原生类型">
-                          [{d.extra?.native_type as string}]
+                          [{String(d.extra?.native_type)}]
                         </span>
                       )}
                       {d.native_confidence != null && (
