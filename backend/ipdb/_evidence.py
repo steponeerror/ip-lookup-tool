@@ -33,7 +33,7 @@ class Evidence:
     # ── fusion core ──
     classification_type: Optional[str] = None
     verdict: str = "malicious"
-    reliability: float = 0.5
+    reliability: Optional[float] = None
     malware_name: Optional[str] = None
     first_seen: Optional[str] = None
     confidence: Optional[int] = None
@@ -55,6 +55,8 @@ class Evidence:
     is_tor: Optional[bool] = None
     is_vpn: Optional[bool] = None
     carrier: Optional[str] = None
+    # ── per-asset native labels (serialized as the internal _native_types key) ──
+    native_types: dict = field(default_factory=dict)
     # ── open bag (long tail, lossless) ──
     extra: dict = field(default_factory=dict)
 
@@ -66,6 +68,10 @@ class Evidence:
             if k == "extra":
                 if v:
                     out[k] = v
+                continue
+            if k == "native_types":
+                if v:
+                    out["_native_types"] = v      # internal key the read path expects
                 continue
             if v is None or v == [] or v == "":
                 continue

@@ -38,3 +38,20 @@ def test_schema_tiers_disjoint_and_complete():
         "native_type","comment","tags","reporter_count","last_seen",
         "is_proxy","is_hosting","is_tor","is_vpn","carrier"}))
     assert ALL_KNOWN == CORE_FIELDS | CANONICAL_SLOTS
+
+
+def test_evidence_native_types_serialized_as_internal_key():
+    e = Evidence(classification_type="proxy", is_proxy=True,
+                 native_types={"is_proxy": "VPN"})
+    d = e.to_dict()
+    assert d["_native_types"] == {"is_proxy": "VPN"}
+    assert d["is_proxy"] is True
+    assert "native_types" not in d          # field name not leaked
+
+
+def test_evidence_reliability_default_not_serialized():
+    e = Evidence(classification_type="proxy")   # no reliability set
+    d = e.to_dict()
+    assert "reliability" not in d               # None → omitted, lookup falls back to source attr
+    e2 = Evidence(classification_type="proxy", reliability=0.8)
+    assert e2.to_dict()["reliability"] == 0.8   # explicit reliability IS serialized
