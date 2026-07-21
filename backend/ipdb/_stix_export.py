@@ -4,7 +4,7 @@ stix2 is an OPTIONAL dependency. If not installed, to_stix_bundle() returns None
 """
 import json
 import logging
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from ._types import LookupResult
 
@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 
 # UUIDv5 namespace for deterministic ipv4-addr IDs
 _NS = UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
+# Deterministic extension-definition ID (must be <object-type>--<UUID>; a bare
+# slug like "ip-radar-threat" is rejected by stix2's identifier validation).
+_EXT_ID = f"extension-definition--{uuid5(_NS, 'ip-radar-threat')}"
 
 # Mapping from classification.type → STIX indicator_type (open vocab)
 _CLASSIFICATION_INDICATOR_TYPES = {
@@ -58,6 +61,7 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
             identity_class="system",
             x_reliability=_get_src_reliability(src_name),
             x_authoritative=_is_authoritative(src_name),
+            allow_custom=True,
         )
 
     # 2. IPv4 Address SCO
@@ -71,6 +75,7 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
             id=loc_id,
             country=lr.country.value,
             confidence=lr.country.confidence,
+            allow_custom=True,
         )
         objs.append(location)
         objs.append(Relationship(
@@ -103,6 +108,7 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
         ind = Indicator(
             name=f"IP {lr.ip} — {ctype}/{ca.verdict} ({ca.algorithm})",
             pattern=f"[ipv4-addr:value = '{lr.ip}']",
+            pattern_type="stix",
             indicator_types=[indicator_type],
             confidence=ca.confidence,
             x_algorithm=ca.algorithm,
@@ -110,20 +116,26 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
             x_verdict=ca.verdict,
             x_corroborated=ca.corroborated,
             extensions={
-                "extension-definition--ip-radar-threat": {
+                _EXT_ID: {
                     "extension_type": "toplevel-property-extension",
                     "detected": ca.detected,
                     "confidence": ca.confidence,
                     "algorithm": ca.algorithm,
                     "corroborated": ca.corroborated,
                     "reporter_total": ca.reporter_total,
+                    "verdict_conflict": ca.verdict_conflict,
+                    "malware_names": list(ca.malware_names),
                     "sources": [
                         {"source": s.source, "reliability": s.reliability,
                          "authoritative": s.authoritative, "value": s.value}
                         for s in ca.sources
                     ],
+                    # per-source detail records (each carries its full `extra`
+                    # bag, so novel fields like port/sample_hash surface here)
+                    "details": [dict(d) for d in ca.details],
                 }
             },
+            allow_custom=True,
         )
         objs.append(ind)
 
