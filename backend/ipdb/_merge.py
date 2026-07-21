@@ -337,9 +337,14 @@ def _assess_classification(group: list) -> ClassificationAssessment:
             d["native_confidence"] = o.confidence
         if o.first_seen:
             d["first_seen"] = o.first_seen
-        native_type = o.extra.get("native_type") if o.extra else None
-        if native_type:
-            d["native_type"] = native_type
+        if o.comment:
+            d["comment"] = o.comment
+        if o.tags:
+            d["tags"] = list(o.tags)
+        if o.reporter_count is not None:
+            d["reporter_count"] = o.reporter_count
+        if o.extra:
+            d["extra"] = dict(o.extra)      # FULL extra, not just native_type
         details.append(d)
 
     return ClassificationAssessment(
