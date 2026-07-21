@@ -1,4 +1,4 @@
-"""ThreatFox IOC feed — CsvSource subclass.
+"""ThreatFox IOC feed — Source subclass (ZIP download + per-row classification).
 
 abuse.ch `/export/csv/full/` serves a ZIP containing `full.csv`; this source
 detects and extracts it before saving so load() sees plain CSV. The real
@@ -6,13 +6,20 @@ column order (per abuse.ch header) is:
 
     first_seen_utc, ioc_id, ioc_value, ioc_type, threat_type, fk_malware,
     malware_alias, malware_printable, last_seen_utc, confidence_level, ...
+
+Migrated from CsvSource onto the unified Source base (Task 3.2): download()
+uses the shared `_http_get` (retries + auth header), and `harvest()` yields
+`(ip, Evidence)` per row with per-row classification via
+`normalize(raw_type, THREATFOX_MAP)`. `parse_row()` is retained as a legacy
+helper because existing column-mapping tests depend on it.
 """
+import csv
 import io
 import logging
-import urllib.request
 import zipfile
 
-from ._base import CsvSource
+from .._source_base import Source
+from .._evidence import Evidence
 from .._classification import normalize, THREATFOX_MAP
 
 logger = logging.getLogger(__name__)
@@ -23,7 +30,7 @@ def _clean(cell: str) -> str:
     return cell.strip().strip('"').strip()
 
 
-class ThreatFoxSource(CsvSource):
+class ThreatFoxSource(Source):
     name = "threatfox"
     url = "https://threatfox.abuse.ch/export/csv/full/"
     filename = "threatfox.csv"
@@ -37,25 +44,45 @@ class ThreatFoxSource(CsvSource):
 
     def download(self) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Downloading {self.name}...")
-        req = urllib.request.Request(
-            self.url, headers={"User-Agent": "ip-lookup-tool/1.0"})
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = resp.read()
-        if not data.strip():
-            raise RuntimeError(f"Empty response from {self.url}")
-        # abuse.ch serves a ZIP; extract the inner full.csv before saving so
-        # CsvSource.load() (which decodes text) never sees binary zip bytes.
-        if data[:4] == b"PK\x03\x04":
+        data = self._http_get(self.url)
+        if data[:4] == b"PK\x03\x04":           # abuse.ch serves a ZIP
             with zipfile.ZipFile(io.BytesIO(data)) as z:
-                name = next(
-                    (n for n in z.namelist() if n.endswith(".csv")), None)
+                name = next((n for n in z.namelist() if n.endswith(".csv")), None)
                 if name is None:
                     raise RuntimeError("no .csv inside threatfox zip")
                 data = z.read(name)
         self._path.write_bytes(data)
-        logger.info(f"Downloaded {self.name}")
 
+    def harvest(self):
+        """Yield (ip, Evidence) per row, classifying each via THREATFOX_MAP.
+
+        native_type rides in `extra` (NOT as the canonical `native_type` slot)
+        because the read path (`to_observation` / details loop) reads
+        `extra["native_type"]`; putting it at top level would collide with
+        Evidence's canonical slot and KeyError the test's assertion.
+        """
+        with open(self._path, "r", encoding="utf-8") as f:
+            for _ in range(self.skip_lines):
+                next(f, None)
+            for row in csv.reader(f):
+                if len(row) < 4 or _clean(row[3]) != "ip:port":
+                    continue
+                ip = _clean(row[2]).split(":")[0].strip()
+                raw_type = _clean(row[4])
+                try:
+                    conf = int(_clean(row[9]))
+                except (ValueError, IndexError):
+                    conf = 50
+                yield ip, Evidence(
+                    classification_type=normalize(raw_type, THREATFOX_MAP),
+                    verdict="malicious",
+                    malware_name=_clean(row[5]),
+                    confidence=conf,
+                    first_seen=_clean(row[0]),
+                    extra={"native_type": raw_type},
+                )
+
+    # ── legacy helper (column-mapping tests depend on this shape) ──
     def parse_row(self, row: list[str]) -> dict | None:
         if len(row) < 4:
             return None
