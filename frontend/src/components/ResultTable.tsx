@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect, Fragment } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
-import type { LookupResult, MergedField, ClassificationAssessment } from "../api";
+import type { LookupResult } from "../api";
 import {
-  confColor, confTextColor, VERDICT_LABEL, VERDICT_STYLE, VERDICT_RANK,
-  ALGORITHM_ICONS, normType, classLabel, familyShort, threatSummary,
+  confTextColor, VERDICT_LABEL, VERDICT_STYLE, VERDICT_RANK,
+  normType, classLabel, familyShort, threatSummary,
 } from "./threatDisplay";
+import { IpDetailPanel } from "./IpDetailPanel";
 
 interface ResultTableProps {
   results: LookupResult[];
@@ -139,132 +140,6 @@ function lowestConfidence(r: LookupResult): number {
     ...Object.values(r.classifications).map((c) => c.confidence),
   ];
   return Math.min(...confs);
-}
-
-function FieldDetail<T>({
-  label,
-  field,
-  format,
-}: {
-  label: string;
-  field: MergedField<T>;
-  format: (v: T) => string;
-}) {
-  const entries = field.sources;
-  if (entries.length === 0) return null;
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-xs font-medium text-zinc-300">{label}</span>
-        <span className="text-[10px] text-zinc-500">{format(field.value)}</span>
-        <span className={`inline-block h-1.5 w-1.5 rounded-full ${confColor(field.confidence)}`} />
-        <span className={`text-[10px] ${confTextColor(field.confidence)}`}>
-          {field.confidence}
-        </span>
-        <span className="text-[10px] text-zinc-600">
-          {ALGORITHM_ICONS[field.algorithm] ?? field.algorithm}
-        </span>
-      </div>
-      {entries.length > 0 && (
-        <div className="ml-3 flex flex-wrap gap-x-4 gap-y-0.5">
-          {entries.map((s) => (
-            <span key={s.source} className="text-[11px]">
-              <span className="text-zinc-500">{s.source}</span>
-              {s.authoritative && (
-                <span className="text-amber-400 ml-0.5" title="authoritative">★</span>
-              )}
-              <span className="text-zinc-700 mx-1">:</span>
-              <span className="text-zinc-400">{format(s.value)}</span>
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ClassificationDetailPanel({ classifications }: { classifications: Record<string, ClassificationAssessment> }) {
-  const keys = Object.keys(classifications);
-  if (keys.length === 0) {
-    return (
-      <div>
-        <span className="text-xs font-medium text-zinc-300">威胁明细</span>
-        <div className="ml-3 mt-1 text-[11px] text-zinc-600">未命中</div>
-      </div>
-    );
-  }
-  return (
-    <div>
-      <span className="text-xs font-medium text-zinc-300">威胁明细</span>
-      <div className="ml-3 mt-1 space-y-2.5">
-        {keys.map((type) => {
-          const ca = classifications[type];
-          return (
-            <div key={type}>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className={`inline-block h-1.5 w-1.5 rounded-full ${ca.detected ? "bg-orange-400" : "bg-zinc-600"}`} />
-                <span className="text-[11px] text-zinc-400 font-medium">{classLabel(type)}</span>
-                <span className={`rounded px-1 py-px text-[10px] font-medium ${VERDICT_STYLE[ca.verdict] ?? VERDICT_STYLE.informational}`}>
-                  {VERDICT_LABEL[ca.verdict] ?? ca.verdict}
-                </span>
-                <span className={`text-[10px] ${confTextColor(ca.confidence)}`}>{ca.confidence}</span>
-                <span className="text-[10px] text-zinc-600">{ALGORITHM_ICONS[ca.algorithm] ?? ca.algorithm}</span>
-                {ca.corroborated && (
-                  <span className="text-[10px] text-amber-400" title="2+ 独立源印证">已印证</span>
-                )}
-                {ca.verdict_conflict && (
-                  <span className="text-[10px] text-red-400" title="源之间判定冲突">判定冲突</span>
-                )}
-              </div>
-              {/* 恶意软件家族 */}
-              {ca.malware_names.length > 0 && (
-                <div className="ml-3 mt-1 flex flex-wrap gap-1">
-                  {ca.malware_names.map((m) => (
-                    <span key={m} className="rounded bg-purple-500/10 px-1 py-px text-[10px] text-purple-400 font-mono">{m}</span>
-                  ))}
-                </div>
-              )}
-              {/* 每源明细 */}
-              {ca.details.length > 0 && (
-                <div className="ml-3 mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
-                  {ca.details.map((d, idx) => (
-                    <span key={d.source + idx} className="text-[10px] leading-relaxed">
-                      <span className="text-zinc-600">{d.source}</span>
-                      {d.extra?.native_type != null && (
-                        <span className="text-zinc-500 ml-1" title="源原生类型">
-                          [{String(d.extra?.native_type)}]
-                        </span>
-                      )}
-                      {d.native_confidence != null && (
-                        <span className="text-zinc-500 ml-0.5">{d.native_confidence}</span>
-                      )}
-                      {d.first_seen && (
-                        <span className="text-zinc-700 ml-1">{d.first_seen.slice(0, 10)}</span>
-                      )}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ExpandableDetail({ r }: { r: LookupResult }) {
-  return (
-    <td colSpan={7} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
-      <div className="grid gap-2.5">
-        <FieldDetail label="国家" field={r.country} format={String} />
-        <FieldDetail label="ASN" field={r.asn} format={(v) => String(v)} />
-        <FieldDetail label="机构 / ISP" field={r.as_name} format={String} />
-        <ClassificationDetailPanel classifications={r.classifications} />
-        <FieldDetail label="网段" field={r.ip_range} format={String} />
-      </div>
-    </td>
-  );
 }
 
 function SummaryBar({ results }: { results: LookupResult[] }) {
@@ -649,7 +524,9 @@ export function ResultTable({ results }: ResultTableProps) {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.15 }}
                     >
-                      <ExpandableDetail r={r} />
+                      <td colSpan={7} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
+                        <IpDetailPanel r={r} />
+                      </td>
                     </motion.tr>
                   )}
                 </AnimatePresence>
