@@ -40,6 +40,11 @@ class TestLookupResponseShape:
         r = resp.json()["results"][0]
         assert "invalid" in r["error"]
 
+    def test_stix_reserved_ip_returns_400(self):
+        resp = self.client.get("/api/lookup/10.0.0.1/stix")
+        assert resp.status_code == 400
+        assert "reserved" in resp.json()["detail"].lower()
+
     def test_stream_complete_event_shape(self):
         """Stream complete event should serialize via to_dict()."""
         resp = self.client.post(
