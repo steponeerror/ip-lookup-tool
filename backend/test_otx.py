@@ -4,8 +4,6 @@ The REST /pulses/activity transport is tested live (see T8a verification).
 These unit tests validate the pure-function protocol→classification mapping
 plus the harvest() CSV parser (Task 4.1 migration onto the Source base).
 """
-import csv
-
 from ipdb._sources.otx import _extract_protocol, _classify, OtxSource
 
 

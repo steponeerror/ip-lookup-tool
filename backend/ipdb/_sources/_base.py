@@ -172,7 +172,7 @@ class CsvSource(IpListSource):
             self._reader = None
             return 0
 
-        # cidr_str -> list[evidence dict], deduped by (classification_type, verdict, malware_name, native_type)
+        # cidr_str -> list[evidence dict], deduped by full-evidence equality
         acc: dict[str, list[dict]] = {}
         count_path = self._mmdb_path.with_suffix(".count")
         if needs_convert(self._path, self._mmdb_path) or not count_path.exists():

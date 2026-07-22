@@ -13,6 +13,7 @@ import zipfile
 from pathlib import Path
 
 from .._source_base import Source
+from .._evidence import Evidence
 
 logger = logging.getLogger(__name__)
 
@@ -97,14 +98,13 @@ def _int_to_ip(s: str) -> str | None:
         return None
 
 
-def _proxy_evidence(proxy_type: str):
+def _proxy_evidence(proxy_type: str) -> Evidence | None:
     """Map an IP2Proxy proxy_type to Evidence (or None to drop).
 
     Keeps VPN/PUB (proxy), TOR (tor), DCH (hosting). Drops SES/WEB/etc.
     native_type rides in extra; per-asset labels in native_types (→ _native_types).
     """
     from .._classification import normalize, PROXY_MAP
-    from .._evidence import Evidence
     pt = proxy_type.strip().upper()
     if pt not in ("VPN", "PUB", "DCH", "TOR"):
         return None
