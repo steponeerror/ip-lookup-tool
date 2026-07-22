@@ -260,6 +260,8 @@ async def lookup_stix(ip: str):
     result = lookup(ip)
     if result.error:
         raise HTTPException(400, result.error)
+    if result.is_reserved:
+        raise HTTPException(400, "reserved address: no threat intel")
 
     bundle = to_stix_bundle(result)
     if bundle is None:
