@@ -61,6 +61,6 @@ describe("buildCsv", () => {
   it("writes the aggregated values into the data row", () => {
     const row = buildCsv([r]).split("\n")[1];
     // reporter_total,verdict_conflict,corroborated sit right after threat_tags value
-    expect(row).toContain(",3,True,True,win.vidar,0.9,");
+    expect(row).toContain(",3,true,true,win.vidar,0.9,");
   });
 });
