@@ -101,6 +101,23 @@ Rules for building a map:
   silently maps to `other`. (This silently broke the MISP source until a
   pre-test self-check caught it.)
 
+### `field_map` vs `_MAP` — two different things
+
+Don't confuse the per-source classification `_MAP` (this section) with the
+per-source `field_map` attribute — they solve different problems:
+
+| | `_MAP` (here, in `_classification.py`) | `field_map` (class attr on the source) |
+|---|---|---|
+| **What it routes** | raw native category → controlled vocab term | native column → Evidence slot |
+| **When it runs** | inside `normalize()`, at parse time | declarative metadata; checked at load time |
+| **Example** | `"botnet_cc"` → `"c2-server"` | `"src_asn_col"` → `Evidence.asn` |
+| **Validator** | `normalize()` returns `other` for unmapped input | `_validate.validate_source` flags unknown targets + collisions (warn-only) |
+
+A feed can have both: a `_MAP` for its category vocabulary (governs
+`classification_type`) and a `field_map` for its column→slot routing (governs
+where each non-category field lands in `Evidence`). See
+`references/source-archetypes.md` §5 for the full `field_map` contract.
+
 ## The bug this whole design avoids
 
 Before the controlled-vocab + `other` design, unmappable values were
