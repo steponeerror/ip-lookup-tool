@@ -32,7 +32,7 @@ import os
 import ssl
 import urllib.request
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator
 
 from .._source_base import Source
 from .._evidence import Evidence
@@ -88,7 +88,7 @@ class MispSource(Source):
         return body
 
     def download(self) -> None:
-        """Bespeak REST POST — MISP needs POST + ssl context + auth header +
+        """Bespoke REST POST — MISP needs POST + ssl context + auth header +
         JSON body, so the Source base's GET-only _http_get does not apply."""
         if not self._url or not self._key:
             raise RuntimeError(

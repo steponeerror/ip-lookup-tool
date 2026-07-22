@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 from ipdb._source_state import load_disabled, save_disabled
-from ._evidence import route_record, SCALAR_SLOTS, ASSET_SLOTS, ALL_KNOWN
+from ._evidence import route_record, SCALAR_SLOTS, ASSET_SLOTS
 from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment, AssetStatement
 from ._merge import (
     FactualVoting,
