@@ -89,6 +89,14 @@ function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> })
   const tooltip = summary.hasThreats
     ? `${label}${showConf ? ` 置信度 ${summary.confidence}` : ""}${summary.sourceCount ? ` · ${summary.sourceCount} 源` : ""}${summary.corroborated ? " · 已印证" : ""}${summary.conflict ? " · 判定冲突" : ""}`
     : "";
+  if (summary.verdict === "reserved") {
+    return (
+      <span title="保留地址 · 不可路由 · 未查询威胁情报"
+        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold ${VERDICT_STYLE.reserved}`}>
+        保留地址
+      </span>
+    );
+  }
   if (!summary.hasThreats) return <span className="text-zinc-700 text-[11px]">-</span>;
   return (
     <span title={tooltip} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${style}`}>
@@ -486,7 +494,7 @@ export function ResultTable({ results }: ResultTableProps) {
                     expanded.has(r.ip) ? "bg-zinc-800/40" : ""
                   }`}
                 >
-                  <td className="px-3 py-2 text-zinc-100 font-semibold">{r.ip}</td>
+                  <td className={`px-3 py-2 font-semibold ${r.is_reserved ? "text-zinc-500" : "text-zinc-100"}`}>{r.ip}</td>
                   <ScoredCell value={r.asn.value} confidence={r.asn.confidence} />
                   <ScoredCell value={r.country.value} confidence={r.country.confidence} />
                   <td className="px-3 py-2 whitespace-nowrap">
@@ -525,7 +533,11 @@ export function ResultTable({ results }: ResultTableProps) {
                       transition={{ duration: 0.15 }}
                     >
                       <td colSpan={7} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
-                        <IpDetailPanel r={r} />
+                        {r.is_reserved ? (
+                          <div className="text-xs text-zinc-500">保留地址 · 不可路由 · 未查询威胁情报</div>
+                        ) : (
+                          <IpDetailPanel r={r} />
+                        )}
                       </td>
                     </motion.tr>
                   )}

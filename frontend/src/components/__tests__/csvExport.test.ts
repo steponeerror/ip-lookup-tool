@@ -77,4 +77,9 @@ describe("buildCsv", () => {
     // reporter_total,verdict_conflict,corroborated sit right after threat_tags value
     expect(row).toContain(",3,true,true,win.vidar,0.9,");
   });
+  it("writes 'reserved' verdict for reserved IPs", () => {
+    const reserved = { ...r, is_reserved: true, classifications: {} };
+    const row = buildCsv([reserved]).split("\n")[1];
+    expect(row).toContain(",reserved,");
+  });
 });
