@@ -13,7 +13,6 @@ import zipfile
 from pathlib import Path
 
 from .._source_base import Source
-from .._types import SourceHealth
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,6 @@ class IP2ProxySource(Source):
 
     def __init__(self, data_dir: Path):
         self._token = os.environ.get("IP2PROXY_TOKEN", "").strip()
-        self._zip_path = data_dir / "ip2proxy_px2.zip"
         super().__init__(data_dir=data_dir)
 
     @property
@@ -43,81 +41,50 @@ class IP2ProxySource(Source):
         if not self.url:
             logger.warning("IP2PROXY_TOKEN not set, skipping IP2Proxy download")
             return
+        self._data_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Downloading IP2Proxy PX2 LITE...")
-        try:
-            data = self._http_get(self.url, timeout=900)
-            if not data:
-                raise RuntimeError("Empty response")
-            with open(self._zip_path, "wb") as f:
-                f.write(data)
-        except Exception:
-            self._zip_path.unlink(missing_ok=True)
-            raise
+        import io
+        data = self._http_get(self.url, timeout=900)
+        if not data:
+            raise RuntimeError("Empty response")
+        # PX2 LITE is a ZIP with one CSV. Extract EAGERLY to _path so the base
+        # load()'s `_path.exists()` guard passes and harvest() reads a plain CSV
+        # (base load() never sees the ZIP — it short-circuits before harvest).
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            csv_names = [n for n in zf.namelist()
+                         if n.lower().endswith(".csv") and "/" not in n and "\\" not in n]
+            if not csv_names:
+                raise RuntimeError("no .csv inside IP2Proxy zip")
+            payload = zf.read(csv_names[0])
+        tmp = self._path.with_suffix(".csv.tmp")
+        tmp.write_bytes(payload)
+        tmp.replace(self._path)   # atomic
 
     def harvest(self):
-        """Parse the CSV (extracting from the ZIP first if needed) and yield
-        (cidr, Evidence) per CIDR. Range→CIDR expansion means one CSV row
-        may yield several pairs."""
-        actual = self._zip_path if self._zip_path.exists() else self._path
-        if not actual.exists():
+        """Parse the CSV at _path → yield (cidr, Evidence) per CIDR. Range→CIDR
+        expansion means one CSV row may yield several pairs."""
+        if not self._path.exists():
             return
-        extracted = None
-        src = actual
-        if zipfile.is_zipfile(actual):
-            with zipfile.ZipFile(actual) as zf:
-                csv_names = [
-                    n for n in zf.namelist()
-                    if n.lower().endswith(".csv") and "/" not in n and "\\" not in n
-                ]
-                if not csv_names:
-                    return
-                zf.extract(csv_names[0], actual.parent)
-                extracted = actual.parent / csv_names[0]
-                src = extracted
-        try:
-            with open(src, "r", encoding="utf-8") as f:
-                reader = csv.reader(f)
-                next(reader, None)  # skip header
-                for row in reader:
-                    if len(row) < 3:
-                        continue
-                    raw_start, raw_end, proxy_type = (
-                        row[0].strip(), row[1].strip(), row[2].strip())
-                    start_ip = _int_to_ip(raw_start) or raw_start
-                    end_ip = _int_to_ip(raw_end) or raw_end
-                    try:
-                        sa = ipaddress.IPv4Address(start_ip)
-                        ea = ipaddress.IPv4Address(end_ip)
-                    except (ipaddress.AddressValueError, ValueError):
-                        continue
-                    ev = _proxy_evidence(proxy_type)
-                    if ev is None:
-                        continue
-                    for cidr in ipaddress.summarize_address_range(sa, ea):
-                        yield str(cidr), ev
-        finally:
-            if extracted and extracted.exists():
-                extracted.unlink()
-
-    def health(self) -> SourceHealth:
-        import time as _time
-        file_mtime = None
-        last_updated = None
-        for p in [self._zip_path, self._path]:
-            if p.exists():
-                file_mtime = p.stat().st_mtime
-                last_updated = _time.strftime(
-                    "%Y-%m-%dT%H:%M:%SZ", _time.gmtime(file_mtime))
-                break
-        is_stale = file_mtime is None or (
-            _time.time() - file_mtime > self.stale_days * 86400)
-        return SourceHealth(
-            name=self.name,
-            loaded=self._reader is not None,
-            record_count=self._count,
-            last_updated=last_updated,
-            is_stale=is_stale,
-        )
+        with open(self._path, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            next(reader, None)  # skip header
+            for row in reader:
+                if len(row) < 3:
+                    continue
+                raw_start, raw_end, proxy_type = (
+                    row[0].strip(), row[1].strip(), row[2].strip())
+                start_ip = _int_to_ip(raw_start) or raw_start
+                end_ip = _int_to_ip(raw_end) or raw_end
+                try:
+                    sa = ipaddress.IPv4Address(start_ip)
+                    ea = ipaddress.IPv4Address(end_ip)
+                except (ipaddress.AddressValueError, ValueError):
+                    continue
+                ev = _proxy_evidence(proxy_type)
+                if ev is None:
+                    continue
+                for cidr in ipaddress.summarize_address_range(sa, ea):
+                    yield str(cidr), ev
 
 
 def _int_to_ip(s: str) -> str | None:

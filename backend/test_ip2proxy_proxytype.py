@@ -49,3 +49,33 @@ def test_ip2proxy_harvest_proxy_assets(tmp_path):
     rec = s.query("1.0.0.0")          # 16777216 = 1.0.0.0
     assert rec[0]["is_proxy"] is True
     assert rec[0]["_native_types"]["is_proxy"] == "VPN"
+
+
+def test_ip2proxy_download_extracts_zip_to_path_then_loads(tmp_path, monkeypatch):
+    """Production regression guard: download() must extract the ZIP's CSV to
+    _path so the base load()'s `_path.exists()` guard passes. Previously
+    download() wrote only the ZIP, so load() returned 0 WITHOUT calling
+    harvest() — ip2proxy silently loaded nothing in production (the per-source
+    test masked it by pre-extracting the CSV to _path)."""
+    import io as _io
+    import zipfile as _zipfile
+    from ipdb._sources.ip2proxy import IP2ProxySource
+    csv_bytes = (b"start,end,proxy_type\n"
+                 b'"16777216","16777471","VPN"\n')
+    buf = _io.BytesIO()
+    with _zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("IP2PROXY-LITE.PX2.CSV", csv_bytes)
+    zip_bytes = buf.getvalue()
+
+    s = IP2ProxySource(data_dir=tmp_path)
+    s._token = "fake"                                   # non-empty → url() set
+    monkeypatch.setattr(s, "_http_get", lambda url, **kw: zip_bytes)
+
+    assert not s._path.exists()                         # nothing extracted yet
+    s.download()
+    assert s._path.exists(), "download() did not extract the CSV to _path"
+
+    n = s.load()                                        # base load() _path guard now passes
+    assert n > 0, "load() harvested nothing from the extracted CSV"
+    rec = s.query("1.0.0.0")                            # 16777216 = 1.0.0.0
+    assert rec and rec[0]["is_proxy"] is True
