@@ -37,7 +37,7 @@ export function ClassificationBlock({ type, ca }: { type: string; ca: Classifica
       {ca.details.length > 0 && (
         <div className="ml-3 mt-1 space-y-1">
           {ca.details.map((d, idx) => (
-            <SourceDetailRow key={d.source + idx} detail={d} />
+            <SourceDetailRow key={`${d.source}#${idx}`} detail={d} />
           ))}
         </div>
       )}

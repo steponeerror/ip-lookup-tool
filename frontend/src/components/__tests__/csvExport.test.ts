@@ -37,6 +37,21 @@ describe("aggregateThreatDepth", () => {
   it("top_reliability = max reliability among the dominant-verdict details", () => {
     expect(aggregateThreatDepth(r).top_reliability).toBe(0.9);
   });
+  it("top_reliability rounds to 2 decimal places", () => {
+    const rounded: LookupResult = {
+      ...r,
+      classifications: {
+        c2_server: {
+          type: "c2_server", verdict: "malicious", detected: true, confidence: 92,
+          algorithm: "corroboration", corroborated: true, reporter_total: 0,
+          verdict_conflict: false, malware_names: [],
+          details: [{ source: "otx", reliability: 0.734 }],
+          sources: [],
+        },
+      },
+    };
+    expect(aggregateThreatDepth(rounded).top_reliability).toBe(0.73);
+  });
   it("clean IP yields zeros/empty", () => {
     const clean = { ...r, classifications: {} };
     const a = aggregateThreatDepth(clean);
