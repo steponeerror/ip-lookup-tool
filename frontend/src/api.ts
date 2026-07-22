@@ -54,6 +54,7 @@ export interface LookupResult {
   classifications: Record<string, ClassificationAssessment>;
   attributes?: Record<string, AssetStatement[]>;
   error?: string;
+  is_reserved?: boolean;
 }
 
 export interface DbStatus {

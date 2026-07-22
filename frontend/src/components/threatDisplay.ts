@@ -18,6 +18,7 @@ export const VERDICT_LABEL: Record<string, string> = {
   benign: "可信",
   informational: "未知",
   clean: "—",
+  reserved: "保留地址",
 };
 
 export const VERDICT_STYLE: Record<string, string> = {
@@ -26,10 +27,11 @@ export const VERDICT_STYLE: Record<string, string> = {
   benign: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30",
   informational: "bg-zinc-500/15 text-zinc-400 ring-1 ring-zinc-500/25",
   clean: "bg-zinc-700/40 text-zinc-500 ring-1 ring-zinc-600/40",
+  reserved: "bg-zinc-600/30 text-zinc-300 ring-1 ring-zinc-500/40",
 };
 
 export const VERDICT_RANK: Record<string, number> = {
-  malicious: 3, suspicious: 2, benign: 1, informational: 0, clean: 0,
+  malicious: 3, suspicious: 2, benign: 1, informational: 0, clean: 0, reserved: 0,
 };
 
 export const ALGORITHM_ICONS: Record<string, string> = {
@@ -74,6 +76,10 @@ export function threatSummary(r: LookupResult): {
   conflict: boolean;
   hasThreats: boolean;
 } {
+  if (r.is_reserved) {
+    return { verdict: "reserved", confidence: 0, sourceCount: 0,
+      corroborated: false, conflict: false, hasThreats: false };
+  }
   const cas = Object.values(r.classifications).filter((c) => c.detected && c.confidence > 0);
   if (cas.length === 0) {
     return { verdict: "clean", confidence: 0, sourceCount: 0, corroborated: false, conflict: false, hasThreats: false };
