@@ -18,3 +18,16 @@ def test_tor_exits_preserves_native_type(tmp_path: Path):
     rec = s.query("1.2.3.4")[0]   # query() returns a list
     assert rec["classification_type"] == "tor"
     assert rec["extra"]["native_type"] == "tor"
+
+
+def test_tor_exits_get_insert_data_is_evidence_contract(tmp_path: Path):
+    """get_insert_data() must construct via Evidence, not a hand-built dict — so
+    the declared reliability (0.95) reaches the record and the _native_types
+    serialization stays in lockstep with Evidence.to_dict()."""
+    from ipdb._evidence import Evidence
+    s = TorExitSource(data_dir=tmp_path)
+    assert s.get_insert_data() == Evidence(
+        classification_type="tor", verdict="suspicious", reliability=0.95,
+        is_tor=True, native_types={"is_tor": "TOR"},
+        extra={"native_type": "tor"},
+    ).to_dict()

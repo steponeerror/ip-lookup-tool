@@ -14,8 +14,12 @@ class X4BNetVPNSource(IpListSource):
     authoritative_for = ["is_vpn"]
 
     def get_insert_data(self) -> dict:
-        return {"classification_type": self.classification_type,
-                "verdict": self.verdict,
-                "extra": {"native_type": self.classification_type},
-                "is_vpn": True,
-                "_native_types": {"is_vpn": "VPN"}}
+        from .._evidence import Evidence
+        return Evidence(
+            classification_type=self.classification_type,
+            verdict=self.verdict,
+            reliability=self.reliability,
+            is_vpn=True,
+            native_types={"is_vpn": "VPN"},
+            extra={"native_type": self.classification_type},
+        ).to_dict()

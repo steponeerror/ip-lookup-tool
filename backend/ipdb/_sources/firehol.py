@@ -51,6 +51,7 @@ class FireholBlocklistSource(IpListSource):
     def load(self) -> int:
         import ipaddress as _ipa
         from ._mmdb import write_mmdb, open_reader
+        from .._evidence import Evidence
 
         if not self._path.exists():
             self._reader = None
@@ -66,6 +67,12 @@ class FireholBlocklistSource(IpListSource):
                 self._reader.close()
                 self._reader = None
             records = []
+            insert_data = Evidence(
+                classification_type=self.classification_type,
+                verdict=self.verdict,
+                reliability=self.reliability,
+                extra={"native_type": self.classification_type},
+            ).to_dict()
             for list_name in self._lists:
                 p = self._path / f"{list_name}.netset"
                 if not p.exists():
@@ -79,11 +86,7 @@ class FireholBlocklistSource(IpListSource):
                             net = _ipa.IPv4Network(line, strict=False)
                         except (_ipa.AddressValueError, ValueError):
                             continue
-                        records.append((str(net), [{
-                            "classification_type": self.classification_type,
-                            "verdict": self.verdict,
-                            "extra": {"native_type": self.classification_type},
-                        }]))
+                        records.append((str(net), [insert_data]))
             n = write_mmdb(records, self._mmdb_path,
                            database_type="IP-Radar-firehol")
             count_path.write_text(str(n))

@@ -12,3 +12,16 @@ def test_x4bnet_vpn_preserves_native_type(tmp_path: Path):
     rec = s.query("1.2.3.4")[0]   # query() returns a list
     assert rec["classification_type"] == "proxy"
     assert rec["extra"]["native_type"] == "proxy"
+
+
+def test_x4bnet_vpn_get_insert_data_is_evidence_contract(tmp_path: Path):
+    """get_insert_data() must construct via Evidence, not a hand-built dict — so
+    the declared reliability (0.70) reaches the record and _native_types stays
+    in lockstep with Evidence.to_dict()."""
+    from ipdb._evidence import Evidence
+    s = X4BNetVPNSource(data_dir=tmp_path)
+    assert s.get_insert_data() == Evidence(
+        classification_type="proxy", verdict="suspicious", reliability=0.70,
+        is_vpn=True, native_types={"is_vpn": "VPN"},
+        extra={"native_type": "proxy"},
+    ).to_dict()

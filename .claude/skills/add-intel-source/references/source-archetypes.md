@@ -164,12 +164,14 @@ Add `<FEEDNAME>_MAP = {...}` in `_classification.py` (see classification.md).
 **Keys `load()` understands in the returned dict:**
 - `_ip` (str) — the IP; defaults to `row[0]` if absent
 - `_cidr` (str) — a CIDR instead of a single IP
-- `classification_type`, `verdict`, `malware_name` — used for dedup + fusion
+- `classification_type`, `verdict`, `malware_name` — used for fusion (classification grouping)
 - `confidence`, `first_seen`, anything else — carried as evidence metadata
 - `extra` (dict) — MUST contain `native_type`
 
-`load()` dedups per CIDR on `(classification_type, verdict, malware_name)` and
-stores a list of evidence dicts per CIDR — convention 3.
+`load()` dedups per CIDR on **full-evidence equality** (not a 3-tuple) and
+stores a list of evidence dicts per CIDR — convention 3. Two rows that share
+classification/verdict/malware/native_type but differ in confidence/first_seen/
+comment are distinct evidence and both survive.
 
 ---
 

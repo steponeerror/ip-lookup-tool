@@ -31,9 +31,12 @@ class TorExitSource(IpListSource):
         return ips
 
     def get_insert_data(self) -> dict:
-        # Tor exits are /32 hosts
-        return {"classification_type": self.classification_type,
-                "verdict": self.verdict,
-                "extra": {"native_type": self.classification_type},
-                "is_tor": True,
-                "_native_types": {"is_tor": "TOR"}}
+        from .._evidence import Evidence
+        return Evidence(
+            classification_type=self.classification_type,
+            verdict=self.verdict,
+            reliability=self.reliability,
+            is_tor=True,
+            native_types={"is_tor": "TOR"},
+            extra={"native_type": self.classification_type},
+        ).to_dict()

@@ -166,10 +166,12 @@ python3 -m pytest test_source_decls.py test_registry_new.py \
 python3 -m pytest -q                                        # full suite — expect the same pass/fail as before
 ```
 
-The full suite currently has **3 known environmental failures** in
-`test_quota_thread_safety.py` (they hit the real ipapi.is API and get 403 when
-rate-limited). They reproduce on a clean checkout, so don't chase them — just
-make sure you didn't add a 4th.
+The full suite currently has **3 known failures** in
+`test_quota_thread_safety.py`. These are a quota-cap drift bug (tests assume a
+950 daily cap; the code allows 1000), **not** environmental rate-limiting — at
+`_daily_count=950` the tests proceed to call the real ipapi.is API, which 403s.
+They reproduce on a clean checkout and are unrelated to source work, so don't
+chase them — just make sure you didn't add a 4th.
 
 Finally, sanity-check the lifecycle by hand:
 
