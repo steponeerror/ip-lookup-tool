@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ResultTable } from "../ResultTable";
 import type { LookupResult } from "../../api";
 
@@ -19,5 +19,28 @@ describe("ResultTable reserved rows", () => {
   it("renders 保留地址 verdict for a reserved IP", () => {
     render(<ResultTable results={[reserved]} />);
     expect(screen.getAllByText("保留地址").length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+const lowConf: LookupResult = {
+  ip: "203.0.113.5", country: mf("US", 50), asn: mf(64500, 50),
+  as_name: mf("Example", 50), ip_range: mf("203.0.113.0/24", 50),
+  is_isp: false, classifications: {},
+};
+
+describe("Expand disagreements toggle", () => {
+  it("expands on first click, collapses on second", async () => {
+    render(<ResultTable results={[lowConf]} />);
+    // collapsed initially – detail panel not shown
+    expect(screen.queryByText("威胁明细")).not.toBeInTheDocument();
+
+    const expand = screen.getByRole("button", { name: /expand disagreements/i });
+    fireEvent.click(expand);
+    expect(await screen.findByText("威胁明细")).toBeInTheDocument();
+
+    // button flipped to Collapse; clicking it collapses
+    const collapse = screen.getByRole("button", { name: /collapse disagreements/i });
+    fireEvent.click(collapse);
+    expect(screen.getByRole("button", { name: /expand disagreements/i })).toBeInTheDocument();
   });
 });

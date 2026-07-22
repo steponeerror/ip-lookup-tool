@@ -410,11 +410,22 @@ export function ResultTable({ results }: ResultTableProps) {
     });
   };
 
-  const expandDisagreements = () => {
-    const ips = filtered
-      .filter((r) => lowestConfidence(r) < 70)
-      .map((r) => r.ip);
-    setExpanded(new Set(ips));
+  const disagreementIps = useMemo(
+    () => filtered
+      .filter((r) => !r.is_reserved && lowestConfidence(r) < 70)
+      .map((r) => r.ip),
+    [filtered],
+  );
+  const allDisagreementsExpanded =
+    disagreementIps.length > 0 && disagreementIps.every((ip) => expanded.has(ip));
+
+  const toggleDisagreements = () => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (allDisagreementsExpanded) disagreementIps.forEach((ip) => next.delete(ip));
+      else disagreementIps.forEach((ip) => next.add(ip));
+      return next;
+    });
   };
 
   const cols: { key: SortKey; label: string; className?: string }[] = [
@@ -450,10 +461,14 @@ export function ResultTable({ results }: ResultTableProps) {
           Disagreements first
         </button>
         <button
-          onClick={expandDisagreements}
-          className="rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          onClick={toggleDisagreements}
+          className={`rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+            allDisagreementsExpanded
+              ? "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25"
+              : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+          }`}
         >
-          Expand disagreements
+          {allDisagreementsExpanded ? "Collapse disagreements" : "Expand disagreements"}
         </button>
         <button
           onClick={() => {
