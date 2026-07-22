@@ -23,7 +23,6 @@ const r: LookupResult = {
     },
   },
   attributes: { is_proxy: [{ source: "ip2proxy", value: true, native_type: "PUB" }] },
-  is_whitelisted: false, whitelist_notes: [],
 };
 
 describe("aggregateThreatDepth", () => {
