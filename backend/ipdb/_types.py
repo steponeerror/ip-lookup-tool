@@ -109,6 +109,7 @@ class LookupResult:
     classifications: dict   # dict[str, ClassificationAssessment]
     attributes: dict = field(default_factory=dict)   # dict[str, list[AssetStatement]] — pure陈述
     error: str | None = None
+    is_reserved: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -142,6 +143,7 @@ class LookupResult:
                 for key, stmts in self.attributes.items()
             },
             **({"error": self.error} if self.error else {}),
+            "is_reserved": self.is_reserved,
         }
 
 
