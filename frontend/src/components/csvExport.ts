@@ -29,11 +29,6 @@ export function aggregateThreatDepth(r: LookupResult) {
 
 const csvEscape = (v: string) => (/[,"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
-// Capitalised to match the test's CSV-row contract (Python-style True/False, consistent
-// with the backend's str(bool)). NOTE: is_isp is left as String(...) to preserve the
-// pre-existing CSV column format (surgical — only the new threat-depth columns use this).
-const fmtBool = (b: boolean) => (b ? "True" : "False");
-
 function threatTags(r: LookupResult): string {
   const tags = Object.keys(r.classifications)
     .filter((t) => {
@@ -84,8 +79,8 @@ export function buildCsv(results: LookupResult[]): string {
         String(summary.confidence),
         csvEscape(threatTags(r)),
         String(depth.reporter_total),
-        fmtBool(depth.verdict_conflict),
-        fmtBool(depth.corroborated),
+        String(depth.verdict_conflict),
+        String(depth.corroborated),
         csvEscape(depth.malware_names.join("|")),
         String(depth.top_reliability),
         csvEscape(r.ip_range.value),
