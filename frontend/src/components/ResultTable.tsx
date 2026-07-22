@@ -1,6 +1,10 @@
 import { useState, useMemo, useEffect, Fragment } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import type { LookupResult, MergedField, ClassificationAssessment } from "../api";
+import {
+  confColor, confTextColor, VERDICT_LABEL, VERDICT_STYLE, VERDICT_RANK,
+  ALGORITHM_ICONS, normType, classLabel, familyShort, threatSummary,
+} from "./threatDisplay";
 
 interface ResultTableProps {
   results: LookupResult[];
@@ -8,58 +12,8 @@ interface ResultTableProps {
 
 type SortKey = "ip" | "asn" | "country" | "as_name" | "verdict" | "threat" | "ip_range";
 
-// Confidence color: continuous from red (0) → amber (50) → emerald (95+)
-function confColor(conf: number): string {
-  if (conf >= 70) return "bg-emerald-500";
-  if (conf >= 30) return "bg-amber-500";
-  return "bg-red-500";
-}
-
-function confTextColor(conf: number): string {
-  if (conf >= 70) return "text-emerald-400";
-  if (conf >= 30) return "text-amber-400";
-  return "text-red-400";
-}
-
-// ── 判定 (verdict) — dominant color anchor. 红=恶意 / 橙=可疑 / 绿=可信 / 灰=未知 ──
-const VERDICT_LABEL: Record<string, string> = {
-  malicious: "恶意",
-  suspicious: "可疑",
-  benign: "可信",
-  informational: "未知",
-  clean: "—",
-};
-const VERDICT_STYLE: Record<string, string> = {
-  malicious: "bg-red-500/15 text-red-300 ring-1 ring-red-500/30",
-  suspicious: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30",
-  benign: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30",
-  informational: "bg-zinc-500/15 text-zinc-400 ring-1 ring-zinc-500/25",
-  clean: "bg-zinc-700/40 text-zinc-500 ring-1 ring-zinc-600/40",
-};
-const VERDICT_RANK: Record<string, number> = {
-  malicious: 3, suspicious: 2, benign: 1, informational: 0, clean: 0,
-};
-
 // 基础设施类标签 (anonymizing infra): neutral, not malicious.
 const INFRA_TYPES = new Set(["tor", "proxy", "vpn", "hosting", "scanner_hosting"]);
-
-// Normalize backend keys: hyphen → underscore ("brute-force" ≡ "brute_force").
-function normType(type: string): string {
-  return type.replace(/-/g, "_");
-}
-
-const CLASS_LABELS: Record<string, string> = {
-  "c2_server": "C2",
-  botnet_cc: "C2",
-  scanner: "扫描",
-  brute_force: "暴力破解",
-  malware: "恶意软件",
-  blacklist: "黑名",
-  tor: "Tor",
-  proxy: "代理",
-  hosting: "机房",
-  vpn: "VPN",
-};
 
 // Asset attribute labels (rendered in the asset zone, separate from threats).
 const ASSET_LABELS: Record<string, string> = {
@@ -126,52 +80,6 @@ function classPalette(type: string): string {
   if (t.includes("brute")) return CLASS_PALETTE["brute_force"];
   return isInfra(t) ? INFRA_FALLBACK : BEHAVIORAL_FALLBACK;
 }
-
-export function classLabel(type: string): string {
-  const t = normType(type);
-  return CLASS_LABELS[t] ?? t.replace(/_/g, " ");
-}
-
-// Shorten a malware family for inline chip: "win.dcrat" → "dcrat".
-export function familyShort(name: string): string {
-  return name.replace(/^(win|linux|mac|osx|android|ios|trojan|worm|backdoor)[._-]/i, "");
-}
-
-// Aggregate threat signal across all classifications on one IP.
-export function threatSummary(r: LookupResult): {
-  verdict: string; confidence: number; sourceCount: number;
-  corroborated: boolean; conflict: boolean; hasThreats: boolean;
-} {
-  const cas = Object.values(r.classifications).filter((c) => c.detected && c.confidence > 0);
-  if (cas.length === 0) {
-    return { verdict: "clean", confidence: 0, sourceCount: 0, corroborated: false, conflict: false, hasThreats: false };
-  }
-  let worst = cas[0];
-  for (const c of cas) {
-    if ((VERDICT_RANK[c.verdict] ?? 0) > (VERDICT_RANK[worst.verdict] ?? 0)) worst = c;
-  }
-  const worstVerdict = worst.verdict;
-  const confidence = Math.max(...cas.filter((c) => c.verdict === worstVerdict).map((c) => c.confidence));
-  const sources = new Set<string>();
-  for (const c of cas) for (const s of c.sources) sources.add(s.source);
-  return {
-    verdict: worstVerdict,
-    confidence,
-    sourceCount: sources.size,
-    corroborated: cas.some((c) => c.corroborated),
-    conflict: cas.some((c) => c.verdict_conflict),
-    hasThreats: true,
-  };
-}
-
-const ALGORITHM_ICONS: Record<string, string> = {
-  cascade: "🔑",
-  voting: "📊",
-  pcr6: "⚠️",
-  authority: "🏛️",
-  specificity: "🎯",
-  corroboration: "🤝",
-};
 
 function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> }) {
   const label = VERDICT_LABEL[summary.verdict] ?? "未知";
