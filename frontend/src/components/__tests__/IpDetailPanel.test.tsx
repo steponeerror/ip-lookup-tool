@@ -24,8 +24,6 @@ const r: LookupResult = {
     },
   },
   attributes: {},
-  is_whitelisted: false,
-  whitelist_notes: [],
 };
 
 describe("IpDetailPanel", () => {

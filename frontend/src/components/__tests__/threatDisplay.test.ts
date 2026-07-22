@@ -23,7 +23,7 @@ const dirty: LookupResult = {
       verdict_conflict: true, malware_names: ["win.x"], details: [],
       sources: [{ source: "b", value: true, reliability: 0.8, authoritative: false }] },
   },
-  attributes: {}, is_whitelisted: false, whitelist_notes: [],
+  attributes: {},
 };
 
 describe("threatDisplay", () => {

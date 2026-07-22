@@ -108,8 +108,6 @@ class LookupResult:
     is_isp: bool
     classifications: dict   # dict[str, ClassificationAssessment]
     attributes: dict = field(default_factory=dict)   # dict[str, list[AssetStatement]] — pure陈述
-    is_whitelisted: bool = False
-    whitelist_notes: list = field(default_factory=list)
     error: str | None = None
 
     def to_dict(self) -> dict:
@@ -143,8 +141,6 @@ class LookupResult:
                       for s in stmts]
                 for key, stmts in self.attributes.items()
             },
-            "is_whitelisted": self.is_whitelisted,
-            "whitelist_notes": self.whitelist_notes,
             **({"error": self.error} if self.error else {}),
         }
 

@@ -53,8 +53,6 @@ export interface LookupResult {
   is_isp: boolean;
   classifications: Record<string, ClassificationAssessment>;
   attributes?: Record<string, AssetStatement[]>;
-  is_whitelisted: boolean;
-  whitelist_notes: string[];
   error?: string;
 }
 

@@ -394,8 +394,6 @@ def lookup(ip: str) -> LookupResult:
         is_isp=is_isp,
         classifications=classifications,
         attributes=dict(attributes),
-        is_whitelisted=False,
-        whitelist_notes=[],
     )
 
 
@@ -409,8 +407,6 @@ def _error_result(ip: str) -> LookupResult:
         is_isp=False,
         classifications={},
         attributes={},
-        is_whitelisted=False,
-        whitelist_notes=[],
         error="invalid IP format",
     )
 
