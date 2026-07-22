@@ -10,6 +10,8 @@ export function aggregateThreatDepth(r: LookupResult) {
   for (const c of cas) for (const m of c.malware_names) mw.add(m);
   const malware_names = [...mw].sort();
   const dominant = threatSummary(r).verdict;
+  // Max source reliability among details of the dominant (worst) verdict — scans all
+  // classifications with that verdict (non-detected groups typically have empty details).
   let top_reliability = 0;
   for (const c of cas) {
     if (c.verdict === dominant) {
