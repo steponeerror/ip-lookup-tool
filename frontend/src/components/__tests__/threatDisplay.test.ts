@@ -59,4 +59,10 @@ describe("threatDisplay", () => {
     expect(s.hasThreats).toBe(false);
     expect(s.verdict).toBe("clean");
   });
+  it("threatSummary reports reserved when is_reserved", () => {
+    const reserved = { ...dirty, is_reserved: true, classifications: {} };
+    const s = threatSummary(reserved);
+    expect(s.verdict).toBe("reserved");
+    expect(s.hasThreats).toBe(false);
+  });
 });
