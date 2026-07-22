@@ -150,15 +150,20 @@ function lowestConfidence(r: LookupResult): number {
   return Math.min(...confs);
 }
 
-function SummaryBar({ results }: { results: LookupResult[] }) {
+export function SummaryBar({ results }: { results: LookupResult[] }) {
   const stats = useMemo(() => {
     const classTotals: Record<string, number> = {};
     let ispCount = 0;
     let lowConf = 0;
     let medConf = 0;
     let highConf = 0;
+    let reservedCount = 0;
 
     for (const r of results) {
+      if (r.is_reserved) {
+        reservedCount++;
+        continue;
+      }
       for (const type of Object.keys(r.classifications)) {
         classTotals[type] = (classTotals[type] || 0) + 1;
       }
@@ -169,11 +174,11 @@ function SummaryBar({ results }: { results: LookupResult[] }) {
       else highConf++;
     }
 
-    return { classTotals, ispCount, lowConf, medConf, highConf };
+    return { classTotals, ispCount, lowConf, medConf, highConf, reservedCount };
   }, [results]);
 
   const activeClasses = Object.keys(stats.classTotals);
-  if (activeClasses.length === 0 && stats.ispCount === 0 && stats.lowConf === 0 && stats.medConf === 0) {
+  if (activeClasses.length === 0 && stats.ispCount === 0 && stats.lowConf === 0 && stats.medConf === 0 && stats.reservedCount === 0) {
     return (
       <div className="flex items-center gap-3 text-xs text-zinc-500">
         <span className="flex items-center gap-1.5">
@@ -221,6 +226,17 @@ function SummaryBar({ results }: { results: LookupResult[] }) {
               ISP
             </span>
             <span className="text-zinc-500">{stats.ispCount}</span>
+          </span>
+        </>
+      )}
+      {stats.reservedCount > 0 && (
+        <>
+          <span className="text-zinc-600">|</span>
+          <span className="flex items-center gap-1">
+            <span className="rounded bg-zinc-600/40 px-1 py-0.5 text-[10px] font-medium text-zinc-400 ring-1 ring-zinc-500/30">
+              保留地址
+            </span>
+            <span className="text-zinc-500">{stats.reservedCount}</span>
           </span>
         </>
       )}
