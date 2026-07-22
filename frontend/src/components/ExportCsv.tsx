@@ -1,5 +1,5 @@
 import type { LookupResult } from "../api";
-import { threatSummary, classLabel, familyShort } from "./ResultTable";
+import { threatSummary, classLabel, familyShort } from "./threatDisplay";
 
 interface ExportCsvProps {
   results: LookupResult[];
