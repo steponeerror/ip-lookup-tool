@@ -13,8 +13,9 @@ a class defined in its own module, with `name` + `fields` attributes, callable a
 ## 1. IpListSource — plain IP/CIDR list
 
 Use when the feed is just lines of IPs/CIDRs (maybe with `#` comments or inline
-`CIDR ; note`). The base class downloads, parses, loads into a pytricia trie,
-and queries. You usually set attributes and write nothing else.
+`CIDR ; note`). The base class downloads, parses, loads into MMDB (one record
+per CIDR), and queries via mmap. You usually set attributes and write nothing
+else.
 
 Real examples: `spamhaus.py`, `tor_exits.py`, `firehol.py`, `blocklist_de.py`,
 `x4bnet_vpn.py`, `emerging_threats.py`, `abuseipdb.py` (IpListSource + a keyed
@@ -172,90 +173,152 @@ stores a list of evidence dicts per CIDR — convention 3.
 
 ---
 
-## 3. Custom standalone — bespoke format
+## 3. Source subclass — bespoke format
 
-Use when the format needs logic none of the bases provide: gzip, IP-range→CIDR
-summarization, multi-file loads, JSON lines, ZIP extraction that doesn't fit
-`CsvSource`. You implement the full duck-typed interface yourself. Subclass
-`IpListSource`/`CsvSource` only if their `load()` genuinely helps; otherwise a
-plain class.
+Use when the format needs logic none of the simple bases provide: gzip, IP-range→CIDR
+summarization, multi-file loads, JSON lines, ZIP extraction, REST state machines,
+per-row filtering, or conditional field routing. Subclass `Source` and implement
+two hooks — `download()` and `harvest()` — and inherit the rest.
 
 Real examples: `iptoasn.py` (gzip + range→CIDR), `cn_isp.py` (multi-file),
-`ipinfo_lite.py`. **Read `iptoasn.py` end-to-end before writing one of these** —
-it's the canonical template.
+`ip2proxy.py` (ZIP + range→CIDR + asset slots), `threatfox.py` (ZIP + per-row
+classification), `otx.py` (REST state machine), `misp.py` (REST + severity-driven
+reliability). **Read `iptoasn.py` end-to-end before writing one of these** —
+it's the canonical minimal template.
+
+### What you inherit from `Source` (do NOT reimplement)
+
+| Method | What the base does |
+|---|---|
+| `load()` | Reads `harvest()` lazily, applies `normalize()` if present, dedups per CIDR on **full-evidence equality**, writes MMDB via `write_mmdb()`, opens a mmap reader. |
+| `query(ip)` | `self._reader.get(ip)` → dict (or `{}` if no match). Returns the list per CIDR as stored. |
+| `health()` | `SourceHealth` with `is_stale` from `self._path.stat().st_mtime` (convention 4). |
+| `_http_get(url, *, headers, timeout, retries)` | Retries with exponential backoff, sends `User-Agent`, accepts auth headers, returns bytes. Use this in your `download()` for any HTTP fetch. |
+
+You override **two hooks** (`download` and `harvest`) and optionally `normalize`.
+The base constructor takes `data_dir` and sets up `_path`, `_mmdb_path`,
+`_reader`, `_count`, `_loaded_at`.
+
+### Skeleton — ASN TSV with range→CIDR expansion (iptoasn-style)
 
 ```python
-"""<FeedName> — custom source (bespoke <format> format)."""
+"""<FeedName> — Source subclass (bespoke gzipped TSV with IP ranges)."""
+import gzip
 import ipaddress
 import logging
-import time
-import urllib.request
 from pathlib import Path
-from typing import Any, Optional
 
-import pytricia
-from .._types import SourceHealth
+from .._evidence import Evidence
+from .._source_base import Source
 
 logger = logging.getLogger(__name__)
-_URL = "https://example.com/data.tsv.gz"
 
 
-class <FeedName>Source:
+class <FeedName>Source(Source):
     # ── required for discovery ──
-    name = "<feedname>"
-    fields = ("country_code", "asn")     # whatever scalar fields this provides
+    name = "<feedname>"                       # lowercase, == filename stem
+    fields = ("country_code", "asn", "as_name", "ip_range")
+    url = "https://example.com/data.tsv.gz"
+    filename = "<feedname>.tsv"               # post-decompression path
     stale_days = 7
+    reliability = 0.5                         # 0–1 fusion weight (class default)
+    authoritative_for = []                    # fields this source owns at fusion
 
-    def __init__(self, data_dir: Path):
-        self._data_dir = data_dir
-        self._path = data_dir / "<feedname>.tsv"
-        self._tree: Optional[pytricia.PyTricia] = None
-        self._count = 0
-        self._loaded_at = 0.0
+    # ── optional __init__ (convention 5: read your own env) ──
+    # def __init__(self, data_dir: Path):
+    #     self._key = os.environ.get("<NAME>_API_KEY", "")
+    #     super().__init__(data_dir)
 
     def download(self) -> None:
-        # atomic write via .tmp then rename; clean up in finally.
-        # raise RuntimeError on empty/garbage so the caller logs it.
-        ...
+        # Default (base Source.download) does a plain GET → self._path. Override
+        # for gzip/ZIP decompression, auth headers, cursor/state machines, etc.
+        tmp = self._data_dir / "<feedname>.tsv.tmp"
+        data = self._http_get(self.url)               # retries + UA + auth header
+        if data[:2] == b"\x1f\x8b":                   # gzip magic
+            data = gzip.decompress(data)
+        if not data.strip():
+            raise RuntimeError(f"Empty response from {self.url}")
+        tmp.write_bytes(data)
+        tmp.rename(self._path)                        # atomic publish
 
-    def load(self) -> int:
-        tree = pytricia.PyTricia(32)
-        count = 0
-        if not self._path.exists():
-            self._tree = tree
-            return 0
-        # parse your format, build evidence dicts, tree.insert(cidr, value_or_list)
-        self._tree = tree
-        self._count = count
-        self._loaded_at = time.time()
-        return count
+    def harvest(self):  # -> Iterator[tuple[str, Evidence]]
+        """Parse your format → yield (cidr_str, Evidence) pairs.
 
-    def query(self, ip: str) -> dict[str, Any]:
-        if self._tree is None:
-            return {}
-        try:
-            return self._tree[ip]        # or shape it into a dict here (see iptoasn)
-        except KeyError:
-            return {}
-
-    def health(self) -> SourceHealth:
-        # convention 4: staleness from FILE mtime, NOT self._loaded_at
-        file_mtime = self._path.stat().st_mtime if self._path.exists() else None
-        last_updated = (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(file_mtime))
-                        if file_mtime else None)
-        is_stale = file_mtime is None or (
-            time.time() - file_mtime > self.stale_days * 86400)
-        return SourceHealth(
-            name=self.name,
-            loaded=self._tree is not None,
-            record_count=self._count,
-            last_updated=last_updated,
-            is_stale=is_stale,
-        )
+        One input row may yield MANY pairs (e.g. range→CIDR expansion). The
+        base load() dedups per CIDR on full-evidence equality and writes MMDB;
+        you just emit pairs and route fields into Evidence slots."""
+        with open(self._path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 5:
+                    continue
+                try:
+                    start = ipaddress.IPv4Address(parts[0].strip())
+                    end = ipaddress.IPv4Address(parts[1].strip())
+                    asn = int(parts[2])
+                except (ipaddress.AddressValueError, ValueError):
+                    continue
+                if asn == 0:
+                    continue
+                # range→CIDR: one row → many (cidr, Evidence) pairs
+                for cidr in ipaddress.summarize_address_range(start, end):
+                    yield str(cidr), Evidence(
+                        asn=asn,
+                        country_code=parts[3] or None,
+                        as_name=parts[4] or None,
+                        ip_range=str(cidr),
+                    )
 ```
 
-`health()` above is the canonical correct form — copy it verbatim. It is the
-single most important method to get right (convention 4).
+### Variant — per-row classification (threatfox-style harvest)
+
+For threat feeds where each row carries its own category, normalize per row and
+preserve the raw value in `extra["native_type"]` (convention 1):
+
+```python
+from .._classification import normalize, <FEEDNAME>_MAP
+
+class <FeedName>Source(Source):
+    name = "<feedname>"
+    fields = ("is_malicious",)
+    classification_type = "c2-server"        # default; harvest() can override per row
+    verdict = "malicious"
+    skip_lines = 9                            # abuse.ch-style header
+
+    def download(self) -> None:
+        data = self._http_get(self.url)
+        if data[:4] == b"PK\x03\x04":        # ZIP-wrapped
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                name = next(n for n in z.namelist() if n.endswith(".csv"))
+                data = z.read(name)
+        self._path.write_bytes(data)
+
+    def harvest(self):
+        with open(self._path, "r", encoding="utf-8") as f:
+            for _ in range(self.skip_lines):
+                next(f, None)
+            for row in csv.reader(f):
+                if len(row) < 4:
+                    continue
+                raw_type = row[4].strip()
+                yield row[2].strip().split(":")[0], Evidence(
+                    classification_type=normalize(raw_type, <FEEDNAME>_MAP),
+                    verdict="malicious",
+                    malware_name=row[5].strip(),
+                    confidence=int(row[9] or 50),
+                    first_seen=row[0].strip(),
+                    extra={"native_type": raw_type},   # convention 1
+                )
+```
+
+### Why not just subclass IpListSource/CsvSource?
+
+You can — but their `load()` assumes a fixed-shape format (one IP per line, or
+fixed-shape CSV rows). The moment you need filtering, conditional field routing,
+1→many expansion, multi-file loads, or a REST state machine, their `load()`
+becomes a hinderance rather than a help. `Source` exists precisely for that
+gray zone: you implement only the parsing (`harvest`) and the fetch (`download`),
+and inherit the boring MMDB write + mmap query + staleness plumbing.
 
 ---
 
@@ -304,3 +367,71 @@ handling matches the project's convention (see `ipapi_is.py` for the
 daily-count + lock pattern if your API has a quota). Surface any gaps to the user
 rather than silently diverging from how `_enrichers/ipapi_is.py` handles
 rate-limited APIs.
+
+---
+
+## 5. `field_map` (declarative column→slot routing) + planned `SourceSpec`
+
+### `field_map` — for any archetype that has native columns to route
+
+When a feed has native columns (CSV headers, TSV positions, JSON keys) that need
+to land in canonical Evidence slots, declare a `field_map` class attribute. This
+is the single home for per-source native-column → canonical-slot routing, and
+the load-time validator (`backend/ipdb/_validate.py`) checks it for mechanically
+detectable mistakes.
+
+```python
+class <FeedName>Source(CsvSource):           # or Source, or IpListSource
+    field_map = {
+        # single-col → single-slot; prefer the native column name as the key
+        "src_col_name":   "target_slot",     # target must be in ALL_KNOWN or start with "extra"
+        "asn_str":        "asn",
+        "cc":             "country_code",
+        "proxy_type":     "extra",           # whole column → extra bag
+    }
+```
+
+Rules (enforced by `_validate.validate_source` at load time, **warn-only**):
+- Targets must appear in `ALL_KNOWN` (`backend/ipdb/_evidence.py`) or start with
+  `extra`. Unknown targets are flagged.
+- Multiple source columns routing to the **same** slot are flagged as a
+  collision (surfaces accidental double-writes).
+- Prefer the native column name as the key.
+
+`field_map` is declarative metadata today — the simple bases (`IpListSource` /
+`CsvSource`) still do their own parsing via `parse_raw` / `parse_row`, and
+`Source` subclasses route fields explicitly inside `harvest()`. The attribute
+exists so the validator can catch routing mistakes early and so a future
+declarative form (below) can read it.
+
+### `SourceSpec` (Pydantic declarative form) — planned, NOT yet implemented
+
+For sources that are simple but slightly too custom for `IpListSource` (a
+fixed-shape CSV with one filter, or a TSV with column routing), the project
+reserves a declarative **Pydantic `SourceSpec`** form: a dataclass-style
+description of (url + filename + parse rule + `field_map`) from which the
+registry could generate the source without a handwritten class.
+
+**Status:** not yet implemented. Use `IpListSource` / `CsvSource` (plus
+`field_map` for routing declarations) for simple sources today. `SourceSpec`
+will pay its way once enough simple sources accrue that a declarative layer is
+cheaper than the bases — until then, YAGNI.
+
+### Gray zone — when to abandon the simple bases for a `Source` subclass
+
+Reach for `Source` (with a handwritten `harvest()`) the moment **any** of these
+apply:
+
+| Trigger | Example source |
+|---|---|
+| Row filtering (drop by value/threshold) | `ip2proxy.py` drops SES/WEB proxy_types |
+| Conditional field routing (set field based on row content) | `misp.py` severity-driven reliability |
+| 1→many: one input row → many CIDRs (range→CIDR expansion) | `iptoasn.py`, `ip2proxy.py` |
+| Nested archive (ZIP/gzip needs extraction before parse) | `threatfox.py`, `ip2proxy.py` |
+| REST state machine (cursor/pagination/auth flow) | `otx.py`, `misp.py` |
+| Multi-file load (one source, several data files) | `cn_isp.py` |
+
+If none of these apply — i.e. the feed is a plain IP list or a fixed-shape CSV
+with no row-level logic — stay on `IpListSource` / `CsvSource`. Don't reach for
+`Source` "for flexibility"; the simple bases already produce the same Evidence
+contract via `get_insert_data()` / `parse_row()`.

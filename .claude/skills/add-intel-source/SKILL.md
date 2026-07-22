@@ -21,13 +21,17 @@ sources. Read those alongside this skill when implementing.
    `_sources/` (skipping `_`-prefixed), finds classes that have both a `name`
    and a `fields` attribute AND are defined in that module, and instantiates each
    with `data_dir=...`. That's the entire registration contract.
-3. **Four archetypes** (see decision tree below): `IpListSource`, `CsvSource`,
-   a standalone custom class, or `ApiSource`. Pick by the feed's shape.
+3. **Four archetypes** (see decision tree below): `IpListSource`,
+   `CsvSource`, a `Source` subclass (bespoke format), or `ApiSource`. Pick by
+   the feed's shape.
 4. **Every source implements the same duck-typed lifecycle**: `download()` →
-   `load()` → `query(ip)` → `health()`. The base classes give you most of this;
-   you fill in the parse hook.
+   `load()` → `query(ip)` → `health()`. The bases give you most of this; you
+   fill in the parse hook (`parse_raw` / `parse_row` for the simple bases, or
+   `harvest()` for a `Source` subclass).
 5. **Six conventions are non-negotiable** (see that section) — they exist because
-   real bugs in this repo's history came from breaking each one.
+   real bugs in this repo's history came from breaking each one. The load-time
+   validator (`_validate.py`) and `test_conventions.py` catch most of them
+   automatically; the rest are on you.
 
 ## Phase 1 — Research the feed (do this before writing code)
 
@@ -50,24 +54,48 @@ order / delimiter / comment style to write the parser. ThreatFox and IPsum are
 good reminders of how format quirks (ZIP wrapping, tab delimiters, header lines
 to skip) shape the implementation.
 
+### Per-field routing (逐字段路由判定) — decide each field's home
+
+Before picking an archetype, walk every field the feed carries and decide where
+it lands in the `Evidence` record. This routing decision is the single biggest
+authoring choice after archetype — getting it wrong loses data or pollutes the
+fusion axis.
+
+| Field class | Lands in | Examples |
+|---|---|---|
+| **Fusion core** (drives verdict / corroboration) | `Evidence.<core_field>` | `classification_type`, `verdict`, `reliability`, `malware_name`, `first_seen`, `confidence` |
+| **Canonical slot** (recurring structured field with a named home) | `Evidence.<canonical_slot>` | `country_code`, `asn`, `as_name`, `isp`, `ip_range`, `is_proxy`, `is_hosting`, `is_tor`, `is_vpn`, `native_type`, `comment`, `tags`, `reporter_count`, `last_seen` |
+| **Long-tail / one-off / feed-specific** | `Evidence.extra[<key>]` | raw category strings not in `_MAP`, custom flags, vendor-specific columns |
+
+Ground truth: `backend/ipdb/_evidence.ALL_KNOWN` (the full set of recognized
+core + canonical-slot keys). The query path (`route_record()` in `_evidence.py`)
+auto-folds any key outside `ALL_KNOWN` into `extra`, so a wrong routing guess is
+recoverable — but a field you forgot to emit is lost. When in doubt, put it in
+`extra`. Record the decisions in a `field_map` class attribute (see
+`references/source-archetypes.md` §5) so the load-time validator can catch
+typos and collisions.
+
 **Output of Phase 1:** a one-paragraph decision: archetype + the class attributes
-+ the env var name + whether a new classification map is needed. Confirm with the
-user before implementing if anything is ambiguous.
++ the env var name + whether a new classification map is needed + the per-field
+routing table. Confirm with the user before implementing if anything is ambiguous.
 
 ## Phase 2 — Pick the archetype
 
 ```
-Is it a static file you download once and load into a trie?
+Is it a static file you download once and load into MMDB?
 ├─ YES
 │  ├─ Plain IP/CIDR list (one per line, maybe comments)?
 │  │     → IpListSource            (spamhaus, firehol, tor_exits, blocklist_de…)
-│  ├─ CSV/TSV with structured columns (IP + metadata per row)?
-│  │     → CsvSource               (ipsum, threatfox, ip2proxy, otx)
-│  └─ Bespoke format (gzip, IP-ranges→CIDR summarise, multi-file, ZIP-extract,
-│      binary, JSON-lines)?
-│        → standalone custom class (iptoasn, cn_isp, ipinfo_lite)
-│        → subclass IpListSource/CsvSource ONLY if its load() genuinely helps;
-│          otherwise a plain class implementing download/load/query/health
+│  ├─ CSV/TSV with fixed-shape columns (no filtering, no 1→many, no nesting)?
+│  │     → CsvSource               (ipsum) — or a declarative SourceSpec (planned,
+│  │       not yet implemented; see references/source-archetypes.md §5)
+│  └─ Gray zone: any of — filter rows / conditional field routing / 1→many
+│      (range→CIDR) / nested archive (ZIP/gzip) / multi-file / REST state
+│      machine / per-row classification with non-trivial mapping?
+│        → Source subclass         (threatfox, ip2proxy, otx, iptoasn, cn_isp, misp)
+│          implement download() + harvest() -> (cidr_str, Evidence) pairs;
+│          inherit load() (MMDB write + full-evidence dedup) / query() (mmap) /
+│          health() / _http_get() (retries + auth header)
 └─ NO — it's a query-per-IP REST API (no bulk download)?
       → ApiSource                   (defined in _base.py; no source uses it yet,
                                       so it's the greenfield path for new APIs)
@@ -77,10 +105,10 @@ How to read existing sources as templates:
 
 | Archetype | Canonical example | Read it |
 |---|---|---|
-| IpListSource | `ipsum`-adjacent plain lists → `spamhaus.py`, `tor_exits.py` | minimal |
-| CsvSource | `ipsum.py` (36 lines) then `threatfox.py` (per-row classification + ZIP) | start with ipsum |
-| Custom standalone | `iptoasn.py` (gzip + range→CIDR) | the duck-typed interface in full |
-| ApiSource | `_base.ApiSource` skeleton | query_api(ip) |
+| IpListSource | `spamhaus.py`, `tor_exits.py`, `firehol.py`, `blocklist_de.py`, `abuseipdb.py` (keyed `download()`) | minimal |
+| CsvSource | `ipsum.py` (only pure CsvSource left) | start here |
+| Source subclass | `iptoasn.py` (gzip + range→CIDR), then `threatfox.py` (ZIP + per-row classification), then `ip2proxy.py` (range→CIDR + asset slots) | the `harvest()` pattern |
+| ApiSource | `_base.ApiSource` skeleton | `query_api(ip)` |
 
 **Read `references/source-archetypes.md`** for the annotated, copyable skeleton
 of whichever archetype you picked. Don't reinvent the boilerplate — copy and
@@ -100,10 +128,15 @@ fill in.
    wiring in `_registry.py` for the enricher equivalent; sources follow the same
    "read your own config" rule.) **If the key must go in an HTTP header** (most
    APIs — AbuseIPDB, Shodan, etc.), also override `download()` to send it; the
-   base only sets `User-Agent`. See `references/source-archetypes.md`.
+   `Source` base exposes a `_http_get(url, headers=...)` helper that already
+   wires retries + `User-Agent` + auth headers — prefer it over a hand-rolled
+   `urllib.request`. See `references/source-archetypes.md` §3.
 4. **Implement the parse hook** for your archetype (`parse_raw` / `parse_row` /
-   `query_api` / custom `load`). Preserve the raw native type and normalize the
+   `harvest` / `query_api`). Preserve the raw native type and normalize the
    classification — see the conventions below and `references/classification.md`.
+   For `Source` subclasses the hook is `harvest()` yielding `(cidr_str, Evidence)`
+   pairs; for `IpListSource`/`CsvSource` it's `parse_raw`/`parse_row` returning
+   plain dicts that the base routes into `Evidence`.
 5. **If the feed has its own category vocabulary** (e.g. abuse.ch `threat_type`,
    blocklist.de attack codes, proxy types), add a `{native: intelmq}` map in
    `_classification.py` next to the existing `THREATFOX_MAP` / `BLOCKLIST_DE_MAP`
@@ -149,6 +182,14 @@ print(s.health())                                      # loaded/stale sane?
 ## Non-negotiable conventions
 
 These each exist because a bug in this repo's history came from violating them.
+Most are enforced automatically:
+
+- **`backend/ipdb/_validate.py`** runs at load time and flags: bad
+  `classification_type`, unknown `field_map` targets, slot collisions (warn-only).
+- **`backend/test_conventions.py`** encodes the 6 rules below as tests — if a
+  source violates one, CI fails. Mirror its checks when you write your own test.
+
+The remaining rules (routing, raw-type preservation, stable verdict) are on you.
 
 1. **Preserve the raw native type in `extra`.** Every evidence dict from a typed
    source must carry `extra: {"native_type": <raw value>}`. The base classes do
@@ -166,11 +207,14 @@ These each exist because a bug in this repo's history came from violating them.
    ip2proxy's `DCH` was mislabeled `proxy`; the fix was to let unmappable values
    fall through raw to `extra` and use `other` on the axis.)*
 
-3. **One classification per row, many rows per CIDR.** `CsvSource.load()`
-   accumulates a **list** of evidence dicts per CIDR (deduped by
-   `(classification_type, verdict, malware_name)`). Emit one evidence dict per
-   parsed row; don't pre-collapse. Each row can carry its own
-   `classification_type`. *(Commit `1419e6f`: per-row ThreatFox classification.)*
+3. **One classification per row, many rows per CIDR.** `CsvSource.load()` and
+   `Source.load()` both accumulate a **list** of evidence dicts per CIDR,
+   deduped by **full-evidence equality** (not just a 4-tuple — two rows with the
+   same classification/verdict/malware but different `confidence`/`first_seen`/
+   `comment` are distinct evidence and must both survive). Emit one evidence
+   dict per parsed row; don't pre-collapse. Each row can carry its own
+   `classification_type`. *(Commit `1419e6f`: per-row ThreatFox classification;
+   field-loss fix #6 tightened dedup to full-equality.)*
 
 4. **Staleness is the data FILE's mtime, never in-memory load time.** `health()`
    must compute `is_stale` from `self._path.stat().st_mtime`, not from
@@ -206,9 +250,12 @@ These each exist because a bug in this repo's history came from violating them.
 ## Where to go deeper
 
 - **`references/source-archetypes.md`** — copyable skeletons for all four
-  archetypes, with the exact attributes and methods each requires.
+  archetypes, plus §5 on `field_map` (declarative column→slot routing) and the
+  planned `SourceSpec` form. Read this before writing any source.
 - **`references/classification.md`** — the full controlled vocabulary, the
-  `normalize()` contract, and how to add a per-source map.
+  `normalize()` contract, and how to add a per-source `_MAP`. Also notes where
+  `field_map` fits alongside `_MAP`.
 - Existing sources are the ground truth: `ipsum.py` (minimal CsvSource),
-  `threatfox.py` (per-row classification + ZIP), `iptoasn.py` (custom
-  standalone), `spamhaus.py` / `tor_exits.py` (IpListSource).
+  `spamhaus.py` / `tor_exits.py` (IpListSource), `iptoasn.py` (Source subclass:
+  gzip + range→CIDR), `threatfox.py` (Source subclass: ZIP + per-row
+  classification), `ip2proxy.py` (Source subclass: range→CIDR + asset slots).
