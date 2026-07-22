@@ -16,6 +16,7 @@ from typing import Any, Optional
 from dotenv import load_dotenv
 from ipdb._source_state import load_disabled, save_disabled
 from ._evidence import route_record, SCALAR_SLOTS, ASSET_SLOTS
+from ._reserved import is_reserved
 from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment, AssetStatement
 from ._merge import (
     FactualVoting,
@@ -327,6 +328,8 @@ def lookup(ip: str) -> LookupResult:
         ipaddress.IPv4Address(ip)
     except (ipaddress.AddressValueError, ValueError):
         return _error_result(ip)
+    if is_reserved(ip):
+        return _reserved_result(ip)
 
     # Collect scalar fields + evidence observations from all sources.
     field_values: dict[str, dict[str, Any]] = defaultdict(dict)
@@ -408,6 +411,20 @@ def _error_result(ip: str) -> LookupResult:
         classifications={},
         attributes={},
         error="invalid IP format",
+    )
+
+
+def _reserved_result(ip: str) -> LookupResult:
+    return LookupResult(
+        ip=ip,
+        country=MergedField("N/A", 0, "voting", []),
+        asn=MergedField(0, 0, "voting", []),
+        as_name=MergedField("N/A", 0, "voting", []),
+        ip_range=MergedField("N/A", 0, "voting", []),
+        is_isp=False,
+        classifications={},
+        attributes={},
+        is_reserved=True,
     )
 
 
