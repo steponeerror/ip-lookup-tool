@@ -8,13 +8,12 @@ column order (per abuse.ch header) is:
     malware_alias, malware_printable, last_seen_utc, confidence_level, ...
 
 Migrated from CsvSource onto the unified Source base (Task 3.2): download()
-uses the shared `_http_get` (kept because the existing column-mapping test
-monkeypatches `_http_get` directly — switching to `download_file` would
-require a test rewrite that's out of scope for this task); a CancelToken is
-honoured at the top so a queued update can be cancelled. `harvest()` yields
-`(ip, Evidence)` per row with per-row classification via
-`normalize(raw_type, THREATFOX_MAP)`. `parse_row()` is retained as a legacy
-helper because existing column-mapping tests depend on it.
+streams the ZIP atomically to a sibling .zip via the shared `download_file`
+helper (token-aware, mid-stream cancel), then extracts the inner CSV onto
+`self._path`. `harvest()` yields `(ip, Evidence)` per row with per-row
+classification via `normalize(raw_type, THREATFOX_MAP)`. `parse_row()` is
+retained as a legacy helper because existing column-mapping tests depend
+on it.
 """
 import csv
 import io
@@ -25,7 +24,7 @@ from urllib.parse import urlparse
 from .._source_base import Source
 from .._evidence import Evidence
 from .._classification import normalize, THREATFOX_MAP
-from ._download import CancelToken
+from ._download import download_file, CancelToken
 
 logger = logging.getLogger(__name__)
 
@@ -52,20 +51,23 @@ class ThreatFoxSource(Source):
         return urlparse(self.url).hostname
 
     def download(self, token: CancelToken | None = None) -> None:
-        if token is not None and token.is_cancelled():
-            from ._download import CancelledError
-            raise CancelledError(f"{self.name} download cancelled")
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        data = self._http_get(self.url)
-        if not data.strip():
-            raise RuntimeError(f"Empty response from {self.url}")
-        if data[:4] == b"PK\x03\x04":           # abuse.ch serves a ZIP
-            with zipfile.ZipFile(io.BytesIO(data)) as z:
-                name = next((n for n in z.namelist() if n.endswith(".csv")), None)
-                if name is None:
-                    raise RuntimeError("no .csv inside threatfox zip")
-                data = z.read(name)
-        self._path.write_bytes(data)
+        zip_path = self._data_dir / "threatfox.zip"
+        try:
+            download_file(self.url, zip_path, token=token,
+                          headers={"User-Agent": "ip-lookup-tool/1.0"})
+            data = zip_path.read_bytes()
+            if not data.strip():
+                raise RuntimeError(f"Empty response from {self.url}")
+            if data[:4] == b"PK\x03\x04":           # abuse.ch serves a ZIP
+                with zipfile.ZipFile(io.BytesIO(data)) as z:
+                    name = next((n for n in z.namelist() if n.endswith(".csv")), None)
+                    if name is None:
+                        raise RuntimeError("no .csv inside threatfox zip")
+                    data = z.read(name)
+            self._path.write_bytes(data)
+        finally:
+            zip_path.unlink(missing_ok=True)
 
     def harvest(self):
         """Yield (ip, Evidence) per row by delegating to parse_row (the single

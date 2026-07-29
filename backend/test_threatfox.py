@@ -73,9 +73,15 @@ class TestThreatFoxDownloadUnzips:
         class _Resp:
             def __init__(self, b):
                 self._b = b
+                self._pos = 0
 
-            def read(self):
-                return self._b
+            def read(self, n=-1):
+                if n is None or n < 0:
+                    data, self._pos = self._b[self._pos:], len(self._b)
+                    return data
+                data = self._b[self._pos:self._pos + n]
+                self._pos += len(data)
+                return data
 
             def __enter__(self):
                 return self
@@ -104,9 +110,15 @@ class TestThreatFoxDownloadUnzips:
         class _Resp:
             def __init__(self, b):
                 self._b = b
+                self._pos = 0
 
-            def read(self):
-                return self._b
+            def read(self, n=-1):
+                if n is None or n < 0:
+                    data, self._pos = self._b[self._pos:], len(self._b)
+                    return data
+                data = self._b[self._pos:self._pos + n]
+                self._pos += len(data)
+                return data
 
             def __enter__(self):
                 return self
