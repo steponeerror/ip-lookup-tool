@@ -92,47 +92,6 @@ export interface UpdateProgress {
   errors: string[];
 }
 
-export async function updateDbStream(
-  onProgress: (p: UpdateProgress) => void,
-): Promise<DbStatus> {
-  const res = await fetch("/api/update-db", { method: "POST" });
-  if (!res.ok) {
-    let detail: string;
-    try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-    throw new Error(detail || "Database update failed");
-  }
-  if (!res.body) throw new Error("Streaming not supported");
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let finalStatus: DbStatus | null = null;
-  const errors: string[] = [];
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop()!;
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let evt: any;
-      try { evt = JSON.parse(line); } catch { continue; }
-      if (evt.type === "start") {
-        onProgress({ done: 0, total: evt.total, currentStep: "", stepStatus: "starting", errors: [] });
-      } else if (evt.type === "step") {
-        if (evt.error) errors.push(evt.error);
-        onProgress({ done: evt.done, total: evt.total, currentStep: evt.name, stepStatus: evt.status, errors: [...errors] });
-      } else if (evt.type === "complete") {
-        finalStatus = evt.status;
-      }
-    }
-  }
-  if (!finalStatus) throw new Error("No status received");
-  return finalStatus;
-}
-
 export interface Progress {
   done: number;
   total: number;
@@ -307,49 +266,82 @@ export async function updateSource(name: string): Promise<SourceInfo> {
   return jsonOrThrow(res, "Failed to refresh source");
 }
 
-export interface SourceUpdateProgress {
-  phase: "downloading" | "loading";
+// --- Task client: enqueue / control / subscribe (SSE) ---
+
+export interface TaskState {
+  id: string;
+  source: string;
+  host: string | null;
+  state: "queued" | "downloading" | "loading" | "done" | "failed" | "cancelled";
+  error: string | null;
+  batch_id: string | null;
 }
 
-/** Stream a single-source update (start → downloading → loading → complete). */
-export async function updateSourceStream(
-  name: string,
-  onProgress: (p: SourceUpdateProgress) => void,
-): Promise<SourceInfo> {
-  const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update/stream`, { method: "POST" });
-  if (!res.ok) {
-    let detail: string;
-    try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-    throw new Error(detail || `Failed to update ${name}`);
-  }
-  if (!res.body) throw new Error("Streaming not supported");
+export interface BatchState {
+  id: string;
+  state: "running" | "paused" | "done";
+  done: number;
+  total: number;
+}
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let final: SourceInfo | null = null;
-  let streamError: string | null = null;
+export interface TasksSnapshot {
+  tasks: TaskState[];
+  batch: BatchState | null;
+}
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop()!;
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let evt: any;
-      try { evt = JSON.parse(line); } catch { continue; }
-      if (evt.type === "phase") {
-        onProgress({ phase: evt.phase });
-      } else if (evt.type === "complete") {
-        final = evt.source as SourceInfo;
-      } else if (evt.type === "error") {
-        streamError = evt.error as string;
-      }
+export async function getTasks(): Promise<TasksSnapshot> {
+  const res = await fetch("/api/tasks");
+  if (!res.ok) throw new Error("Failed to load tasks");
+  return res.json();
+}
+
+export async function enqueueBatch(): Promise<{ batch_id: string }> {
+  const res = await fetch("/api/update-db", { method: "POST" });
+  if (!res.ok) throw new Error("Failed to start batch");
+  return res.json();
+}
+
+export async function enqueueSingle(name: string): Promise<{ task_id: string }> {
+  const res = await fetch(`/api/sources/${encodeURIComponent(name)}/update`, { method: "POST" });
+  if (!res.ok) throw new Error(`Failed to update ${name}`);
+  return res.json();
+}
+
+export async function cancelTask(id: string): Promise<void> {
+  await fetch(`/api/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+}
+
+export async function cancelBatch(): Promise<void> {
+  await fetch("/api/update-db/cancel", { method: "POST" });
+}
+
+export async function pauseBatch(): Promise<void> {
+  await fetch("/api/update-db/pause", { method: "POST" });
+}
+
+export async function resumeBatch(): Promise<void> {
+  await fetch("/api/update-db/resume", { method: "POST" });
+}
+
+/**
+ * Subscribe to task updates via SSE. `onEvent` receives each parsed JSON
+ * payload; `onReconnect` fires on each (re)connection so the caller can
+ * re-fetch a snapshot via `getTasks`. Returns an unsubscribe that closes
+ * the EventSource. The browser handles auto-reconnect natively.
+ */
+export function subscribeTasks(
+  onEvent: (e: any) => void,
+  onReconnect?: () => void,
+): () => void {
+  const es = new EventSource("/api/events");
+  es.onmessage = (m: MessageEvent) => {
+    try {
+      onEvent(JSON.parse(m.data));
+    } catch {
+      /* skip malformed payload */
     }
-  }
-  if (streamError) throw new Error(streamError);
-  if (!final) throw new Error(`Failed to update ${name}`);
-  return final;
+  };
+  es.onopen = () => onReconnect?.();
+  return () => es.close();
 }
+
