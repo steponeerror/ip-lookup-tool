@@ -68,7 +68,7 @@ AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
     "is_proxy":     ["ip2proxy"],
     "is_tor":       ["tor_exits"],
     "is_vpn":       ["x4bnet_vpn"],
-    "is_malicious": ["threatfox", "emerging_threats", "spamhaus"],
+    "is_malicious": ["threatfox", "feodo", "emerging_threats", "spamhaus"],
     "is_hosting":   ["ipinfo_lite"],
     "is_mobile":    ["ipinfo_lite"],
 }
