@@ -241,7 +241,11 @@ class UpdateManager:
             self._settle(task)
 
     def _settle(self, task: Task):
-        """Bookkeeping after a task leaves the active set."""
+        """Bookkeeping after a task leaves the active set. Does NOT emit a
+        terminal `task` event — every terminal path has already emitted via
+        `_set_state` (or `cancel()`'s explicit emit for the queued case), so
+        emitting here would double-broadcast. Only the batch-progress event
+        (done-counter increment) and `_maybe_finish_batch` are owned here."""
         with self._lock:
             if self._by_source.get(task.source_name) == task.id:
                 if task.state in ("done", "failed", "cancelled"):
@@ -251,24 +255,49 @@ class UpdateManager:
                 if task.state in ("done", "failed", "cancelled"):
                     b.done += 1
                     self._emit({"type": "batch", "batch": b.to_dict()})
-        self._emit({"type": "task", "task": task.to_dict()})
         self._maybe_finish_batch()
 
     # --- event bus (Task 6) ---
+    def subscribe(self, loop: asyncio.AbstractEventLoop) -> "asyncio.Queue[dict]":
+        """Register a bounded subscriber queue. `loop` is the asyncio loop the
+        SSE endpoint runs in; `_emit` schedules puts onto it via
+        `call_soon_threadsafe`. Caller owns the queue's lifetime and must call
+        `unsubscribe(q)` on disconnect to avoid leaking entries in `_subs`."""
+        self._loop = loop
+        q: asyncio.Queue = asyncio.Queue(maxsize=self._queue_cap)
+        with self._subs_lock:
+            self._subs.add(q)
+        return q
+
+    def unsubscribe(self, q) -> None:
+        with self._subs_lock:
+            self._subs.discard(q)
+
     def _emit(self, event: dict):
         with self._subs_lock:
             subs = list(self._subs)
         loop = self._loop
         if not subs or loop is None:
             return
-        for q in subs:
+
+        def _deliver(q: "asyncio.Queue[dict]", evt: dict) -> None:
+            # Runs inside the subscriber loop via call_soon_threadsafe, so
+            # QueueFull is raised (and caught) here — not in the worker thread
+            # that called _emit. On overflow: drop oldest, retry once.
             try:
-                loop.call_soon_threadsafe(q.put_nowait, event)
+                q.put_nowait(evt)
             except asyncio.QueueFull:
                 try:
-                    loop.call_soon_threadsafe(q.get_nowait)
-                except Exception:
+                    q.get_nowait()  # drop oldest
+                except asyncio.QueueEmpty:
                     pass
-                loop.call_soon_threadsafe(q.put_nowait, event)
-            except Exception:
+                try:
+                    q.put_nowait(evt)
+                except asyncio.QueueFull:
+                    pass  # still full after drop (concurrent producer): give up
+
+        for q in subs:
+            try:
+                loop.call_soon_threadsafe(_deliver, q, event)
+            except RuntimeError:  # loop closed mid-flight
                 pass
