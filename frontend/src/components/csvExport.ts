@@ -1,5 +1,6 @@
 import type { LookupResult } from "../api";
 import { threatSummary, classLabel, familyShort } from "./threatDisplay";
+import { translate } from "../i18n/translate";
 
 export function aggregateThreatDepth(r: LookupResult) {
   const cas = Object.values(r.classifications);
@@ -39,7 +40,7 @@ function threatTags(r: LookupResult): string {
     })
     .map((type) => {
       const ca = r.classifications[type];
-      const label = classLabel(type);
+      const label = classLabel(type, (k, v) => translate("en", k, v));
       const family = ca.malware_names.length > 0 ? familyShort(ca.malware_names[0]) : null;
       return family ? `${label}·${family}` : label;
     });

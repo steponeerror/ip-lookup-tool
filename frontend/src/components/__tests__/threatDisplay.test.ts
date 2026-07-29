@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   classLabel, familyShort, threatSummary, confTextColor, normType,
 } from "../threatDisplay";
+import { translate } from "../../i18n/translate";
 import type { LookupResult } from "../../api";
+
+const enT = (k: string) => translate("en", k);
 
 const mf = (value: string, confidence = 95) => ({
   value, confidence, algorithm: "cascade" as const,
@@ -28,9 +31,9 @@ const dirty: LookupResult = {
 
 describe("threatDisplay", () => {
   it("classLabel maps known types and normalizes hyphens", () => {
-    expect(classLabel("c2_server")).toBe("C2");
-    expect(classLabel("brute-force")).toBe("暴力破解");
-    expect(classLabel("novel_thing")).toBe("novel thing");
+    expect(classLabel("c2_server", enT)).toBe("C2");
+    expect(classLabel("brute-force", enT)).toBe("Brute force");
+    expect(classLabel("novel_thing", enT)).toBe("novel thing");
   });
   it("normType replaces hyphens with underscores", () => {
     expect(normType("brute-force")).toBe("brute_force");

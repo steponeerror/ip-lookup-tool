@@ -82,4 +82,20 @@ describe("buildCsv", () => {
     const row = buildCsv([reserved]).split("\n")[1];
     expect(row).toContain(",reserved,");
   });
+  it("pins threat_tags labels to English regardless of locale", () => {
+    const scannerRow: LookupResult = {
+      ...r,
+      classifications: {
+        scanner: {
+          type: "scanner", verdict: "suspicious", detected: true, confidence: 60,
+          algorithm: "corroboration", corroborated: false, reporter_total: 0,
+          verdict_conflict: false, malware_names: [],
+          details: [], sources: [],
+        },
+      },
+    };
+    const row = buildCsv([scannerRow]).split("\n")[1];
+    expect(row).toContain("Scanner"); // English label, never "扫描"
+    expect(row).not.toContain("扫描");
+  });
 });
