@@ -179,3 +179,69 @@ def test_cancel_batch_cancels_all():
     snap = _wait_states(mgr, lambda s: s["batch"] and s["batch"]["state"] == "done", timeout=5)
     states = [t["state"] for t in snap["tasks"]]
     assert all(s == "cancelled" for s in states)
+
+
+# --- Task 6: event bus (subscribe/unsubscribe + drop-oldest) ---
+
+def test_subscribe_receives_events():
+    import asyncio
+    src = FakeSource("a", host="h")
+    mgr, _ = _make_manager([src])
+    loop = asyncio.new_event_loop()
+    q = mgr.subscribe(loop)
+    try:
+        mgr.enqueue_one("a")
+        _wait_states(mgr, lambda s: all(tk["state"] in ("done", "failed", "cancelled") for tk in s["tasks"]))
+        got = loop.run_until_complete(asyncio.wait_for(q.get(), timeout=2))
+        assert got["type"] in ("task", "batch", "done")
+    finally:
+        mgr.unsubscribe(q)
+        loop.close()
+
+
+def test_snapshot_matches_live_state():
+    src = FakeSource("a", host="h")
+    mgr, _ = _make_manager([src])
+    mgr.enqueue_one("a")
+    snap = _wait_states(mgr, lambda s: s["tasks"])
+    assert snap == mgr.snapshot()
+
+
+def test_emit_drops_oldest_when_queue_full():
+    """_emit must drop the oldest event on a full subscriber queue (keep newest).
+    Regression guard for the call_soon_threadsafe + QueueFull bug (T6 Part B):
+    the buggy version wrapped call_soon_threadsafe in try/except QueueFull,
+    which never fires because QueueFull is raised asynchronously inside the
+    loop, not at the call_soon_threadsafe call site."""
+    import asyncio
+    src = FakeSource("a", host="h")
+    mgr, _ = _make_manager([src])
+    loop = asyncio.new_event_loop()
+    try:
+        q = mgr.subscribe(loop)            # maxsize = _queue_cap (256)
+        # shrink to a bounded cap we can actually overflow in a test
+        cap_q = asyncio.Queue(maxsize=2)
+        with mgr._subs_lock:
+            mgr._subs.add(cap_q)
+        # pre-fill cap_q so the next _emit must overflow
+        cap_q.put_nowait({"i": "e1"})
+        cap_q.put_nowait({"i": "e2"})
+        # _emit schedules _deliver(cap_q, e3) on the loop; the fixed version
+        # catches QueueFull inside the loop and drops oldest.
+        mgr._emit({"i": "e3"})
+        # run the loop briefly so the scheduled callback executes
+        loop.run_until_complete(asyncio.sleep(0.05))
+        drained = []
+        while not cap_q.empty():
+            drained.append(cap_q.get_nowait())
+        # e1 dropped (oldest); e2, e3 retained
+        assert [d["i"] for d in drained] == ["e2", "e3"], (
+            f"expected ['e2','e3'] (oldest dropped), got {[d.get('i') for d in drained]}")
+        # also confirm subscribe/unsubscribe are leak-free: discarding cap_q
+        # leaves only `q` in the subs set.
+        mgr.unsubscribe(cap_q)
+        assert cap_q not in mgr._subs
+        mgr.unsubscribe(q)
+        assert q not in mgr._subs
+    finally:
+        loop.close()
