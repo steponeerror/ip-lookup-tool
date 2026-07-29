@@ -81,12 +81,52 @@ async def _stream_lookup(
     }) + "\n"
 
 
+def _is_cold_start() -> bool:
+    """True if NO enabled offline source has an existing data file on disk.
+
+    Online (ApiSource) sources never have a data file and are ignored — they
+    must not force a cold-start just because they lack ``_path``. A source
+    missing the ``_path`` attribute entirely is treated as having no data
+    (defensive; real offline sources always set it in IpListSource.__init__).
+    """
+    from ipdb._registry import _enabled_sources, _archetype
+    offline = [s for s in _enabled_sources() if _archetype(s) == "offline"]
+    return not any(getattr(s, "_path", None) and Path(s._path).exists()
+                   for s in offline)
+
+
+def _do_cold_start():
+    """Cold start: synchronously download the first batch via run_batch_blocking.
+
+    Blocks lifespan startup until every enabled offline source has settled
+    (done/failed/cancelled). The server then serves from the freshly-written
+    data files. Skips the blocking call when there are no offline sources.
+    """
+    from ipdb._registry import _enabled_sources, _archetype
+    names = [s.name for s in _enabled_sources() if _archetype(s) == "offline"]
+    if names:
+        manager.run_batch_blocking(names)
+
+
+def _startup_warm():
+    """Warm path: load all sources from disk immediately, then refresh any stale
+    ones in the background (non-blocking — the whole point of the warm branch)."""
+    load_db()
+    stale = stale_source_names()
+    if stale:
+        manager.enqueue_stale(stale)
+
+
+def _startup():
+    if _is_cold_start():
+        _do_cold_start()
+    else:
+        _startup_warm()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Download only sources whose data file is stale/missing, then load all.
-    # Avoids re-downloading fresh data on every restart (staleness is file-mtime
-    # based, not in-memory load time).
-    refresh_stale()
+    _startup()
     yield
 
 app = FastAPI(title="IP Lookup Tool", lifespan=lifespan)

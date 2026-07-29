@@ -119,6 +119,22 @@ class UpdateManager:
             return None
         return self.enqueue_batch(stale_names)
 
+    def run_batch_blocking(self, names: list[str], timeout: float = 600) -> str:
+        """Enqueue a batch and block the caller until it reaches `done` or timeout.
+
+        Used for cold-start: the server cannot serve queries until at least one
+        download completes, so we synchronously wait on the first batch. Returns
+        the batch id (state may still be `running` if the deadline elapsed).
+        """
+        bid = self.enqueue_batch(names)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            b = self._batches.get(bid)
+            if b and b.state == "done":
+                return bid
+            time.sleep(0.1)
+        return bid
+
     def _maybe_finish_batch(self):
         with self._lock:
             if not self._active_batch:
