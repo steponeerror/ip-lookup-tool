@@ -71,8 +71,10 @@ fusion axis.
 
 | Field class | Lands in | Examples |
 |---|---|---|
-| **Fusion core** (drives verdict / corroboration) | `Evidence.<core_field>` | `classification_type`, `verdict`, `reliability`, `malware_name`, `first_seen`, `confidence` |
-| **Canonical slot** (recurring structured field with a named home) | `Evidence.<canonical_slot>` | `country_code`, `asn`, `as_name`, `isp`, `ip_range`, `is_proxy`, `is_hosting`, `is_tor`, `is_vpn`, `native_type`, `comment`, `tags`, `reporter_count`, `last_seen` |
+| **Score-driving core** (moves the fusion number) | `Evidence.<core_field>` | `classification_type` (grouping + corroboration), `verdict` (group precedence), `reliability` (weight), `first_seen` (time-decay) |
+| **Display-only core** (surfaced in API, not scored) | `Evidence.<core_field>` | `malware_name` → `malware_names[]`, `confidence` → `details.native_confidence` |
+| **Decorative class attr** (shown in `/api/sources` only; NOT read by fusion) | class attr on the source | `authoritative_for` (fusion uses the `AUTHORITATIVE_SOURCES` dict instead) |
+| **Canonical slot** (recurring structured field with a named home) | `Evidence.<canonical_slot>` | `country_code`, `asn`, `as_name`, `isp`, `ip_range`, `is_proxy`, `is_hosting`, `is_tor`, `is_vpn`, `carrier`, `native_type`, `comment`, `tags`, `reporter_count`, `last_seen` |
 | **Long-tail / one-off / feed-specific** | `Evidence.extra[<key>]` | raw category strings not in `_MAP`, custom flags, vendor-specific columns |
 
 Ground truth: `backend/ipdb/_evidence.ALL_KNOWN` (the full set of recognized
@@ -196,6 +198,20 @@ from ipdb._registry import _sources
 s = next(s for s in _sources if s.name == "<name>")   # discovery found it?
 print(s.health())                                      # loaded/stale sane?
 ```
+
+## How your Evidence is consumed (read path)
+
+`source.query(ip)` → `route_record()` (unknown keys fold into `extra`) → three paths:
+
+- **Scalars** (`country_code`/`asn`/`as_name`/`ip_range`): merged by a fixed strategy (`FactualVoting` / `NamingAuthority` / `RangeSpecificity`) into one `MergedField`.
+- **Threats** (rows with `classification_type`): grouped by type; each group assessed into a `ClassificationAssessment`.
+- **Assets** (`is_proxy`/`is_tor`/`is_vpn`/…): collected as pure `AssetStatement`s (no scoring).
+
+Three mechanisms explain why conventions 3 and 6 exist:
+
+- **Verdict is group-precedence, not source-chosen.** Within a classification group, fusion takes the most-severe verdict (`malicious > suspicious > benign > informational`) and flags `verdict_conflict` on disagreement. → Convention 6 ("stable verdict") is about avoiding conflict noise, not because an unstable verdict "breaks" fusion.
+- **Corroboration = ≥2 independent sources.** One source emitting multiple observations never self-corroborates. → Convention 3 ("one evidence per row") is for evidence preservation, not for inflating corroboration.
+- **Confidence decays by `first_seen`.** `≤90d` unchanged → linear to 50% at 365d → 20% floor; anchored on the newest `first_seen` in the group. A missing `first_seen` skips decay. → `first_seen` moves the API confidence number; it is not just metadata.
 
 ## Non-negotiable conventions
 
