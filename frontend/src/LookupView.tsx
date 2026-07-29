@@ -6,10 +6,12 @@ import { ResultTable } from "./components/ResultTable";
 import { ExportCsv } from "./components/ExportCsv";
 import { queryIpsStream, uploadFileStream } from "./api";
 import type { LookupResult, Progress } from "./api";
+import { useI18n } from "./i18n";
 
 type InputTab = "text" | "file";
 
 export default function LookupView() {
+  const { t } = useI18n();
   const [tab, setTab] = useState<InputTab>("text");
   const [results, setResults] = useState<LookupResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -28,7 +30,7 @@ export default function LookupView() {
       setResults(r.results);
       if (r.enrich_error) setEnrichError(r.enrich_error);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Query failed");
+      setError(e instanceof Error ? e.message : t("lookup.queryFailed"));
     } finally {
       setLoading(false);
       setProgress(null);
@@ -45,7 +47,7 @@ export default function LookupView() {
       setResults(r.results);
       if (r.enrich_error) setEnrichError(r.enrich_error);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      setError(e instanceof Error ? e.message : t("lookup.uploadFailed"));
     } finally {
       setLoading(false);
       setProgress(null);
@@ -58,17 +60,17 @@ export default function LookupView() {
       <section>
         <div className="flex items-center gap-3">
           <div className="flex gap-1 rounded-lg bg-zinc-900 p-1">
-            {(["text", "file"] as const).map((t) => (
+            {(["text", "file"] as const).map((tabKey) => (
               <button
-                key={t}
-                onClick={() => setTab(t)}
+                key={tabKey}
+                onClick={() => setTab(tabKey)}
                 className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-                  tab === t
+                  tab === tabKey
                     ? "bg-zinc-800 text-emerald-400"
                     : "text-zinc-500 hover:text-zinc-300"
                 }`}
               >
-                {t === "text" ? "Text Input" : "File Upload"}
+                {tabKey === "text" ? t("lookup.tab.text") : t("lookup.tab.file")}
               </button>
             ))}
           </div>
@@ -106,8 +108,8 @@ export default function LookupView() {
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-medium text-zinc-400">
             {results.length > 0
-              ? `Results (${results.length.toLocaleString()})`
-              : "Results"}
+              ? t("lookup.resultsCount", { n: results.length.toLocaleString() })
+              : t("lookup.results")}
           </h2>
           <ExportCsv results={results} />
         </div>
@@ -121,8 +123,8 @@ export default function LookupView() {
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
                 {progress.phase === "enrich"
-                  ? "Enriching with ip-api.com..."
-                  : `Looking up ${progress.done.toLocaleString()} / ${progress.total.toLocaleString()} IPs`}
+                  ? t("lookup.enriching")
+                  : t("lookup.lookingUp", { done: progress.done.toLocaleString(), total: progress.total.toLocaleString() })}
               </span>
               <span className="text-zinc-500 tabular-nums">
                 {progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0}%
@@ -142,7 +144,7 @@ export default function LookupView() {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            Connecting...
+            {t("lookup.connecting")}
           </div>
         )}
 
@@ -161,13 +163,13 @@ export default function LookupView() {
         {loading && results.length === 0 ? (
           <div className="flex h-48 flex-col items-center justify-center gap-3 rounded-lg border border-zinc-800">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-            <span className="text-sm text-zinc-500">Waiting for results...</span>
+            <span className="text-sm text-zinc-500">{t("lookup.waiting")}</span>
           </div>
         ) : results.length > 0 ? (
           <ResultTable results={results} />
         ) : (
           <div className="flex h-48 items-center justify-center rounded-lg border border-zinc-800 text-sm text-zinc-600">
-            No results yet
+            {t("lookup.noResults")}
           </div>
         )}
       </section>
