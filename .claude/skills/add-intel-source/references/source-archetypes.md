@@ -8,6 +8,12 @@ All four archetypes produce an object the registry's `_discover_sources` accepts
 a class defined in its own module, with `name` + `fields` attributes, callable as
 `Cls(data_dir=...)`. Nothing else.
 
+> **Exception:** `ipinfo_lite` is a standalone class (no base) — a load-bearing
+> legacy geo/ASN backbone that hand-rolls its own `download`/`load`/`query`/`health`
+> and returns a non-Evidence dict (`{country_code, asn, as_name, ip_range}`). It is
+> NOT a template. Don't model new sources on it; use a `Source` subclass instead.
+> (Migrating it onto the `Source` base is a separate, load-bearing-effort item.)
+
 ---
 
 ## 1. IpListSource — plain IP/CIDR list
@@ -195,7 +201,7 @@ it's the canonical minimal template.
 | `load()` | Reads `harvest()` lazily, applies `normalize()` if present, dedups per CIDR on **full-evidence equality**, writes MMDB via `write_mmdb()`, opens a mmap reader. |
 | `query(ip)` | `self._reader.get(ip)` → dict (or `{}` if no match). Returns the list per CIDR as stored. |
 | `health()` | `SourceHealth` with `is_stale` from `self._path.stat().st_mtime` (convention 4). |
-| `_http_get(url, *, headers, timeout, retries)` | Retries with exponential backoff, sends `User-Agent`, accepts auth headers, returns bytes. Use this in your `download()` for any HTTP fetch. |
+| `_http_get(url, *, headers, timeout, retries)` | **GET-only** staticmethod. Retries with exponential backoff, sends `User-Agent`, accepts auth headers, returns bytes. Use for GET fetches. **POST / JSON-body feeds must hand-roll HTTP** (e.g. MISP's REST POST — see `misp.py`); `_http_get` cannot send a body. |
 
 You override **two hooks** (`download` and `harvest`) and optionally `normalize`.
 The base constructor takes `data_dir` and sets up `_path`, `_mmdb_path`,
@@ -225,6 +231,11 @@ class <FeedName>Source(Source):
     stale_days = 7
     reliability = 0.5                         # 0–1 fusion weight (class default)
     authoritative_for = []                    # fields this source owns at fusion
+
+    # ── optional ──
+    # async_refresh = True   # slow sources (REST pagination, big pulls): refresh in a
+    #                        # background thread at startup so load_db() doesn't block.
+    #                        # See otx.py (REST /activity, ~574 pages).
 
     # ── optional __init__ (convention 5: read your own env) ──
     # def __init__(self, data_dir: Path):
@@ -271,6 +282,14 @@ class <FeedName>Source(Source):
                         ip_range=str(cidr),
                     )
 ```
+
+**State-machine / REST sources:** prefer having `download()` materialize an
+**intermediate normalized file** that `harvest()` re-reads (canonical: `otx.py` —
+`download()` paginates the REST API and writes a tidy CSV; `harvest()` just reads
+it). This cleanly separates the messy fetch (cursor/budget/pagination) from the
+parse, and keeps `harvest()` a simple file reader. Note `otx.py` hand-rolls its
+own `_fetch()` rather than `_http_get` — acceptable for multi-request state
+machines, but reuse `_http_get` for any single GET.
 
 ### Variant — per-row classification (threatfox-style harvest)
 
@@ -373,6 +392,11 @@ rate-limited APIs.
 ---
 
 ## 5. `field_map` (declarative column→slot routing) + planned `SourceSpec`
+
+> **Experimental — 0 sources use this today.** The validator recognizes `field_map`,
+> but no source in the repo declares one. Prefer explicit routing in `harvest()` /
+> `parse_row()`. Treat `field_map` as a forward-looking declaration, not a proven
+> pattern.
 
 ### `field_map` — for any archetype that has native columns to route
 
