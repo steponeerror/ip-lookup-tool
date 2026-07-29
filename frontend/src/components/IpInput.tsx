@@ -1,3 +1,5 @@
+import { useI18n } from "../i18n";
+
 interface IpInputProps {
   onQuery: (ips: string[]) => void;
   loading: boolean;
@@ -5,6 +7,7 @@ interface IpInputProps {
 }
 
 export function IpInput({ onQuery, loading, progress }: IpInputProps) {
+  const { t } = useI18n();
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -20,7 +23,7 @@ export function IpInput({ onQuery, loading, progress }: IpInputProps) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
       <label htmlFor="ips" className="text-sm font-medium text-zinc-400">
-        IP Addresses
+        {t("ipInput.label")}
       </label>
       <textarea
         id="ips"
@@ -43,8 +46,8 @@ export function IpInput({ onQuery, loading, progress }: IpInputProps) {
         {loading
           ? progress
             ? `${progress.done.toLocaleString()} / ${progress.total.toLocaleString()}`
-            : "Querying..."
-          : "Query"}
+            : t("ipInput.querying")
+          : t("ipInput.query")}
       </button>
     </form>
   );
