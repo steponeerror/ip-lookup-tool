@@ -1,11 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
-import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { DbStatusBar } from "../DbStatusBar";
 import { TaskProvider } from "../../tasks/TaskProvider";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import {
   enqueueBatch, pauseBatch, cancelBatch, cancelTask, getTasks, resumeBatch,
 } from "../../api";
+
+// Hoisted holder so the (also hoisted) vi.mock factory can capture the SSE
+// onEvent callback and tests can drive events through it. Tests that don't
+// fire events simply never read this.
+const sse = vi.hoisted(() => ({ onEvent: null as ((e: any) => void) | null }));
 
 vi.mock("../../api", async () => {
   const real = await vi.importActual<any>("../../api");
@@ -19,7 +24,10 @@ vi.mock("../../api", async () => {
       tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: "b1" }],
       batch: { id: "b1", state: "running", done: 0, total: 2 },
     }),
-    subscribeTasks: vi.fn(() => () => {}),
+    subscribeTasks: vi.fn((onEvent: (e: any) => void) => {
+      sse.onEvent = onEvent;
+      return () => {};
+    }),
     enqueueBatch: vi.fn().mockResolvedValue({ batch_id: "b1" }),
     cancelTask: vi.fn().mockResolvedValue(undefined),
     cancelBatch: vi.fn().mockResolvedValue(undefined),
@@ -71,6 +79,50 @@ describe("DbStatusBar active panel", () => {
     const rowCancel = await screen.findByRole("button", { name: /Cancel feodo/i });
     fireEvent.click(rowCancel);
     await waitFor(() => expect(cancelTask).toHaveBeenCalledWith("t1"));
+  });
+});
+
+describe("DbStatusBar collapse on done", () => {
+  it("lingers ~5s after batch done, then collapses to idle", async () => {
+    const mockGetTasks = getTasks as any;
+    mockGetTasks.mockReset();
+    mockGetTasks.mockResolvedValue({
+      tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: "b1" }],
+      batch: { id: "b1", state: "running", done: 0, total: 2 },
+    });
+
+    render(<DbStatusBar />);
+    // Active panel visible — running batch shows 0/2 progress.
+    expect(await screen.findByText(/0\/2/)).toBeInTheDocument();
+
+    // Switch to fake timers to control the 5s collapse deterministically.
+    vi.useFakeTimers();
+    try {
+      // Drive SSE: tasks all finished + batch done.
+      await act(async () => {
+        sse.onEvent!({
+          type: "snapshot",
+          data: {
+            tasks: [{ id: "t1", source: "feodo", host: null, state: "done", error: null, batch_id: "b1" }],
+            batch: { id: "b1", state: "done", done: 2, total: 2 },
+          },
+        });
+      });
+      // 2/2 visible — panel lingers to show the finished state.
+      expect(screen.getByText(/2\/2/)).toBeInTheDocument();
+
+      // Just under the 5s threshold — still lingering.
+      await act(async () => { vi.advanceTimersByTime(4999); });
+      expect(screen.getByText(/2\/2/)).toBeInTheDocument();
+
+      // Cross the 5s threshold — panel collapses to idle.
+      await act(async () => { vi.advanceTimersByTime(2); });
+      expect(screen.queryByText(/2\/2/)).not.toBeInTheDocument();
+      // Idle bar visible.
+      expect(screen.getByRole("button", { name: /Update DB/i })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
