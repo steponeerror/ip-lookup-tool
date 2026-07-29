@@ -1,5 +1,6 @@
 """Cancel-aware atomic download helper shared by file-backed sources."""
 import os
+import threading
 import urllib.request
 from pathlib import Path
 
@@ -12,7 +13,6 @@ class CancelToken:
     """Thread-safe cancellation flag checked between download chunks."""
 
     def __init__(self):
-        import threading
         self._event = threading.Event()
 
     def cancel(self) -> None:
@@ -27,8 +27,7 @@ def download_file(
     dest: Path,
     token: CancelToken | None = None,
     *,
-    connect_timeout: float = 10,
-    read_timeout: float = 30,
+    timeout: float = 30,
     headers: dict | None = None,
     chunk_size: int = 65536,
 ) -> None:
@@ -37,6 +36,11 @@ def download_file(
     Writes a sibling .tmp file, then os.replace onto `dest` on success — so
     readers only ever see a complete old or new file. Checks `token` between
     chunks; on cancel/failure the .tmp is removed and `dest` is untouched.
+
+    Args:
+        timeout: stdlib urllib socket timeout applied to all socket ops
+            (connect+read); it cannot be split, and bounds abort latency
+            to one read.
     """
     if token is not None and token.is_cancelled():
         raise CancelledError("cancelled before start")
@@ -45,9 +49,7 @@ def download_file(
     tmp = dest.parent / (dest.name + ".tmp")
     req = urllib.request.Request(url, headers=headers or {})
     try:
-        with urllib.request.urlopen(
-            req, timeout=connect_timeout
-        ) as resp:  # connect timeout applies; read loop enforces read timeout
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             with open(tmp, "wb") as f:
                 while True:
                     if token is not None and token.is_cancelled():
