@@ -106,6 +106,10 @@
   "dbStatus.retrying": "Retrying...",
   "dbStatus.updating": "Updating...",
   "dbStatus.update": "Update DB",
+  "dbStatus.paused": "Paused",
+  "dbStatus.pause": "Pause",
+  "dbStatus.resume": "Resume",
+  "dbStatus.abort": "Abort",
   "dbStatus.statusUnavailable": "Status unavailable",
   "dbStatus.updateFailed": "Database update failed",
 

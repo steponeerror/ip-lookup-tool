@@ -84,14 +84,6 @@ export async function getDbStatus(): Promise<DbStatus> {
   return res.json();
 }
 
-export interface UpdateProgress {
-  done: number;
-  total: number;
-  currentStep: string;
-  stepStatus: string;
-  errors: string[];
-}
-
 export interface Progress {
   done: number;
   total: number;
