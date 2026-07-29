@@ -41,7 +41,7 @@ class IPtoASNSource(Source):
                 line_count = sum(1 for _ in f)
             if line_count == 0:
                 raise RuntimeError("Downloaded file is empty")
-            tmp_path.rename(self._path)
+            tmp_path.replace(self._path)  # atomic + overwrites on Windows (.rename can't)
             gz_path.unlink(missing_ok=True)
             logger.info(f"Downloaded IPtoASN ({line_count} lines)")
         finally:

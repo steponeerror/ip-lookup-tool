@@ -3,6 +3,9 @@
 Validates range→CIDR expansion via harvest(), which yields scalar Evidence
 (country_code/asn/as_name/ip_range — NO classification_type) per CIDR.
 """
+import gzip
+import io
+import pathlib
 from pathlib import Path
 
 from ipdb._sources.iptoasn import IPtoASNSource
@@ -109,3 +112,44 @@ def test_harvest_drops_empty_country_and_as_name(tmp_path: Path):
     assert "country_code" not in d
     assert d["as_name"] == "Cloudflare"
     assert d["asn"] == 13335
+
+
+def test_download_overwrites_existing_destination_on_windows(tmp_path, monkeypatch):
+    """Regression: tmp_path.rename(target) raises WinError 183 on Windows when the
+    destination already exists. The fix must use an overwrite-capable primitive so a
+    re-download over the prior file succeeds.
+
+    On POSIX os.rename silently replaces, so the bug is invisible here — we simulate
+    Windows os.rename semantics by making Path.rename raise FileExistsError when the
+    target exists. Path.replace (os.replace) is unaffected, mirroring real Windows.
+    """
+    # Prior successful download left a stale destination file (the trigger condition).
+    (tmp_path / "ip-to-asn.tsv").write_text("STALE OLD CONTENT\n")
+
+    gz_bytes = gzip.compress(
+        b"1.0.0.0\t1.0.0.255\t13335\tUS\tCloudflare\n")
+
+    def _fake_urlopen(*args, **kwargs):
+        return io.BytesIO(gz_bytes)
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    _real_rename = pathlib.Path.rename
+
+    def _windows_rename(self, target):
+        if Path(target).exists():
+            raise FileExistsError(
+                "[WinError 183] Cannot create a file when that file already "
+                f"exists: {self!r} -> {Path(target)!r}")
+        return _real_rename(self, target)
+
+    monkeypatch.setattr(pathlib.Path, "rename", _windows_rename)
+
+    src = IPtoASNSource(data_dir=tmp_path)
+    src.download()  # must not raise
+
+    content = (tmp_path / "ip-to-asn.tsv").read_text()
+    assert "13335" in content
+    assert "STALE OLD CONTENT" not in content
+    assert not (tmp_path / "ip-to-asn.tsv.tmp").exists()
+    assert not (tmp_path / "ip-to-asn.tsv.gz").exists()
