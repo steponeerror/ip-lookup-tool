@@ -48,10 +48,14 @@ class FeodoSource(Source):
 
     def download(self, token: CancelToken | None = None) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        download_file(self.url, self._path, token=token,
-                      headers={"User-Agent": "ip-lookup-tool/1.0"})
-        if not self._path.read_bytes().strip():
-            raise RuntimeError(f"Empty response from {self.url}")
+        try:
+            download_file(self.url, self._path, token=token,
+                          headers={"User-Agent": "ip-lookup-tool/1.0"})
+            if not self._path.read_bytes().strip():
+                raise RuntimeError(f"Empty response from {self.url}")
+        except Exception:
+            self._path.unlink(missing_ok=True)
+            raise
 
     def harvest(self):
         """Yield (dst_ip, Evidence) per data row, skipping the `#` banner and

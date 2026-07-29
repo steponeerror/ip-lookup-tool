@@ -29,13 +29,15 @@ class IPtoASNSource(Source):
 
     def download(self, token: CancelToken | None = None) -> None:
         gz_path = self._data_dir / "ip-to-asn.tsv.gz"
+        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
         logger.info("Downloading IPtoASN...")
         try:
             download_file(_TSV_URL, gz_path, token=token,
                           headers={"User-Agent": "ip-lookup-tool/1.0"})
             with gzip.open(gz_path, "rb") as f_in:
-                with open(self._path, "wb") as f_out:
+                with open(tmp, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
+            tmp.replace(self._path)
             with open(self._path, "r", encoding="utf-8") as f:
                 line_count = sum(1 for _ in f)
             if line_count == 0:
@@ -43,6 +45,7 @@ class IPtoASNSource(Source):
             logger.info(f"Downloaded IPtoASN ({line_count} lines)")
         finally:
             gz_path.unlink(missing_ok=True)
+            tmp.unlink(missing_ok=True)
 
     def harvest(self):
         import ipaddress as _ipa
