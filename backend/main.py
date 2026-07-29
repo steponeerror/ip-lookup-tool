@@ -8,6 +8,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
 
 import os
@@ -304,6 +305,21 @@ async def update_source_stream_route(name: str):
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 
+class SpaStaticFiles(StaticFiles):
+    """StaticFiles with SPA fallback: paths that aren't real files (e.g.
+    BrowserRouter deep links like /sources) serve index.html so the client
+    router handles them on direct hit / refresh. Plain StaticFiles(html=True)
+    only returns index.html at the directory root and 404s everything else."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404 and not scope["path"].startswith("/api"):
+                return await super().get_response("index.html", scope)
+            raise
+
+
 # ── Static file serving for production frontend ──
 # In development: run `npm run dev` separately (port 5173) for hot-reload.
 # In production: build first — cd frontend && npm run build — then access :8000.
@@ -312,7 +328,7 @@ _env_static = os.environ.get("IP_RADAR_STATIC_DIR")
 if _env_static:
     _static_dir = Path(_env_static)
 if _static_dir.exists():
-    app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="frontend")
+    app.mount("/", SpaStaticFiles(directory=str(_static_dir), html=True), name="frontend")
     logging.info("Serving frontend from %s", _static_dir)
 else:
     logging.info("No frontend build at %s — API only", _static_dir)
