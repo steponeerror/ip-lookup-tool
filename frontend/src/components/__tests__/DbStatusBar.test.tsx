@@ -135,3 +135,18 @@ describe("DbStatusBar idle bar", () => {
     await waitFor(() => expect(enqueueBatch).toHaveBeenCalled());
   });
 });
+
+describe("DbStatusBar batchless single-task", () => {
+  it("shows Updating label without 0/0 when active task has no batch", async () => {
+    const mockGetTasks = getTasks as any;
+    mockGetTasks.mockReset();
+    mockGetTasks.mockResolvedValue({
+      tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: null }],
+      batch: null,
+    });
+    render(<DbStatusBar />);
+    expect(await screen.findByText(/feodo/)).toBeInTheDocument();
+    // Batchless header: no misleading 0/0 · 0% suffix.
+    expect(screen.queryByText(/0\/0/)).not.toBeInTheDocument();
+  });
+});

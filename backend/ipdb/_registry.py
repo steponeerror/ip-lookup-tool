@@ -89,10 +89,10 @@ _update_locks_guard = threading.Lock()
 
 
 def _update_lock_for(name: str) -> threading.Lock:
-    """Per-source lock so concurrent update_source calls on the SAME source
-    serialize. IpListSource.download() writes its data file in place, so
-    overlapping updates (or download racing another thread's load) corrupt it.
-    Different sources still update in parallel."""
+    """Per-source lock so concurrent UpdateManager._run_task calls on the SAME
+    source serialize. IpListSource.download() writes its data file in place,
+    so overlapping updates (or download racing another thread's load) corrupt
+    it. Different sources still update in parallel."""
     with _update_locks_guard:
         lock = _update_locks.get(name)
         if lock is None:
