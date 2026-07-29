@@ -29,7 +29,7 @@ export function aggregateThreatDepth(r: LookupResult) {
   };
 }
 
-const csvEscape = (v: string) => (/[,"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+const csvEscape = (v: string) => (/[","\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 function threatTags(r: LookupResult): string {
   const tags = Object.keys(r.classifications)
@@ -56,7 +56,10 @@ function assetNative(r: LookupResult, key: string): string {
   return stmts && stmts.length ? stmts[0].native_type ?? "" : "";
 }
 
-export function buildCsv(results: LookupResult[]): string {
+// Build the full CSV document for a result set. A leading UTF-8 BOM (U+FEFF) is
+// prepended so Excel detects UTF-8 instead of falling back to the system ANSI
+// code page (e.g. GBK on Chinese Windows) and garbling CJK text.
+export function buildCsvContent(results: LookupResult[]): string {
   const header =
     "ip,asn,asn_confidence,country,country_confidence,as_name,as_name_confidence," +
     "is_isp,verdict,verdict_confidence,threat_tags," +
@@ -98,5 +101,5 @@ export function buildCsv(results: LookupResult[]): string {
     })
     .join("\n");
 
-  return header + rows;
+  return String.fromCharCode(0xfeff) + header + rows;
 }

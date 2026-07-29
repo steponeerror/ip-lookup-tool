@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { LookupResult } from "../api";
-import { buildCsv } from "./csvExport";
+import { buildCsvContent } from "./csvExport";
 
 interface ExportCsvProps {
   results: LookupResult[];
@@ -8,11 +8,11 @@ interface ExportCsvProps {
 
 export function ExportCsv({ results }: ExportCsvProps) {
   const disabled = results.length === 0;
-  const csv = useMemo(() => (disabled ? "" : buildCsv(results)), [results, disabled]);
+  const csv = useMemo(() => (disabled ? "" : buildCsvContent(results)), [results, disabled]);
 
   const handleExport = () => {
     if (!csv) return;
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

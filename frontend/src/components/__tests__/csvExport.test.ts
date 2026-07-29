@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { aggregateThreatDepth, buildCsv } from "../csvExport";
+import { aggregateThreatDepth, buildCsvContent } from "../csvExport";
 import type { LookupResult } from "../../api";
 
 const mf = (value: string) => ({
@@ -62,9 +62,9 @@ describe("aggregateThreatDepth", () => {
   });
 });
 
-describe("buildCsv", () => {
+describe("buildCsvContent", () => {
   it("emits the header with the 5 new columns after threat_tags", () => {
-    const csv = buildCsv([r]);
+    const csv = buildCsvContent([r]);
     const headerRow = csv.split("\n")[0];
     const tagsIdx = headerRow.split(",").indexOf("threat_tags");
     const afterTags = headerRow.split(",").slice(tagsIdx + 1, tagsIdx + 6);
@@ -73,13 +73,13 @@ describe("buildCsv", () => {
     ]);
   });
   it("writes the aggregated values into the data row", () => {
-    const row = buildCsv([r]).split("\n")[1];
+    const row = buildCsvContent([r]).split("\n")[1];
     // reporter_total,verdict_conflict,corroborated sit right after threat_tags value
     expect(row).toContain(",3,true,true,win.vidar,0.9,");
   });
   it("writes 'reserved' verdict for reserved IPs", () => {
     const reserved = { ...r, is_reserved: true, classifications: {} };
-    const row = buildCsv([reserved]).split("\n")[1];
+    const row = buildCsvContent([reserved]).split("\n")[1];
     expect(row).toContain(",reserved,");
   });
 });
