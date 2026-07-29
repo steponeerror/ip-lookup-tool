@@ -181,6 +181,37 @@ def test_cancel_batch_cancels_all():
     assert all(s == "cancelled" for s in states)
 
 
+# --- Task 8: run_batch_blocking (cold-start sync wait) ---
+
+def test_run_batch_blocking_returns_done_bid():
+    srcs = [FakeSource("a", host="h1", slow=0.1), FakeSource("b", host="h2", slow=0.1)]
+    mgr, _ = _make_manager(srcs)
+    bid = mgr.run_batch_blocking([s.name for s in srcs], timeout=5)
+    assert mgr._batches[bid].state == "done"
+    assert all(s.load_calls == 1 for s in srcs)
+
+
+def test_run_batch_blocking_empty_names_returns_done_immediately():
+    """Empty names → enqueue_batch sets total=0, _maybe_finish_batch flips done.
+    run_batch_blocking must observe done on the first poll and return."""
+    mgr, _ = _make_manager([FakeSource("a")])
+    bid = mgr.run_batch_blocking([], timeout=2)
+    assert mgr._batches[bid].state == "done"
+
+
+def test_run_batch_blocking_times_out_returns_running_bid():
+    """If the batch is still running at the deadline, return the bid anyway
+    (do NOT deadlock). State will be `running`, not `done`."""
+    def hang(token=None):
+        time.sleep(5)  # longer than timeout
+    src = FakeSource("a", host="h")
+    src.download = hang
+    mgr, _ = _make_manager([src], concurrency=1)
+    bid = mgr.run_batch_blocking(["a"], timeout=0.3)
+    assert bid in mgr._batches
+    assert mgr._batches[bid].state != "done"
+
+
 # --- Task 6: event bus (subscribe/unsubscribe + drop-oldest) ---
 
 def test_subscribe_receives_events():
