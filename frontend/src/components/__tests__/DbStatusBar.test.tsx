@@ -4,7 +4,7 @@ import { DbStatusBar } from "../DbStatusBar";
 import { TaskProvider } from "../../tasks/TaskProvider";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import {
-  enqueueBatch, pauseBatch, cancelBatch, cancelTask, getTasks,
+  enqueueBatch, pauseBatch, cancelBatch, cancelTask, getTasks, resumeBatch,
 } from "../../api";
 
 vi.mock("../../api", async () => {
@@ -35,9 +35,7 @@ function render(el: React.ReactElement) {
 describe("DbStatusBar active panel", () => {
   it("shows overall pct and a per-source row when batch active", async () => {
     render(<DbStatusBar />);
-    // Per-source row appears from the snapshot
     expect(await screen.findByText(/feodo/)).toBeInTheDocument();
-    // Overall done/total (regex matches "Updating · 0/2 · 0%")
     expect(screen.getByText(/0\/2/)).toBeInTheDocument();
   });
 
@@ -46,6 +44,19 @@ describe("DbStatusBar active panel", () => {
     const pauseBtn = await screen.findByRole("button", { name: /Pause/i });
     fireEvent.click(pauseBtn);
     await waitFor(() => expect(pauseBatch).toHaveBeenCalled());
+  });
+
+  it("calls resumeBatch when Resume is clicked (paused batch)", async () => {
+    const mockGetTasks = getTasks as any;
+    mockGetTasks.mockReset();
+    mockGetTasks.mockResolvedValue({
+      tasks: [{ id: "t1", source: "feodo", host: null, state: "downloading", error: null, batch_id: "b1" }],
+      batch: { id: "b1", state: "paused", done: 1, total: 2 },
+    });
+    render(<DbStatusBar />);
+    const resumeBtn = await screen.findByRole("button", { name: /Resume/i });
+    fireEvent.click(resumeBtn);
+    await waitFor(() => expect(resumeBatch).toHaveBeenCalled());
   });
 
   it("calls cancelBatch when Abort is clicked", async () => {
@@ -57,7 +68,6 @@ describe("DbStatusBar active panel", () => {
 
   it("calls cancelTask with id when per-row ✕ is clicked", async () => {
     render(<DbStatusBar />);
-    // The per-row ✕ is a button with aria-label "Cancel feodo".
     const rowCancel = await screen.findByRole("button", { name: /Cancel feodo/i });
     fireEvent.click(rowCancel);
     await waitFor(() => expect(cancelTask).toHaveBeenCalledWith("t1"));
@@ -66,8 +76,7 @@ describe("DbStatusBar active panel", () => {
 
 describe("DbStatusBar idle bar", () => {
   it("renders Update DB button and triggers enqueueBatch on click", async () => {
-    // Override getTasks to return empty (idle state)
-    (getTasks as any).mockResolvedValue({ tasks: [], batch: null });
+    (getTasks as any).mockResolvedValueOnce({ tasks: [], batch: null });
     render(<DbStatusBar />);
     const updateBtn = await screen.findByRole("button", { name: /Update DB/i });
     fireEvent.click(updateBtn);
