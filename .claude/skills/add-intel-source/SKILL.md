@@ -1,22 +1,30 @@
 ---
 name: add-intel-source
-description: Add a new threat-intelligence / IP-reputation source to the ip-lookup-tool project so it enriches local data — covers the full path from evaluating a candidate feed (AbuseIPDB, Shodan, ThreatBook, GreyNoise, URLscan, a blocklist, a STIX/TAXII feed, any IP/CSV/API feed) through picking the right source archetype, implementing it, auto-registering it, writing its test, and verifying it loads. Use this skill whenever the user wants to add, integrate, wire up, or plug in a new source/feed/dataset/provider for IPs, threats, reputation, ASN, geo, proxies, or blocklists in this repo — even if they only name the feed and don't say "source". Also use it when the user asks "how do I add a source" or references the source registry.
+description: Use whenever the user wants to add, integrate, wire up, or plug in a new source/feed/dataset/provider for IPs, threats, reputation, ASN, geo, proxies, or blocklists in this repo — even if they only name the feed and don't say "source" (AbuseIPDB, Shodan, ThreatBook, GreyNoise, URLscan, a blocklist, a STIX/TAXII feed, any IP/CSV/API feed). Also use when the user asks "how do I add a source" or references the source registry.
 ---
 
 # Adding an Intelligence Source to ip-lookup-tool
 
 This skill encodes the established pattern for plugging a new data source into the
 backend, so every source behaves the same way the registry, fusion, and tests
-expect. The pattern already exists across 13 sources — follow it, don't invent.
+expect. The pattern already exists across 15 sources — follow it, don't invent.
 
-Everything here is grounded in `backend/ipdb/_sources/_base.py`,
-`backend/ipdb/_registry.py`, `backend/ipdb/_classification.py`, and the existing
-sources. Read those alongside this skill when implementing.
+Everything here is grounded in the base classes, the registry, the Evidence
+contract, and the merge maps — read them alongside this skill when implementing:
+
+- `backend/ipdb/_sources/_base.py` — the simple bases: `IpListSource`, `CsvSource`, `ApiSource`.
+- `backend/ipdb/_source_base.py` — the unified `Source` base (`harvest`, `_http_get`, shared lifecycle). **Two different files:** `_sources/_base.py` (simple) vs `_source_base.py` (unified `Source`).
+- `backend/ipdb/_evidence.py` — the `Evidence` record, `ALL_KNOWN`, and `route_record()` (the per-field routing contract).
+- `backend/ipdb/_registry.py` — auto-discovery + the `SOURCE_CATEGORIES` dict.
+- `backend/ipdb/_merge.py` — fusion + the `SOURCE_RELIABILITY` / `AUTHORITATIVE_SOURCES` dicts.
+- `backend/ipdb/_classification.py` — the controlled vocabulary + `normalize()` + per-source `_MAP`s.
 
 ## The 5-minute mental model
 
 1. **A source is one Python file** in `backend/ipdb/_sources/`. Drop it in, it's
-   live. **There is no registry list, no decorator, no import to add.**
+   live — discovery needs no registry list, no decorator, no import. **But correct
+   fusion/category behavior still needs 3 central-dict edits (see Phase 3 step 6);
+   discovery alone leaves a source silently miscategorized.**
 2. **Auto-discovery** (`_registry._discover_sources`) imports every `.py` in
    `_sources/` (skipping `_`-prefixed), finds classes that have both a `name`
    and a `fields` attribute AND are defined in that module, and instantiates each
