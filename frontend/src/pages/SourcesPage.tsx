@@ -7,13 +7,8 @@ import {
   updateSourceStream,
 } from "../api";
 import type { SourceInfo } from "../api";
+import { useI18n } from "../i18n";
 
-const CATEGORY_LABELS: Record<string, string> = {
-  geo_asn: "Geo / ASN",
-  threat: "Threat intel",
-  asset: "Asset attributes",
-  other: "Other",
-};
 const CATEGORY_ORDER = ["geo_asn", "threat", "asset", "other"];
 
 function formatCount(n: number): string {
@@ -23,25 +18,25 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return "on-demand";
+function timeAgo(iso: string | null): { key: string; vars?: Record<string, string | number> } {
+  if (!iso) return { key: "sources.timeAgo.onDemand" };
   const ms = Date.now() - Date.parse(iso);
-  if (Number.isNaN(ms)) return "unknown";
+  if (Number.isNaN(ms)) return { key: "sources.timeAgo.unknown" };
   const min = Math.floor(ms / 60000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
+  if (min < 1) return { key: "sources.timeAgo.justNow" };
+  if (min < 60) return { key: "sources.timeAgo.minutes", vars: { n: min } };
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
+  if (hr < 24) return { key: "sources.timeAgo.hours", vars: { n: hr } };
+  return { key: "sources.timeAgo.days", vars: { n: Math.floor(hr / 24) } };
 }
 
-function statusOf(s: SourceInfo): { label: string; className: string } {
-  if (s.health.error) return { label: "error", className: "text-red-400 border-red-400/30 bg-red-400/10" };
-  if (!s.enabled) return { label: "off", className: "text-zinc-500 border-zinc-700 bg-zinc-800/50" };
-  if (s.archetype === "online") return { label: "on-demand", className: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" };
-  if (!s.health.loaded) return { label: "not loaded", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" };
-  if (s.health.is_stale) return { label: "stale", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" };
-  return { label: "fresh", className: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" };
+function statusOf(s: SourceInfo): { key: string; className: string } {
+  if (s.health.error) return { key: "sources.status.error", className: "text-red-400 border-red-400/30 bg-red-400/10" };
+  if (!s.enabled) return { key: "sources.status.off", className: "text-zinc-500 border-zinc-700 bg-zinc-800/50" };
+  if (s.archetype === "online") return { key: "sources.status.onDemand", className: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" };
+  if (!s.health.loaded) return { key: "sources.status.notLoaded", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" };
+  if (s.health.is_stale) return { key: "sources.status.stale", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" };
+  return { key: "sources.status.fresh", className: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" };
 }
 
 function Toggle({ on, disabled, onChange, label }: {
@@ -67,6 +62,7 @@ function Toggle({ on, disabled, onChange, label }: {
 }
 
 export default function SourcesPage() {
+  const { t } = useI18n();
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,16 +71,21 @@ export default function SourcesPage() {
   const [refreshingAll, setRefreshingAll] = useState(false);
   const reduce = useReducedMotion();
 
+  const fmtTime = (iso: string | null) => {
+    const ta = timeAgo(iso);
+    return t(ta.key, ta.vars);
+  };
+
   const fetchSources = useCallback(async () => {
     setError(null);
     try {
       setSources(await getSources());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load sources");
+      setError(e instanceof Error ? e.message : t("sources.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   // Initial fetch: setState is reached only after `await getSources()` inside the
   // async callback, but react-hooks/set-state-in-effect is a heuristic flag.
@@ -103,7 +104,7 @@ export default function SourcesPage() {
       patch(s.name, { enabled: updated.enabled, health: updated.health });
     } catch (e) {
       patch(s.name, { enabled: s.enabled });  // rollback
-      setError(e instanceof Error ? e.message : `Failed to toggle ${s.name}`);
+      setError(e instanceof Error ? e.message : t("sources.toggleFailed", { name: s.name }));
     }
   };
 
@@ -119,7 +120,7 @@ export default function SourcesPage() {
       });
       patch(name, { health: updated.health });
     } catch (e) {
-      setError(e instanceof Error ? e.message : `Failed to update ${name}`);
+      setError(e instanceof Error ? e.message : t("sources.updateOneFailed", { name }));
     } finally {
       setBusyNames((prev) => {
         const next = new Set(prev);
@@ -141,7 +142,7 @@ export default function SourcesPage() {
       await updateDbStream(() => {});
       await fetchSources();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Refresh all failed");
+      setError(e instanceof Error ? e.message : t("sources.refreshAllFailed"));
     } finally {
       setRefreshingAll(false);
     }
@@ -155,14 +156,14 @@ export default function SourcesPage() {
     <section className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-zinc-400">
-          {sources.length > 0 ? `Sources (${sources.length})` : "Sources"}
+          {sources.length > 0 ? t("sources.titleCount", { n: sources.length }) : t("sources.title")}
         </h2>
         <button
           onClick={handleRefreshAll}
           disabled={refreshingAll || loading}
           className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {refreshingAll ? "Refreshing all..." : "Refresh all"}
+          {refreshingAll ? t("sources.refreshingAll") : t("sources.refreshAll")}
         </button>
       </div>
 
@@ -180,13 +181,13 @@ export default function SourcesPage() {
         </div>
       ) : grouped.length === 0 ? (
         <div className="flex h-48 items-center justify-center rounded-lg border border-zinc-800 text-sm text-zinc-600">
-          No sources discovered
+          {t("sources.none")}
         </div>
       ) : (
         grouped.map(({ cat, items }) => (
           <div key={cat}>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-600">
-              {CATEGORY_LABELS[cat]}
+              {t(`sources.cat.${cat}`)}
             </h3>
             <motion.ul
               initial={reduce ? false : { opacity: 0 }}
@@ -204,23 +205,23 @@ export default function SourcesPage() {
                     <span className="w-16 shrink-0 text-right font-mono text-sm tabular-nums text-zinc-300">
                       {formatCount(s.health.record_count)}
                     </span>
-                    <span className="w-24 shrink-0 text-xs text-zinc-500">{timeAgo(s.health.last_updated)}</span>
+                    <span className="w-24 shrink-0 text-xs text-zinc-500">{fmtTime(s.health.last_updated)}</span>
                     <span className={`w-24 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${st.className}`}>
-                      {st.label}
+                      {t(st.key)}
                     </span>
                     <div className="ml-auto flex items-center gap-3">
                       <Toggle
                         on={s.enabled}
                         disabled={busy}
                         onChange={(v) => handleToggle(s, v)}
-                        label={`Toggle ${s.name}`}
+                        label={t("sources.toggleAria", { name: s.name })}
                       />
                       <button
                         onClick={() => handleUpdate(s.name)}
                         disabled={busy || refreshingAll}
                         className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {busy ? (phase === "loading" ? "Loading…" : "Downloading…") : "Update"}
+                        {busy ? (phase === "loading" ? t("sources.loading") : t("sources.downloading")) : t("sources.update")}
                       </button>
                     </div>
                   </li>
