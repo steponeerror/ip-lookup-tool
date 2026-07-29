@@ -9,6 +9,8 @@ is derived from the protocol keyword in the pulse name (e.g. SMTP → brute-forc
 Migrated from CsvSource onto the unified Source base (Task 4.1): the complex
 REST pagination state machine in ``download()`` is preserved verbatim, while
 ``harvest()`` is the single CSV parser (replacing the former ``parse_row``).
+``download()`` checks the optional CancelToken at the top of each page
+iteration so a long-running pagination can be cancelled between pages.
 """
 
 import csv
@@ -19,10 +21,12 @@ import os
 import re
 import time
 import urllib.request
+from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
 from .._classification import OTX_PROTOCOL_MAP
+from ._download import CancelToken, CancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +84,10 @@ class OtxSource(Source):
         super().__init__(data_dir)
         self._cursor_path = data_dir / "otx_last_fetch.txt"
 
+    @property
+    def download_host(self) -> str | None:
+        return urlparse(_ACTIVITY_URL).hostname
+
     # ── Download (REST pagination with modified_since) ──
 
     def _fetch(self, url: str, headers: dict, retries: int = 3) -> bytes:
@@ -102,7 +110,7 @@ class OtxSource(Source):
         raise RuntimeError(  # pragma: no cover
             f"{self.name}: fetch failed after {retries} retries")
 
-    def download(self) -> None:
+    def download(self, token: CancelToken | None = None) -> None:
         key = os.environ.get("OTX_API_KEY", "").strip()
         if not key:
             raise RuntimeError("OTX_API_KEY not set; skipping OTX download")
@@ -130,6 +138,8 @@ class OtxSource(Source):
         first = True
 
         while True:
+            if token is not None and token.is_cancelled():
+                raise CancelledError(f"{self.name} download cancelled")
             if time.time() - t0 > budget:
                 logger.info(
                     f"{self.name}: reached {budget}s budget, stopping early")

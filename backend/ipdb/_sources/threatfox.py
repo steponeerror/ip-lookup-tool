@@ -8,7 +8,10 @@ column order (per abuse.ch header) is:
     malware_alias, malware_printable, last_seen_utc, confidence_level, ...
 
 Migrated from CsvSource onto the unified Source base (Task 3.2): download()
-uses the shared `_http_get` (retries + auth header), and `harvest()` yields
+uses the shared `_http_get` (kept because the existing column-mapping test
+monkeypatches `_http_get` directly — switching to `download_file` would
+require a test rewrite that's out of scope for this task); a CancelToken is
+honoured at the top so a queued update can be cancelled. `harvest()` yields
 `(ip, Evidence)` per row with per-row classification via
 `normalize(raw_type, THREATFOX_MAP)`. `parse_row()` is retained as a legacy
 helper because existing column-mapping tests depend on it.
@@ -17,10 +20,12 @@ import csv
 import io
 import logging
 import zipfile
+from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
 from .._classification import normalize, THREATFOX_MAP
+from ._download import CancelToken
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +47,14 @@ class ThreatFoxSource(Source):
     authoritative_for = ["is_malicious"]
     skip_lines = 9
 
-    def download(self) -> None:
+    @property
+    def download_host(self) -> str | None:
+        return urlparse(self.url).hostname
+
+    def download(self, token: CancelToken | None = None) -> None:
+        if token is not None and token.is_cancelled():
+            from ._download import CancelledError
+            raise CancelledError(f"{self.name} download cancelled")
         self._data_dir.mkdir(parents=True, exist_ok=True)
         data = self._http_get(self.url)
         if not data.strip():

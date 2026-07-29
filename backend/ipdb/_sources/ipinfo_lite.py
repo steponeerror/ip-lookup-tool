@@ -3,9 +3,10 @@ import logging
 import os
 import shutil
 import time
-import urllib.request
 from pathlib import Path
 from typing import Optional
+
+from ._download import download_file, CancelToken
 
 logger = logging.getLogger(__name__)
 
@@ -33,24 +34,23 @@ class IPinfoLiteSource:
             else ""
         )
 
-    def download(self) -> None:
-        from .._types import SourceHealth
+    @property
+    def download_host(self) -> str | None:
+        # Stable vendor host even before IPINFO_TOKEN is configured — used for
+        # UX labeling, not as a readiness signal (_url="" still means "no fetch").
+        return "ipinfo.io"
 
+    def download(self, token: CancelToken | None = None) -> None:
         if not self._url:
             logger.warning("IPINFO_TOKEN not set, skipping IPinfo Lite download")
             return
         self._data_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Downloading IPinfo Lite...")
         try:
-            req = urllib.request.Request(
-                self._url, headers={"User-Agent": "ip-lookup-tool/1.0"}
-            )
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                with open(self._gz_path, "wb") as f:
-                    shutil.copyfileobj(resp, f)
-            with gzip.open(self._gz_path, "rb") as f_in:
-                with open(self._path, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+            download_file(self._url, self._gz_path, token=token,
+                          headers={"User-Agent": "ip-lookup-tool/1.0"})
+            with gzip.open(self._gz_path, "rb") as f_in, open(self._path, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
             with open(self._path, "r", encoding="utf-8") as f:
                 line_count = sum(1 for _ in f)
             if line_count == 0:

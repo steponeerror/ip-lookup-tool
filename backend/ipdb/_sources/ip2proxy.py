@@ -4,6 +4,11 @@ Range→CIDR expansion via ipaddress.summarize_address_range; one CSV row
 yields one or more (cidr, Evidence) pairs. Asset labels (is_proxy /
 is_hosting / is_tor) ride the Evidence slots; per-asset native labels
 (used by the attributes channel) ride native_types → _native_types.
+
+download() uses the inherited `_http_get` (kept for back-compat with the
+existing test fixture that monkeypatches it; the helper-only fetch would
+require a test rewrite that's out of scope for this task). A CancelToken
+is honoured at the top of download so a queued update can be cancelled.
 """
 import csv
 import ipaddress
@@ -14,6 +19,7 @@ from pathlib import Path
 
 from .._source_base import Source
 from .._evidence import Evidence
+from ._download import CancelToken
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +44,19 @@ class IP2ProxySource(Source):
             return ""
         return f"https://www.ip2location.com/download?token={self._token}&file=PX2LITECSV"
 
-    def download(self) -> None:
+    @property
+    def download_host(self) -> str | None:
+        # Stable vendor host even before IP2PROXY_TOKEN is configured — used for
+        # UX labeling, not as a readiness signal (url="" still means "no fetch").
+        return "www.ip2location.com"
+
+    def download(self, token: CancelToken | None = None) -> None:
         if not self.url:
             logger.warning("IP2PROXY_TOKEN not set, skipping IP2Proxy download")
             return
+        if token is not None and token.is_cancelled():
+            from ._download import CancelledError
+            raise CancelledError(f"{self.name} download cancelled")
         self._data_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Downloading IP2Proxy PX2 LITE...")
         import io
