@@ -12,6 +12,7 @@ StreamingResponse attributes (media_type, headers) and the real body generator
 """
 import asyncio
 import json
+import time
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -134,3 +135,98 @@ def test_cancel_unknown_task_is_noop():
         r = c.post("/api/tasks/doesnotexist/cancel")
     assert r.status_code == 200
     assert r.json() == {"ok": True}
+
+
+# ── Task 15: end-to-end integration smoke ──
+
+
+def test_batch_flows_through_manager_and_snapshot(monkeypatch):
+    """Network-independent end-to-end smoke: POST /api/update-db → manager
+    workers → SSE event bus → /api/tasks snapshot.
+
+    Every offline source's download+load is monkeypatched to a no-op so the
+    batch completes deterministically without touching the network (the source
+    implementations have their own unit tests; this proves the WIRING).
+
+    Asserts the full plumbing chain:
+      1. POST /api/update-db returns {batch_id}.
+      2. Polling GET /api/tasks shows the batch reaching state==done with
+         done==total (internally consistent snapshot).
+      3. All task states are terminal.
+      4. An SSE subscriber (subscribed directly to the manager's event bus)
+         receives the terminal ``done`` event. We can't use
+         TestClient.stream("/api/events") because httpx 0.28's ASGI transport
+         deadlocks on infinite SSE generators (T9 limitation, documented in the
+         module docstring above); subscribing directly exercises the same
+         ``_emit → call_soon_threadsafe → subscriber queue`` path.
+    """
+    import main
+    from ipdb._registry import _sources, _archetype
+
+    # Stub every offline source: download = no-op, load = return 0.
+    # Instance-attribute assignment shadows the class method; the manager calls
+    # source.download(token=...) / source.load() without self.
+    offline = [s for s in _sources if _archetype(s) == "offline"]
+    assert offline, "no offline sources discovered — registry misconfigured"
+    for s in offline:
+        monkeypatch.setattr(s, "download", lambda token=None: None)
+        monkeypatch.setattr(s, "load", lambda: 0)
+
+    mgr = main.manager
+    sub_loop = asyncio.new_event_loop()
+    q = mgr.subscribe(sub_loop)
+    received: list[dict] = []
+    try:
+        with _client() as c:
+            before = c.get("/api/tasks").json()
+            assert before["batch"] is None, "stale batch leaked past _reset_manager"
+
+            r = c.post("/api/update-db")
+            assert r.status_code == 200
+            bid = r.json()["batch_id"]
+
+            # Poll snapshot until batch is fully done (state==done AND
+            # done==total). With no-op downloads this resolves in milliseconds;
+            # the 10s deadline is a safety net. Checking done==total (not just
+            # state==done) avoids a false pass from the premature-done race
+            # where the batch flips before all tasks have settled.
+            terminal = {"done", "failed", "cancelled"}
+            deadline = time.time() + 10
+            snap = before
+            while time.time() < deadline:
+                snap = c.get("/api/tasks").json()
+                b = snap.get("batch")
+                if (b and b.get("state") == "done"
+                        and b.get("done") == b.get("total")
+                        and b.get("total", 0) > 0):
+                    break
+                time.sleep(0.02)
+
+        # --- snapshot consistency ---
+        assert snap["batch"] is not None, "batch never reached done within deadline"
+        assert snap["batch"]["id"] == bid
+        assert snap["batch"]["state"] == "done"
+        assert snap["batch"]["done"] == snap["batch"]["total"]
+        assert snap["batch"]["total"] >= 1
+        task_states = {t["state"] for t in snap["tasks"]}
+        assert task_states <= terminal, f"non-terminal tasks remain: {task_states}"
+
+        # --- SSE event bus delivery ---
+        # Run the subscriber loop briefly so all scheduled call_soon_threadsafe
+        # callbacks (the _deliver calls from worker threads) execute and enqueue
+        # their events. The loop is then stopped; drain synchronously.
+        sub_loop.run_until_complete(asyncio.sleep(0.1))
+        while not q.empty():
+            try:
+                received.append(q.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+    finally:
+        mgr.unsubscribe(q)
+        sub_loop.close()
+
+    evt_types = {e.get("type") for e in received}
+    assert "done" in evt_types, \
+        f"SSE bus never delivered a terminal `done` event; got types={evt_types}"
+    assert "task" in evt_types or "batch" in evt_types, \
+        f"SSE bus delivered no task/batch progress events; got types={evt_types}"
