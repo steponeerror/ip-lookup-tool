@@ -1,0 +1,187 @@
+"""UpdateManager — unified trackable/abortable source-update task runner."""
+import asyncio
+import itertools
+import threading
+import time
+import uuid
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Callable, Optional
+
+from ._sources._download import CancelledError, CancelToken
+
+
+@dataclass
+class Task:
+    id: str
+    source_name: str
+    host: Optional[str]
+    state: str = "queued"  # queued|downloading|loading|done|failed|cancelled
+    error: Optional[str] = None
+    batch_id: Optional[str] = None
+    token: CancelToken = field(default_factory=CancelToken)
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "source": self.source_name, "host": self.host,
+                "state": self.state, "error": self.error, "batch_id": self.batch_id}
+
+
+@dataclass
+class Batch:
+    id: str
+    state: str = "running"  # running|paused|done
+    done: int = 0
+    total: int = 0
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "state": self.state, "done": self.done, "total": self.total}
+
+
+class UpdateManager:
+    def __init__(self, resolve_source: Callable, lock_for: Callable,
+                 concurrency: int = 3, queue_cap: int = 256):
+        self._resolve = resolve_source
+        self._lock_for = lock_for
+        self._concurrency = concurrency
+        self._queue_cap = queue_cap
+
+        self._tasks: dict[str, Task] = {}
+        self._by_source: dict[str, str] = {}      # source_name -> active task_id
+        self._batches: dict[str, Batch] = {}
+        self._active_batch: Optional[str] = None
+
+        self._host_locks: dict[str, threading.Lock] = {}
+        self._host_guard = threading.Lock()
+
+        self._queue: deque[str] = deque()
+        self._queue_cv = threading.Condition()
+
+        self._go = threading.Event(); self._go.set()  # cleared => paused
+        self._lock = threading.RLock()
+
+        # event bus
+        self._subs: set = set()
+        self._subs_lock = threading.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+        for _ in range(concurrency):
+            threading.Thread(target=self._worker, daemon=True).start()
+
+    # --- public ---
+    def enqueue_one(self, name: str) -> Task:
+        source = self._resolve(name)
+        if source is None:
+            raise ValueError(f"unknown source: {name}")
+        with self._lock:
+            existing = self._by_source.get(name)
+            if existing and self._tasks[existing].state in ("queued", "downloading", "loading"):
+                return self._tasks[existing]
+            task = Task(id=uuid.uuid4().hex[:12], source_name=name,
+                        host=getattr(source, "download_host", None),
+                        batch_id=self._active_batch)
+            self._tasks[task.id] = task
+            self._by_source[name] = task.id
+            self._enqueue(task.id)
+            self._emit({"type": "task", "task": task.to_dict()})
+            return task
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            tasks = [t.to_dict() for t in self._tasks.values()]
+            batch = self._batches[self._active_batch].to_dict() if self._active_batch else None
+            return {"tasks": tasks, "batch": batch}
+
+    # --- batch control (Task 4) / pause / cancel / bus: added in later tasks ---
+
+    # --- internals ---
+    def _host_lock(self, host):
+        if host is None:
+            return None
+        with self._host_guard:
+            if host not in self._host_locks:
+                self._host_locks[host] = threading.Lock()
+            return self._host_locks[host]
+
+    def _enqueue(self, task_id):
+        with self._queue_cv:
+            self._queue.append(task_id)
+            self._queue_cv.notify()
+
+    def _worker(self):
+        while True:
+            with self._queue_cv:
+                while not self._go.is_set() or not self._queue:
+                    self._queue_cv.wait()
+                task_id = self._queue.popleft()
+            task = self._tasks.get(task_id)
+            if task is None or task.state != "queued":
+                continue
+            self._run_task(task)
+
+    def _set_state(self, task: Task, state: str, error: str | None = None):
+        task.state = state
+        task.error = error
+        self._emit({"type": "task", "task": task.to_dict()})
+
+    def _run_task(self, task: Task):
+        source = self._resolve(task.source_name)
+        if source is None:
+            self._set_state(task, "failed", "source disappeared"); self._settle(task); return
+        host_lock = self._host_lock(task.host)
+        src_lock = self._lock_for(task.source_name)
+        if host_lock:
+            host_lock.acquire()
+        src_lock.acquire()
+        try:
+            self._set_state(task, "downloading")
+            try:
+                source.download(token=task.token)
+            except CancelledError:
+                self._set_state(task, "cancelled"); return
+            except Exception as e:
+                self._set_state(task, "failed", str(e)); return
+            if task.token.is_cancelled():
+                self._set_state(task, "cancelled"); return
+            self._set_state(task, "loading")
+            try:
+                source.load()
+            except Exception as e:
+                self._set_state(task, "failed", str(e)); return
+            self._set_state(task, "done")
+        finally:
+            src_lock.release()
+            if host_lock:
+                host_lock.release()
+            self._settle(task)
+
+    def _settle(self, task: Task):
+        """Bookkeeping after a task leaves the active set."""
+        with self._lock:
+            if self._by_source.get(task.source_name) == task.id:
+                if task.state in ("done", "failed", "cancelled"):
+                    del self._by_source[task.source_name]
+            if task.batch_id and task.batch_id in self._batches:
+                b = self._batches[task.batch_id]
+                if task.state in ("done", "failed", "cancelled"):
+                    b.done += 1
+                    self._emit({"type": "batch", "batch": b.to_dict()})
+        self._emit({"type": "task", "task": task.to_dict()})
+
+    # --- event bus (Task 6) ---
+    def _emit(self, event: dict):
+        with self._subs_lock:
+            subs = list(self._subs)
+        loop = self._loop
+        if not subs or loop is None:
+            return
+        for q in subs:
+            try:
+                loop.call_soon_threadsafe(q.put_nowait, event)
+            except asyncio.QueueFull:
+                try:
+                    loop.call_soon_threadsafe(q.get_nowait)
+                except Exception:
+                    pass
+                loop.call_soon_threadsafe(q.put_nowait, event)
+            except Exception:
+                pass
