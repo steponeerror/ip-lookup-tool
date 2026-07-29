@@ -20,10 +20,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ipdb import (
-    load_db, lookup, get_status, refresh_stale,
-    get_download_steps,
+    load_db, lookup, get_status,
     enrich_with_ipapi, enrich_with_ipapi_is,
-    list_sources, set_source_enabled, update_source, update_source_streaming,
+    list_sources, set_source_enabled,
+    manager, stale_source_names,
 )
 
 import os
