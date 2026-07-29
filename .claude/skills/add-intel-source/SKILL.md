@@ -149,6 +149,13 @@ fill in.
    blocklist.de attack codes, proxy types), add a `{native: intelmq}` map in
    `_classification.py` next to the existing `THREATFOX_MAP` / `BLOCKLIST_DE_MAP`
    / `PROXY_MAP` / `OTX_PROTOCOL_MAP`.
+6. **Register in the central dicts** (discovery is NOT enough — `_validate.py`
+   doesn't check these, so an omission fails silently). Edit:
+   - `backend/ipdb/_registry.py` → `SOURCE_CATEGORIES`: add `"<name>": "threat" | "geo_asn" | "asset"`. Required for EVERY source — omit and the UI shows category `other`.
+   - `backend/ipdb/_merge.py` → `SOURCE_RELIABILITY`: add `"<name>": <0–1>` ONLY for `geo_asn`/`asset` sources. The class-level `reliability` is ignored on this path; an omission silently fuses at 0.5. (Threat sources use their class-level `reliability` and skip this dict.)
+   - `backend/ipdb/_merge.py` → `AUTHORITATIVE_SOURCES`: if your source should have authoritative veto on `is_proxy`/`is_tor`/`is_vpn`/`is_malicious`/`is_hosting`/`is_mobile`, add it to that field's list. (The class-level `authoritative_for` attr is decorative — fusion only reads this dict.)
+
+   Geo sources have extra hardcoded coupling (`NamingAuthority` grants CN/HK/MO/TW `as_name` authority to `cn_isp` only; `get_status` names `ipinfo_lite`/`iptoasn`/`cn_isp` directly) — full decoupling is Phase 2 of the polish spec.
 
 You're done implementing when the file imports cleanly and `fields`/`name` are
 set — discovery will pick it up automatically on next load.
@@ -164,6 +171,7 @@ exactly — mirror `backend/test_ipsum.py`:
 - assert `s.query("<ip>")` returns the expected shape — **including
   `extra: {"native_type": ...}`**
 - assert a row you intend to drop is dropped (e.g. below threshold, wrong type)
+- ☐ **Central-dict registration** (Phase 3 step 6): `grep "<name>" backend/ipdb/_registry.py backend/ipdb/_merge.py` shows a hit in `SOURCE_CATEGORIES` (all sources), and for `geo_asn`/`asset` sources also in `SOURCE_RELIABILITY`.
 
 Then run, from `backend/`:
 
