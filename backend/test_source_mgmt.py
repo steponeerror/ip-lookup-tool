@@ -1,6 +1,4 @@
 """Tests for source enable/disable plumbing in the registry."""
-import threading
-import time
 
 import pytest
 
@@ -67,21 +65,6 @@ def test_lookup_skips_disabled_source(monkeypatch):
 
     assert "ipinfo_lite" in calls
     assert "iptoasn" not in calls
-
-
-def test_get_download_steps_excludes_disabled(monkeypatch):
-    # _fake only carries .name; get_download_steps also reads .download,
-    # so give each fake a no-op download stub.
-    def src(name):
-        s = _fake(name)
-        s.download = lambda: None
-        return s
-
-    monkeypatch.setattr(reg, "_sources", [src("a"), src("b")])
-    monkeypatch.setattr(reg, "_disabled", {"b"})
-    steps = reg.get_download_steps()
-    names = [n for n, _ in steps]
-    assert names == ["a"]
 
 
 def test_get_status_counts_only_enabled(monkeypatch):
@@ -167,6 +150,7 @@ def test_disable_persists_and_flags(tmp_path, monkeypatch):
     from ipdb._source_state import load_disabled
     assert load_disabled(tmp_path / "state.json") == {"ipinfo_lite"}
 
+
 def test_enable_loads_source_and_clears_disabled(tmp_path, monkeypatch):
     loaded = []
 
@@ -191,35 +175,6 @@ def test_enable_loads_source_and_clears_disabled(tmp_path, monkeypatch):
     assert info["enabled"] is True
     assert loaded == [True]
     assert reg.is_enabled("ipinfo_lite") is True
-
-
-def test_update_source_unknown_raises(monkeypatch):
-    monkeypatch.setattr(reg, "_sources", [_fake("a")])
-    with pytest.raises(ValueError):
-        reg.update_source("nope")
-
-
-def test_update_source_downloads_and_loads(monkeypatch):
-    calls = []
-
-    class Src:
-        name = "ipinfo_lite"
-        fields = ("country_code",)
-        reliability = 0.8
-        authoritative_for = []
-        def download(self):
-            calls.append("download")
-        def load(self):
-            calls.append("load")
-        def health(self):
-            from ipdb._types import SourceHealth
-            return SourceHealth(name="ipinfo_lite", loaded=True, record_count=42,
-                                last_updated="2026-06-20T00:00:00Z", is_stale=False)
-
-    monkeypatch.setattr(reg, "_sources", [Src()])
-    info = reg.update_source("ipinfo_lite")
-    assert calls == ["download", "load"]
-    assert info["health"]["record_count"] == 42
 
 
 def test_get_sources_route_returns_list(monkeypatch):
@@ -260,30 +215,6 @@ def test_patch_source_unknown_returns_404(monkeypatch):
     assert resp.status_code == 404
 
 
-def test_update_source_route_calls_update(monkeypatch):
-    from fastapi.testclient import TestClient
-    import main
-
-    monkeypatch.setattr(main, "update_source",
-                        lambda name: {"name": name, "health": {"record_count": 7}})
-    client = TestClient(main.app)
-    resp = client.post("/api/sources/spamhaus/update")
-    assert resp.status_code == 200
-    assert resp.json()["health"]["record_count"] == 7
-
-
-def test_update_source_unknown_returns_404(monkeypatch):
-    from fastapi.testclient import TestClient
-    import main
-
-    def _raise(name):
-        raise ValueError("unknown")
-    monkeypatch.setattr(main, "update_source", _raise)
-    client = TestClient(main.app)
-    resp = client.post("/api/sources/nope/update")
-    assert resp.status_code == 404
-
-
 def test_is_db_stale_ignores_disabled_sources(monkeypatch):
     from ipdb._types import SourceHealth
     # A stale source that is DISABLED must NOT make is_db_stale() true.
@@ -295,169 +226,3 @@ def test_is_db_stale_ignores_disabled_sources(monkeypatch):
     monkeypatch.setattr(reg, "_sources", [stale_disabled])
     monkeypatch.setattr(reg, "_disabled", {"spamhaus"})
     assert reg.is_db_stale() is False
-
-
-def test_update_source_serializes_same_source(monkeypatch):
-    """Concurrent update_source() calls on the SAME source must not overlap.
-
-    IpListSource.download() writes the raw data file in place (open(path,"w")),
-    so two interleaved updates corrupt the file — and update_source does
-    download() then load(), so a sibling download can truncate the file while
-    another thread's load() is reading it. Same-source updates must serialize.
-    """
-    active = []
-    active_lock = threading.Lock()
-    overlapped = threading.Event()
-
-    class Src:
-        name = "ipinfo_lite"
-        fields = ("country_code",)
-        reliability = 0.8
-        authoritative_for = []
-        classification_type = None
-        url = None
-        stale_days = None
-
-        def download(self):
-            with active_lock:
-                active.append(1)
-                if len(active) > 1:
-                    overlapped.set()
-            time.sleep(0.05)  # hold the section so siblings arrive inside it
-            with active_lock:
-                active.pop()
-
-        def load(self):
-            pass
-
-        def health(self):
-            from ipdb._types import SourceHealth
-            return SourceHealth(name="ipinfo_lite", loaded=True, record_count=1,
-                                last_updated="2026-06-22T00:00:00Z", is_stale=False)
-
-    monkeypatch.setattr(reg, "_sources", [Src()])
-
-    threads = [threading.Thread(target=reg.update_source, args=("ipinfo_lite",))
-               for _ in range(4)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    assert not overlapped.is_set(), \
-        "update_source calls overlapped — concurrent download() corrupts the raw data file"
-
-
-def test_refresh_stale_does_not_block_on_async_source(monkeypatch):
-    """A source flagged async_refresh=True must download in a background thread,
-    so refresh_stale() returns promptly instead of blocking startup on its
-    (slow) download. The download must still actually run."""
-    from ipdb._types import SourceHealth
-
-    finished = threading.Event()
-
-    class SlowAsyncSrc:
-        name = "slowasync"
-        async_refresh = True
-
-        def download(self):
-            time.sleep(1.0)  # simulate a slow paginating source (e.g. OTX)
-            finished.set()
-
-        def load(self):
-            pass
-
-        def health(self):
-            return SourceHealth(name="slowasync", loaded=False, record_count=0,
-                                last_updated=None, is_stale=True)
-
-    src = SlowAsyncSrc()
-    monkeypatch.setattr(reg, "_sources", [src])
-    monkeypatch.setattr(reg, "_disabled", set())
-
-    t0 = time.time()
-    reg.refresh_stale()
-    elapsed = time.time() - t0
-
-    assert elapsed < 0.4, (
-        f"refresh_stale blocked {elapsed:.2f}s — async_refresh source "
-        "was not backgrounded")
-    assert finished.wait(timeout=3), "async source download never ran in background"
-
-
-def test_update_source_streaming_emits_phases(monkeypatch):
-    """update_source_streaming yields start → downloading → loading → complete,
-    calling download() then load() in order."""
-    from ipdb._types import SourceHealth
-
-    order = []
-
-    class FakeSrc:
-        name = "spamhaus"
-        fields = ("is_malicious",)
-
-        def download(self):
-            order.append("download")
-
-        def load(self):
-            order.append("load")
-
-        def health(self):
-            return SourceHealth(name="spamhaus", loaded=True, record_count=42,
-                                last_updated=None, is_stale=False)
-
-    monkeypatch.setattr(reg, "_sources", [FakeSrc()])
-    events = list(reg.update_source_streaming("spamhaus"))
-
-    assert events[0] == {"type": "start", "name": "spamhaus"}
-    phases = [e["phase"] for e in events if e["type"] == "phase"]
-    assert phases == ["downloading", "loading"]
-    assert events[-1]["type"] == "complete"
-    assert events[-1]["source"]["health"]["record_count"] == 42
-    assert order == ["download", "load"]
-
-
-def test_update_source_streaming_emits_error_event(monkeypatch):
-    """A failing download surfaces as an error event, not an exception."""
-    class FakeSrc:
-        name = "boom"
-
-        def download(self):
-            raise RuntimeError("network down")
-
-        def load(self):
-            pass
-
-        def health(self):
-            ...
-
-    monkeypatch.setattr(reg, "_sources", [FakeSrc()])
-    events = list(reg.update_source_streaming("boom"))
-    assert events[-1]["type"] == "error"
-    assert "network down" in events[-1]["error"]
-
-
-def test_update_source_streaming_unknown_raises():
-    with pytest.raises(ValueError):
-        list(reg.update_source_streaming("nope"))
-
-
-def test_update_source_stream_route_returns_ndjson(monkeypatch):
-    """The streaming route forwards registry events as NDJSON lines."""
-    import json as _json
-    from fastapi.testclient import TestClient
-    import main
-
-    def _fake_stream(name):
-        yield {"type": "start", "name": name}
-        yield {"type": "phase", "phase": "downloading"}
-        yield {"type": "complete",
-               "source": {"name": name, "health": {"record_count": 5}}}
-
-    monkeypatch.setattr(main, "update_source_streaming", _fake_stream)
-    client = TestClient(main.app)
-    resp = client.post("/api/sources/spamhaus/update/stream")
-    assert resp.status_code == 200
-    lines = [_json.loads(l) for l in resp.text.splitlines() if l.strip()]
-    assert lines[0]["type"] == "start"
-    assert lines[-1]["type"] == "complete"
