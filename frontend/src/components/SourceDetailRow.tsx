@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ClassificationDetail } from "../api";
+import { useI18n } from "../i18n";
 
 function fmtRel(r: number): string {
   return String(Math.round(r * 100) / 100);
@@ -10,6 +11,7 @@ function fmtDate(iso: string): string {
 }
 
 export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail }) {
+  const { t } = useI18n();
   const [showExtra, setShowExtra] = useState(false);
   const nativeType = d.extra?.native_type;
   const extraKeys = d.extra ? Object.keys(d.extra) : [];
@@ -22,7 +24,7 @@ export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail })
         <span className="text-zinc-600">{d.source}</span>
         <span className="text-zinc-700"> · rel {fmtRel(d.reliability)}</span>
         {nativeType != null && (
-          <span className="text-zinc-500 ml-1" title="源原生类型">[{String(nativeType)}]</span>
+          <span className="text-zinc-500 ml-1" title={t("sourceDetail.nativeTypeTitle")}>[{String(nativeType)}]</span>
         )}
         {d.native_confidence != null && (
           <span className="text-zinc-500 ml-1">native {d.native_confidence}</span>
@@ -67,7 +69,7 @@ export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail })
             onClick={() => setShowExtra((v) => !v)}
             className="text-zinc-600 hover:text-zinc-400"
           >
-            {showExtra ? "▾" : "▸"} extra {extraKeys.length} keys
+            {showExtra ? "▾" : "▸"} {t("sourceDetail.extraKeys", { n: extraKeys.length })}
           </button>
           {showExtra && (
             <pre className="mt-0.5 text-zinc-500 whitespace-pre-wrap break-all">

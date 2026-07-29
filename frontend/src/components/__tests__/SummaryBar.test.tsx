@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithI18n } from "../../test/i18nTestUtils";
 import { SummaryBar } from "../ResultTable";
 import type { LookupResult } from "../../api";
 
@@ -16,8 +17,8 @@ const reserved: LookupResult = {
 
 describe("SummaryBar reserved bucket", () => {
   it("counts reserved IPs as 保留地址, not as 低置信", () => {
-    render(<SummaryBar results={[reserved]} />);
-    expect(screen.getByText("保留地址")).toBeInTheDocument();
-    expect(screen.queryByText(/低置信/)).not.toBeInTheDocument();
+    renderWithI18n(<SummaryBar results={[reserved]} />);
+    expect(screen.getByText("Reserved")).toBeInTheDocument();
+    expect(screen.queryByText(/low conf/i)).not.toBeInTheDocument();
   });
 });
