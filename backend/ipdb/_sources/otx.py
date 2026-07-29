@@ -31,9 +31,9 @@ from ._download import CancelToken, CancelledError
 logger = logging.getLogger(__name__)
 
 _ACTIVITY_URL = "https://otx.alienvault.com/api/v1/pulses/activity"
-# Safety net for the backgrounded refresh thread (OtxSource.async_refresh=True):
-# generous enough to fully paginate a 7-day window (~574 pages) even at the
-# ~6s/page OTX serves in practice. The per-request _TIMEOUT still bounds hangs.
+# Budget safety net: generous enough to fully paginate a 7-day window
+# (~574 pages) even at the ~6s/page OTX serves in practice. The
+# per-request _TIMEOUT still bounds hangs.
 _DEFAULT_POLL_SECONDS = 3600
 _DEFAULT_LOOKBACK_DAYS = 7
 _PAGE_SIZE = 20
@@ -76,9 +76,6 @@ class OtxSource(Source):
     stale_days = 1
     reliability = 0.75
     authoritative_for = []
-    # REST pagination is slow (20/page, ~2.5-6s/page); refresh in a background
-    # thread at startup so the budget-gated full pull doesn't block the app.
-    async_refresh = True
 
     def __init__(self, data_dir):
         super().__init__(data_dir)

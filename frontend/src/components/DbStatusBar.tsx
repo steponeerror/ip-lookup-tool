@@ -77,7 +77,7 @@ export function DbStatusBar() {
       <div className="mx-auto max-w-7xl px-4 py-2 text-xs font-mono">
         <div className="flex items-center justify-between text-emerald-400">
           <span>
-            {headerLabel} · {batch?.done ?? 0}/{batch?.total ?? 0} · {pct}%
+            {headerLabel}{batch != null && ` · ${batch.done}/${batch.total} · ${pct}%`}
           </span>
           <span className="flex gap-2">
             {batch?.state === "paused" ? (

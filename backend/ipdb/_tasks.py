@@ -1,6 +1,5 @@
 """UpdateManager — unified trackable/abortable source-update task runner."""
 import asyncio
-import itertools
 import threading
 import time
 import uuid
