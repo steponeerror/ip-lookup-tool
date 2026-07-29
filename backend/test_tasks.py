@@ -95,10 +95,25 @@ def test_bounded_concurrency():
 
 
 def test_per_host_serial():
+    probe = {"in_flight": 0, "peak": 0}
+    lock = threading.Lock()
     a = FakeSource("a", host="abuse.ch", slow=0.2)
     b = FakeSource("b", host="abuse.ch", slow=0.2)
+    def _wrap(src):
+        orig = src.download
+        def _dl(token=None, p=probe, l=lock):
+            with l:
+                p["in_flight"] += 1
+                p["peak"] = max(p["peak"], p["in_flight"])
+            try:
+                return orig(token)
+            finally:
+                with l:
+                    p["in_flight"] -= 1
+        src.download = _dl
+    _wrap(a); _wrap(b)
     mgr, _ = _make_manager([a, b], concurrency=3)
     mgr.enqueue_one("a"); mgr.enqueue_one("b")
     _wait_states(mgr, lambda s: all(tk["state"] in ("done","failed","cancelled") for tk in s["tasks"]), timeout=10)
-    # same-host sources never overlapped: their combined peak concurrency == 1
-    assert max(a.peak_concurrent, b.peak_concurrent) <= 1
+    assert probe["peak"] <= 1   # same-host sources never overlapped
+    assert probe["peak"] == 1   # at least one ran (sanity)
