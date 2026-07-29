@@ -5,13 +5,15 @@ yields one or more (cidr, Evidence) pairs. Asset labels (is_proxy /
 is_hosting / is_tor) ride the Evidence slots; per-asset native labels
 (used by the attributes channel) ride native_types → _native_types.
 
-download() uses the inherited `_http_get` (kept for back-compat with the
-existing test fixture that monkeypatches it; the helper-only fetch would
-require a test rewrite that's out of scope for this task). A CancelToken
-is honoured at the top of download so a queued update can be cancelled.
+download() streams the ZIP atomically to a sibling .zip via the shared
+`download_file` helper (token-aware, mid-stream cancel, long timeout for
+the large PX2 LITE archive), then extracts the inner CSV onto `self._path`.
+The URL is exposed as `_url` (not `url`) to avoid a property/str clash with
+the base class's `url: str` class attribute.
 """
 import csv
 import ipaddress
+import io
 import logging
 import os
 import zipfile
@@ -19,7 +21,7 @@ from pathlib import Path
 
 from .._source_base import Source
 from .._evidence import Evidence
-from ._download import CancelToken
+from ._download import download_file, CancelToken
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,7 @@ class IP2ProxySource(Source):
         super().__init__(data_dir=data_dir)
 
     @property
-    def url(self) -> str:
+    def _url(self) -> str:
         if not self._token:
             return ""
         return f"https://www.ip2location.com/download?token={self._token}&file=PX2LITECSV"
@@ -47,34 +49,36 @@ class IP2ProxySource(Source):
     @property
     def download_host(self) -> str | None:
         # Stable vendor host even before IP2PROXY_TOKEN is configured — used for
-        # UX labeling, not as a readiness signal (url="" still means "no fetch").
+        # UX labeling, not as a readiness signal (_url="" still means "no fetch").
         return "www.ip2location.com"
 
     def download(self, token: CancelToken | None = None) -> None:
-        if not self.url:
+        if not self._url:
             logger.warning("IP2PROXY_TOKEN not set, skipping IP2Proxy download")
             return
-        if token is not None and token.is_cancelled():
-            from ._download import CancelledError
-            raise CancelledError(f"{self.name} download cancelled")
         self._data_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Downloading IP2Proxy PX2 LITE...")
-        import io
-        data = self._http_get(self.url, timeout=900)
-        if not data:
-            raise RuntimeError("Empty response")
-        # PX2 LITE is a ZIP with one CSV. Extract EAGERLY to _path so the base
-        # load()'s `_path.exists()` guard passes and harvest() reads a plain CSV
-        # (base load() never sees the ZIP — it short-circuits before harvest).
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            csv_names = [n for n in zf.namelist()
-                         if n.lower().endswith(".csv") and "/" not in n and "\\" not in n]
-            if not csv_names:
-                raise RuntimeError("no .csv inside IP2Proxy zip")
-            payload = zf.read(csv_names[0])
-        tmp = self._path.with_suffix(".csv.tmp")
-        tmp.write_bytes(payload)
-        tmp.replace(self._path)   # atomic
+        # download_file streams atomically to zip_path (token-aware, mid-stream
+        # cancel); then we extract the inner CSV onto _path so base load()'s
+        # `_path.exists()` guard passes and harvest() reads plain CSV.
+        zip_path = self._data_dir / "ip2proxy_px2.zip"
+        try:
+            download_file(self._url, zip_path, token=token, timeout=900,
+                          headers={"User-Agent": "ip-lookup-tool/1.0"})
+            data = zip_path.read_bytes()
+            if not data:
+                raise RuntimeError("Empty response")
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                csv_names = [n for n in zf.namelist()
+                             if n.lower().endswith(".csv") and "/" not in n and "\\" not in n]
+                if not csv_names:
+                    raise RuntimeError("no .csv inside IP2Proxy zip")
+                payload = zf.read(csv_names[0])
+            tmp = self._path.with_suffix(".csv.tmp")
+            tmp.write_bytes(payload)
+            tmp.replace(self._path)   # atomic
+        finally:
+            zip_path.unlink(missing_ok=True)
 
     def harvest(self):
         """Parse the CSV at _path → yield (cidr, Evidence) per CIDR. Range→CIDR
