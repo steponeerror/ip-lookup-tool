@@ -138,3 +138,44 @@ def test_online_sources_excluded():
         assert False, "should have rejected online source"
     except ValueError as e:
         assert "online source not updatable" in str(e), f"wrong error: {e}"
+
+
+def test_pause_stops_dispatch_then_resume():
+    blocked = threading.Event()
+    src = FakeSource("a", host="h")
+    def slow_download(token=None):
+        blocked.set()
+        time.sleep(0.3)
+    src.download = slow_download
+    fast = [FakeSource(f"s{i}", host=f"h{i}") for i in range(4)]
+    mgr, _ = _make_manager([src] + fast, concurrency=2)
+    mgr.enqueue_batch([s.name for s in [src] + fast])
+    # fill workers, then pause: remaining queued must not start
+    mgr.pause()
+    # wait a beat; only up to `concurrency` should have started before pause
+    time.sleep(0.1)
+    started = sum(1 for s in [src] + fast if s.download_calls > 0)
+    assert started <= 2
+    mgr.resume()
+    _wait_states(mgr, lambda s: s["batch"] and s["batch"]["state"] == "done", timeout=10)
+
+
+def test_cancel_running_task():
+    src = FakeSource("a", host="h", slow=1.0)
+    mgr, _ = _make_manager([src])
+    t = mgr.enqueue_one("a")
+    time.sleep(0.1)
+    mgr.cancel(t.id)
+    snap = _wait_states(mgr, lambda s: all(tk["state"] in ("done","failed","cancelled") for tk in s["tasks"]), timeout=5)
+    assert snap["tasks"][0]["state"] == "cancelled"
+
+
+def test_cancel_batch_cancels_all():
+    srcs = [FakeSource(f"s{i}", host=f"h{i}", slow=1.0) for i in range(4)]
+    mgr, _ = _make_manager(srcs, concurrency=2)
+    bid = mgr.enqueue_batch([s.name for s in srcs])
+    time.sleep(0.1)
+    mgr.cancel_batch(bid)
+    snap = _wait_states(mgr, lambda s: s["batch"] and s["batch"]["state"] == "done", timeout=5)
+    states = [t["state"] for t in snap["tasks"]]
+    assert all(s == "cancelled" for s in states)
