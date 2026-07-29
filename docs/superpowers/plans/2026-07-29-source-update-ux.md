@@ -476,8 +476,9 @@ def test_bounded_concurrency():
         s.download = _dl
         srcs.append(s)
     mgr, _ = _make_manager(srcs, concurrency=2)
-    mgr.enqueue_batch([s.name for s in srcs])
-    _wait_states(mgr, lambda s: s["batch"]["state"] == "done", timeout=10)
+    for s in srcs:
+        mgr.enqueue_one(s.name)
+    _wait_states(mgr, lambda s: all(tk["state"] in ("done","failed","cancelled") for tk in s["tasks"]), timeout=10)
     assert probe["peak"] <= 2   # global concurrency never exceeded the cap
     assert probe["peak"] >= 2   # and actually used the available parallelism
 
@@ -486,8 +487,8 @@ def test_per_host_serial():
     a = FakeSource("a", host="abuse.ch", slow=0.2)
     b = FakeSource("b", host="abuse.ch", slow=0.2)
     mgr, _ = _make_manager([a, b], concurrency=3)
-    mgr.enqueue_batch(["a", "b"])
-    _wait_states(mgr, lambda s: s["batch"]["state"] == "done", timeout=10)
+    mgr.enqueue_one("a"); mgr.enqueue_one("b")
+    _wait_states(mgr, lambda s: all(tk["state"] in ("done","failed","cancelled") for tk in s["tasks"]), timeout=10)
     # same-host sources never overlapped: their combined peak concurrency == 1
     assert max(a.peak_concurrent, b.peak_concurrent) <= 1
 ```
@@ -694,8 +695,8 @@ class UpdateManager:
 
 - [ ] **Step 4: Run core tests**
 
-Run: `cd backend && pytest test_tasks.py::test_enqueue_one_runs_download_and_load test_tasks.py::test_dedup_same_source_returns_existing_task test_tasks.py::test_per_host_serial -v`
-Expected: PASS (3). (`test_bounded_concurrency` becomes meaningful in Task 6 once batch + concurrency-count helper exist; keep it, it should still pass.)
+Run: `cd backend && pytest test_tasks.py::test_enqueue_one_runs_download_and_load test_tasks.py::test_dedup_same_source_returns_existing_task test_tasks.py::test_per_host_serial test_tasks.py::test_bounded_concurrency -v`
+Expected: PASS (all four tests are self-contained in T3 — they use `enqueue_one`, not `enqueue_batch` which arrives in T4).
 
 - [ ] **Step 5: Commit**
 
