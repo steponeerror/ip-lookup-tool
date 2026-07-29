@@ -134,6 +134,51 @@ class UpdateManager:
                 self._emit({"type": "batch", "batch": b.to_dict()})
                 self._emit({"type": "done", "batch": b.to_dict()})
 
+    # --- pause / resume / cancel (Task 5) ---
+    def pause(self):
+        self._go.clear()
+        if self._active_batch:
+            b = self._batches[self._active_batch]
+            b.state = "paused"
+            self._emit({"type": "batch", "batch": b.to_dict()})
+
+    def resume(self):
+        if self._active_batch:
+            b = self._batches[self._active_batch]
+            if b.state == "paused":
+                b.state = "running"
+                self._emit({"type": "batch", "batch": b.to_dict()})
+        self._go.set()
+        with self._queue_cv:
+            self._queue_cv.notify_all()
+
+    def cancel(self, task_id):
+        task = self._tasks.get(task_id)
+        if task is None:
+            return
+        if task.state == "queued":
+            task.state = "cancelled"
+            self._emit({"type": "task", "task": task.to_dict()})
+            self._settle(task)
+        else:
+            task.token.cancel()
+
+    def cancel_batch(self, batch_id: str | None = None):
+        with self._lock:
+            if batch_id is None:
+                if not self._active_batch:
+                    return
+                target = self._active_batch
+            else:
+                if batch_id not in self._batches:
+                    return
+                target = batch_id
+            ids = [tid for tid, t in self._tasks.items()
+                   if t.batch_id == target
+                   and t.state in ("queued", "downloading", "loading")]
+        for tid in ids:
+            self.cancel(tid)
+
     # --- internals ---
     def _host_lock(self, host):
         if host is None:
