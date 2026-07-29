@@ -7,18 +7,21 @@ comment banner and a column-header row). Columns (per the feed header):
 
 Every row is a botnet C2 (Dridex / TrickBot / Emotet / QakBot / BazarLoader),
 so classification is constant `c2-server` — no per-row map needed (unlike
-ThreatFox). download() uses the shared GET-only `_http_get` (retries + UA);
-harvest() skips the banner + header and yields `(dst_ip, Evidence)` per row,
-routing malware -> `malware_name`, first_seen_utc -> `first_seen` (drives
-confidence decay), last_online -> `last_seen`, c2_status -> `extra`.
+ThreatFox). download() fetches atomically via the shared `download_file`
+helper (token-aware, .tmp + os.replace); harvest() skips the banner + header
+and yields `(dst_ip, Evidence)` per row, routing malware -> `malware_name`,
+first_seen_utc -> `first_seen` (drives confidence decay), last_online ->
+`last_seen`, c2_status -> `extra`.
 License: CC0 (public domain). No API key.
 """
 import csv
 import ipaddress
 import logging
+from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
+from ._download import download_file, CancelToken
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +42,16 @@ class FeodoSource(Source):
     reliability = 0.85
     authoritative_for = ["is_malicious"]
 
-    def download(self) -> None:
+    @property
+    def download_host(self) -> str | None:
+        return urlparse(self.url).hostname
+
+    def download(self, token: CancelToken | None = None) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        data = self._http_get(self.url)
-        if not data.strip():
+        download_file(self.url, self._path, token=token,
+                      headers={"User-Agent": "ip-lookup-tool/1.0"})
+        if not self._path.read_bytes().strip():
             raise RuntimeError(f"Empty response from {self.url}")
-        self._path.write_bytes(data)
 
     def harvest(self):
         """Yield (dst_ip, Evidence) per data row, skipping the `#` banner and
