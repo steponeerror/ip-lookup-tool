@@ -50,6 +50,7 @@ results-final.png
 
 # Design scratch (superpowers brainstorm/plans/specs)
 docs/superpowers/
+.superpowers/
 
 # Nested separate repository (has its own .git)
 misp-docker/

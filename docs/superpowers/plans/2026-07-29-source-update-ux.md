@@ -460,14 +460,27 @@ def test_dedup_same_source_returns_existing_task():
 
 
 def test_bounded_concurrency():
-    srcs = [FakeSource(f"s{i}", host=f"h{i}", slow=0.2) for i in range(5)]
-    mgr, by_name = _make_manager(srcs, concurrency=2)
+    probe = {"in_flight": 0, "peak": 0}
+    lock = threading.Lock()
+    srcs = []
+    for i in range(5):
+        s = FakeSource(f"s{i}", host=f"h{i}", slow=0.2)
+        def _dl(token=None, p=probe, l=lock):
+            with l:
+                p["in_flight"] += 1
+                p["peak"] = max(p["peak"], p["in_flight"])
+            try:
+                time.sleep(0.2)
+            finally:
+                with l:
+                    p["in_flight"] -= 1
+        s.download = _dl
+        srcs.append(s)
+    mgr, _ = _make_manager(srcs, concurrency=2)
     mgr.enqueue_batch([s.name for s in srcs])
     _wait_states(mgr, lambda s: s["batch"]["state"] == "done", timeout=10)
-    # at most `concurrency` sources ever ran simultaneously
-    assert max(s.peak_concurrent for s in srcs) <= 1  # each source sees its own concurrency=1
-    # overall concurrency bound: sum of in-flight at any instant <= 2 — checked via host spread
-    # (stronger concurrency test is in test_per_host_serial pair below)
+    assert probe["peak"] <= 2   # global concurrency never exceeded the cap
+    assert probe["peak"] >= 2   # and actually used the available parallelism
 
 
 def test_per_host_serial():
