@@ -120,21 +120,21 @@ def test_per_host_serial():
 
 
 def test_enqueue_batch_offline_only_tracks_done_total():
-    srcs = [FakeSource("a", host="h1"), FakeSource("b", host="h2")]
+    srcs = [FakeSource("a", host="h1"), FakeSource("b", host="h2"), FakeSource("x")]
     mgr, _ = _make_manager(srcs)
-    bid = mgr.enqueue_batch(["a", "b"])
+    mgr._archetype_of = lambda s: "online" if s.name == "x" else "offline"
+    bid = mgr.enqueue_batch(["a", "b", "x"])  # "x" is online → excluded
     snap = _wait_states(mgr, lambda s: s["batch"] and s["batch"]["state"] == "done", timeout=10)
-    assert snap["batch"]["total"] == 2 and snap["batch"]["done"] == 2
+    assert snap["batch"]["total"] == 2          # only a + b counted
+    assert snap["batch"]["done"] == 2
     assert bid == snap["batch"]["id"]
 
 
 def test_online_sources_excluded():
-    class Online(FakeSource):
-        pass
-    mgr, _ = _make_manager([FakeSource("a")])
+    mgr, _ = _make_manager([FakeSource("a"), FakeSource("x")])  # "x" exists now
     mgr._archetype_of = lambda s: "online" if s.name == "x" else "offline"
     try:
         mgr.enqueue_one("x")
-        assert False
-    except ValueError:
-        pass
+        assert False, "should have rejected online source"
+    except ValueError as e:
+        assert "online source not updatable" in str(e), f"wrong error: {e}"
