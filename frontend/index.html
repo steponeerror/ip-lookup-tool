@@ -5,6 +5,20 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>IP Radar — IP Lookup Tool</title>
+    <script>
+      (function () {
+        var saved = localStorage.getItem("iplookup.locale");
+        var nav = (navigator.language || "en").toLowerCase();
+        var loc = saved;
+        if (loc !== "en" && loc !== "zh-CN" && loc !== "zh-TW") {
+          if (nav.slice(0, 5) === "zh-tw" || nav.slice(0, 5) === "zh-hk" || nav.slice(0, 5) === "zh-mo" || nav.slice(0, 8) === "zh-hant") loc = "zh-TW";
+          else if (nav.slice(0, 2) === "zh") loc = "zh-CN";
+          else loc = "en";
+        }
+        window.__LOCALE__ = loc;
+        document.documentElement.lang = loc;
+      })();
+    </script>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" />
     <link href="https://cdn.jsdelivr.net/npm/geist@1/dist/fonts/geist-sans/style.css" rel="stylesheet" />
     <link href="https://cdn.jsdelivr.net/npm/geist@1/dist/fonts/geist-mono/style.css" rel="stylesheet" />
