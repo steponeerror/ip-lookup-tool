@@ -224,65 +224,34 @@ async def db_status():
     return get_status()
 
 
-async def _stream_update_db() -> AsyncIterator:
-    """Stream database update progress as NDJSON events."""
-    steps = get_download_steps()
-    total = len(steps) + 1
-    errors: list[str] = []
-    done = 0
-
-    yield json.dumps({"type": "start", "total": total}) + "\n"
-
-    for name, fn in steps:
-        yield json.dumps({
-            "type": "step", "done": done, "total": total,
-            "name": name, "status": "downloading",
-        }) + "\n"
-        try:
-            await asyncio.to_thread(fn)
-            done += 1
-            yield json.dumps({
-                "type": "step", "done": done, "total": total,
-                "name": name, "status": "done",
-            }) + "\n"
-        except Exception as e:
-            done += 1
-            errors.append(f"{name}: {e}")
-            yield json.dumps({
-                "type": "step", "done": done, "total": total,
-                "name": name, "status": "failed", "error": str(e),
-            }) + "\n"
-        await asyncio.sleep(0)
-
-    yield json.dumps({
-        "type": "step", "done": done, "total": total,
-        "name": "Loading DB", "status": "loading",
-    }) + "\n"
-    try:
-        await asyncio.to_thread(load_db)
-        done += 1
-        yield json.dumps({
-            "type": "step", "done": done, "total": total,
-            "name": "Loading DB", "status": "done",
-        }) + "\n"
-    except Exception as e:
-        done += 1
-        errors.append(f"Loading DB: {e}")
-        yield json.dumps({
-            "type": "step", "done": done, "total": total,
-            "name": "Loading DB", "status": "failed", "error": str(e),
-        }) + "\n"
-
-    status = get_status()
-    if errors:
-        status["warnings"] = errors
-    yield json.dumps({"type": "complete", "status": status}) + "\n"
+def _offline_enabled_names():
+    """Names of enabled offline sources (candidates for batch update)."""
+    from ipdb._registry import _enabled_sources, _archetype
+    return [s.name for s in _enabled_sources() if _archetype(s) == "offline"]
 
 
 @app.post("/api/update-db")
 async def update_db():
-    return StreamingResponse(
-        _stream_update_db(), media_type="application/x-ndjson")
+    bid = manager.enqueue_batch(_offline_enabled_names())
+    return {"batch_id": bid}
+
+
+@app.post("/api/update-db/cancel")
+async def update_db_cancel():
+    manager.cancel_batch(manager._active_batch)
+    return {"ok": True}
+
+
+@app.post("/api/update-db/pause")
+async def update_db_pause():
+    manager.pause()
+    return {"ok": True}
+
+
+@app.post("/api/update-db/resume")
+async def update_db_resume():
+    manager.resume()
+    return {"ok": True}
 
 
 @app.get("/api/lookup/{ip}")
@@ -328,20 +297,16 @@ async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
 @app.post("/api/sources/{name}/update")
 async def update_source_route(name: str):
     try:
-        return await asyncio.to_thread(update_source, name)
+        t = manager.enqueue_one(name)
     except ValueError:
         raise HTTPException(404, f"unknown source: {name}")
+    return {"task_id": t.id}
 
 
-@app.post("/api/sources/{name}/update/stream")
-async def update_source_stream_route(name: str):
-    async def gen():
-        try:
-            for evt in update_source_streaming(name):
-                yield json.dumps(evt) + "\n"
-        except ValueError:
-            yield json.dumps({"type": "error", "error": f"unknown source: {name}"}) + "\n"
-    return StreamingResponse(gen(), media_type="application/x-ndjson")
+@app.post("/api/tasks/{task_id}/cancel")
+async def cancel_task_route(task_id: str):
+    manager.cancel(task_id)
+    return {"ok": True}
 
 
 @app.get("/api/tasks")
