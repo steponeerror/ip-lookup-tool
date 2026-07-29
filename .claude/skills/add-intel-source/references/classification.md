@@ -72,6 +72,14 @@ If the feed has its own category vocabulary, add a `{native: intelmq}` dict in
 `_classification.py`, next to the existing maps. Naming convention:
 `<FEEDNAME>_MAP` (uppercase).
 
+**Two different `normalize`s — don't confuse them.** `_classification.normalize(raw_type, MAP)`
+(this module) maps a native category → controlled-vocab term at parse time — this is what
+sources call inside `harvest()` / `parse_row()`. Separately, the `Source` base (`_source_base.py`)
+defines an optional `normalize(self, raw: Evidence) -> Evidence` hook that transforms a whole
+`Evidence` record post-harvest. **No source overrides that hook today** — all classification
+normalization goes through this module's `normalize()`. If you think you need the hook, you
+almost certainly want this module's `normalize()` instead.
+
 Existing maps to model yours on:
 
 ```python
@@ -85,6 +93,7 @@ THREATFOX_MAP = {           # abuse.ch threat_type → IntelMQ
 BLOCKLIST_DE_MAP = { ... }  # attack code → IntelMQ
 PROXY_MAP = { ... }         # ip2proxy proxy_type → IntelMQ
 OTX_PROTOCOL_MAP = { ... }  # OTX pulse protocol keyword → IntelMQ
+MISP_CATEGORY_MAP = { ... }  # MISP category → IntelMQ (severity-driven; see misp.py)
 ```
 
 Rules for building a map:
