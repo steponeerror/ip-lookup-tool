@@ -344,6 +344,35 @@ async def update_source_stream_route(name: str):
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 
+@app.get("/api/tasks")
+async def tasks_snapshot():
+    """Point-in-time snapshot of in-flight tasks + active batch."""
+    return manager.snapshot()
+
+
+@app.get("/api/events")
+async def events():
+    """SSE stream of task/batch events. Yields an initial snapshot event on
+    connect so reconnects resync, then one `data: <json>` line per event."""
+    loop = asyncio.get_running_loop()
+    q = manager.subscribe(loop)
+
+    async def gen():
+        try:
+            yield f"data: {json.dumps({'type': 'snapshot', 'data': manager.snapshot()})}\n\n"
+            while True:
+                evt = await q.get()
+                yield f"data: {json.dumps(evt)}\n\n"
+        finally:
+            manager.unsubscribe(q)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ── Static file serving for production frontend ──
 # In development: run `npm run dev` separately (port 5173) for hot-reload.
 # In production: build first — cd frontend && npm run build — then access :8000.
