@@ -438,10 +438,10 @@ export function ResultTable({ results }: ResultTableProps) {
     { key: "ip", label: "IP" },
     { key: "asn", label: "ASN", className: "w-24" },
     { key: "country", label: t("column.country"), className: "w-24" },
-    { key: "as_name", label: "ISP/Org" },
+    { key: "as_name", label: t("ipDetail.org") },
     { key: "verdict", label: t("column.verdict"), className: "w-20 text-center" },
     { key: "threat", label: t("column.threat"), className: "min-w-[180px]" },
-    { key: "ip_range", label: "Range", className: "w-44" },
+    { key: "ip_range", label: t("ipDetail.range"), className: "w-44" },
   ];
 
   return (
