@@ -60,3 +60,44 @@ FLAG **accepted** (user sign-off): ip-lookup-tool is non-commercial / internal (
 
 ### Discovery skill-gap note (for Task 4)
 The skill's "gap-first" core principle gives **no guidance** for the situation this iteration hit: user wants an IpList, but every dead slot lacks a native-IP free feed, so the only survivors reinforce a saturated axis and/or carry a license FLAG. The skill needs a "dead-slot-has-no-native-IP-feed" fallback path (pivot to thin-axis reinforcement, or accept FLAG).
+
+---
+
+## R2 — Source subclass + new `_MAP`
+
+### Discovery (3 parallel agents — validates the R1 "maximize-discovery" skill fix)
+
+**Seed:** Source-subclass archetype + own category vocabulary (new `_MAP`) + fills a dead slot.
+
+**Multi-angle sweep results:**
+| Candidate | Verdict | Reason |
+|---|---|---|
+| **TweetFeed** (`0xDanielLopez/TweetFeed/year.csv`) | **VIABLE** | CSV, `type==ip` filter (11131 rows), `tag` hashtag vocab → new `TWEETFEED_MAP`; fills **phishing** dead slot |
+| **URLhaus** (abuse.ch `csv_online`) | **VIABLE** | CSV, harvest URL→IP-host (7218 rows, 44.9%), `tags` vocab → `URLHAUS_MAP`; fills **botnet** (mirai/Mozi); domain-feed FLAG |
+| CyberCrime tracker | NOT VIABLE | only `all.php` flat URL list, no category column (labels in HTML badges) |
+| Bambenek C2 IP | NOT VIABLE | license-gated since Jul 2019 (`PERMISSION DENIED`) |
+| C2IntelFeeds / threatcluster / firehol-cybercrime / ViriBack / Benkow / PhishStats | NOT VIABLE | saturated/too small/plain-IP/HTML-404 |
+
+**Dead-slot accessibility finding (empirical):**
+- `phishing` ✓ — TweetFeed (categorized, accessible)
+- `botnet` ✓ — URLhaus tags (mirai/Mozi)
+- `ddos` / `vulnerable-system` / `misconfiguration` ✗ — **no accessible free categorized feed found**; existing lists are plain IP-per-line with no type column. These slots remain genuinely uncovered by free open feeds.
+
+**Gap-1 fix validated:** R1's direct search concluded "phishing has no native-IP feed." The R2 multi-angle sweep (catalog browse + `type`-column filter) found TweetFeed — a categorized phishing IP feed R1 missed. The "search hard / multi-angle / don't pre-declare empty" guidance works.
+
+### TweetFeed dossier (recommended top pick)
+- URL: `https://raw.githubusercontent.com/0xDanielLopez/TweetFeed/master/year.csv`
+- Sample: `2025-07-31 00:10:31,catnap707,url,http://172.67.166.60,#phishing,https://x.com/...`
+- Columns: `date, author, type, value, tag, link` (no header). `type` ∈ {url, domain, ip, md5, sha256}.
+- IP rows: **11131** (filter `type==ip`).
+- Tag vocab (IP rows): `#phishing` (1333), `#C2`/`#CobaltStrike`/`#Remcos`/`#Sliver`/`#Interactsh`/`#Deimos` (~3500+, C2-dominated), **empty tag (2962, 26%)**.
+- Needs new `_MAP`: `TWEETFEED_MAP` — `#phishing→phishing`, `#C2/#CobaltStrike/...→c2-server`, empty→`other`/`blacklist`, malware-family tags→`malware`/`other`.
+- Archetype: `Source` subclass — `harvest()` filters `type==ip`, per-row tag → `normalize(tag, TWEETFEED_MAP)`, preserve raw tag in `extra.native_type`.
+- License: free, no-auth (crowd-sourced from infosec X/Twitter — reliability ≤ 0.55, not authoritative).
+- Slot: **phishing** (dead, 1333 rows) + reinforces c2-server (majority).
+- Rubric: coverage 4 / cost 3 / access 5 / freshness 4 / quality 2 / cleanliness 2 = **20/30**
+- Gate verdict: **PASS** (free, no-auth, native-IP via `type` column — NOT the fragile URL→IP domain-feed path)
+- Notes: C2-dominated + 26% empty tags → `other`% will be significant (Principle stress-test). Crowd-sourced → lower reliability, no authority.
+
+### R2 decision — needs user input
+**TweetFeed** (recommended: fills the phishing dead slot R1 missed; no domain-feed FLAG; but C2-dominated + 26% empty tags) **vs URLhaus** (fills botnet; stronger Principle exercise — drop 55% domain rows + tag sanitization; but domain-feed FLAG needs sign-off).
