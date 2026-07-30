@@ -150,3 +150,20 @@ The skill's "gap-first" core principle gives **no guidance** for the situation t
 - **`other`% = 0.0%** — cleanest possible: mirai/Mozi/hajime→botnet, every other row→malware-distribution base. No FLAG.
 - Query IP `61.54.253.89` (botnet) → `GET /api/lookup` **200**; `classifications.botnet.details[]` = `{source:"urlhaus", reliability:0.7, first_seen:"2026-07-30T11:54:23", extra:{native_type:"32-bit,elf,mips,Mozi", reporter:"geenensp", url_status:"online"}}` → **dead-slot botnet fill verified, all signal preserved**.
 - **L3 flags: none.**
+
+---
+
+## R3 — Optimization pass (ApiSource deferred per user; gap stays open)
+
+**Scope change:** R3 was originally the ApiSource greenfield. Per user direction, ApiSource is **deferred** ("暂不考虑") — its greenfield gap remains **open and documented**, not done. R3 became an optimization pass: signal audit + enrichment + corroboration verification + skill consolidation.
+
+### R3a — signal-preservation audit + enrichment
+Audit of the 3 new sources for silently-dropped signal:
+- **binarydefense**: clean — plain IP list, no fields beyond the IP. No change.
+- **urlhaus**: 2 enrichments — `Evidence.last_seen` from the `last_online` column (recency signal, was dropped) + `malware_name` = matched family (`mirai`/`Mozi`/`hajime`, was only in `extra`). Tests updated.
+- **tweetfeed**: 1 enrichment — `extra.tweet_url` = the source report link (provenance, was dropped).
+
+### R3b — fusion/corroboration verification
+- Sampled 400 binarydefense IPs via `/api/lookup`; found **cross-source corroboration**: `2.57.17.144` and `2.57.17.185` flagged by **both `ipsum` and `binarydefense`** on `blacklist` → `corroborated=True`, **confidence=80** (boosted from single-source baseline). → the new source adds real corroboration value to fusion.
+- tweetfeed (phishing) and urlhaus (botnet) fill **unique dead slots** no other source emits → single-source by design (`corroborated=False`), but they add **coverage value** (a new classification axis for those IPs). Different value vector from binarydefense, both valid.
+- **No reliability tuning needed** — the corroboration mechanism works correctly at default weights.
