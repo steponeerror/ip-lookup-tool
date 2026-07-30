@@ -66,6 +66,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "abuseipdb":   0.75,
     "misp":        0.70,
     "feodo":       0.85,
+    "stopforumspam": 0.70,
 }
 
 AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
