@@ -4,6 +4,15 @@ How a source's raw, native category becomes the cross-source `classification_typ
 axis that fusion and the frontend rely on. Grounded in
 `backend/ipdb/_classification.py`.
 
+## Contents
+
+- The two-layer model
+- The controlled vocabulary
+- `normalize(raw_type, mapping) -> str`
+- Adding a per-source map
+- `field_map` vs `_MAP` — two different things
+- The bug this whole design avoids
+
 ## The two-layer model
 
 Every evidence observation carries **two** category signals:
