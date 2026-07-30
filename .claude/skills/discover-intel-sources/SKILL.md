@@ -87,6 +87,15 @@ Coverage) mapped onto this tool's contract. Score them, don't narrate them.
 *ranking* mechanism — if your final order isn't the rubric order, say explicitly
 why (e.g. "cost tied, #2 wins on uniqueness").
 
+**Reading `other`% on the cleanliness axis:** crowd-sourced / hashtag feeds
+(TweetFeed, community IOC lists) naturally run 20–40% `other` — empty tags,
+niche malware families, arch/file tokens. That alone is **not** a reject signal;
+the corroboration axis still benefits from the rows that *do* map. To keep
+`other` low when the feed has a defining role, map a **base classification**
+(URLhaus: every row serves malware → unmappable tags fall to
+`malware-distribution`, not `other` → `other`% ≈ 0). See
+`add-intel-source/references/classification.md` § "Multi-value category columns".
+
 ## Hard gates (kill criteria — apply before scoring saves time)
 
 Run these first. A candidate hitting any gate is out (or flagged), regardless of
