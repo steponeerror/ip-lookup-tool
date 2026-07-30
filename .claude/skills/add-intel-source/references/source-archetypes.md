@@ -16,6 +16,14 @@ a class defined in its own module, with `name` + `fields` attributes, callable a
 
 ---
 
+## Contents
+
+- **1. IpListSource** — plain IP/CIDR list
+- **2. CsvSource** — CSV/TSV with structured rows (minimal · per-row classification)
+- **3. Source subclass** — bespoke format (the `harvest()` pattern; what you inherit · iptoasn skeleton · threatfox variant · when to pick it over the simple bases)
+- **4. ApiSource** — query-per-IP REST API (greenfield, 0 sources use it today)
+- **5. `field_map` + planned `SourceSpec`** (declarative routing · SourceSpec NOT yet implemented · gray zone)
+
 ## 1. IpListSource — plain IP/CIDR list
 
 Use when the feed is just lines of IPs/CIDRs (maybe with `#` comments or inline

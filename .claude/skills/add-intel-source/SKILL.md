@@ -1,13 +1,13 @@
 ---
 name: add-intel-source
-description: Use whenever the user wants to add, integrate, wire up, or plug in a new source/feed/dataset/provider for IPs, threats, reputation, ASN, geo, proxies, or blocklists in this repo — even if they only name the feed and don't say "source" (AbuseIPDB, Shodan, ThreatBook, GreyNoise, URLscan, a blocklist, a STIX/TAXII feed, any IP/CSV/API feed). Also use when the user asks "how do I add a source" or references the source registry.
+description: Use whenever the user wants to add, integrate, wire up, or plug in a new source/feed/dataset/provider for IPs, threats, reputation, ASN, geo, proxies, or blocklists in this repo — even if they only name the feed and don't say "source" (AbuseIPDB, Shodan, ThreatBook, GreyNoise, URLscan, a blocklist, a STIX/TAXII feed, any IP/CSV/API feed). Also use when the user asks "how do I add a source" or references the source registry. Use this when the user wants the source **implemented**. To discover, compare, or shortlist candidate sources before deciding which to add, use discover-intel-sources instead.
 ---
 
 # Adding an Intelligence Source to ip-lookup-tool
 
 This skill encodes the established pattern for plugging a new data source into the
 backend, so every source behaves the same way the registry, fusion, and tests
-expect. The pattern already exists across 15 sources — follow it, don't invent.
+expect. The pattern already exists across every source already in `backend/ipdb/_sources/` — follow it, don't invent.
 
 Everything here is grounded in the base classes, the registry, the Evidence
 contract, and the merge maps — read them alongside this skill when implementing:
@@ -154,7 +154,7 @@ fill in.
 6. **Register in the central dicts** (discovery is NOT enough — `_validate.py`
    doesn't check these, so an omission fails silently). Edit:
    - `backend/ipdb/_registry.py` → `SOURCE_CATEGORIES`: add `"<name>": "threat" | "geo_asn" | "asset"`. Required for EVERY source — omit and the UI shows category `other`.
-   - `backend/ipdb/_merge.py` → `SOURCE_RELIABILITY`: add `"<name>": <0–1>` ONLY for `geo_asn`/`asset` sources. The class-level `reliability` is ignored on this path; an omission silently fuses at 0.5. (Threat sources use their class-level `reliability` and skip this dict.)
+   - `backend/ipdb/_merge.py` → `SOURCE_RELIABILITY`: add `"<name>": <0–1>` for **every** source — this dict feeds **two consumers**: (1) the scalar merge path (`_to_attributions` — country/asn/as_name/ip_range/is_proxy) and (2) STIX export's source-identity `x_reliability` (`_stix_export._get_src_reliability`, hit by the live `/api/lookup/{ip}/stix` endpoint). An omission silently yields `0.5` on both — so a missing threat source still fuses correctly (the threat path reads class-level `reliability` directly) but its **STIX reliability exports as 0.5**. Set the entry to match the source's class-level `reliability`.
    - `backend/ipdb/_merge.py` → `AUTHORITATIVE_SOURCES`: if your source should have authoritative veto on `is_proxy`/`is_tor`/`is_vpn`/`is_malicious`/`is_hosting`/`is_mobile`, add it to that field's list. (The class-level `authoritative_for` attr is decorative — fusion only reads this dict.)
 
    Geo sources have extra hardcoded coupling (`NamingAuthority` grants CN/HK/MO/TW `as_name` authority to `cn_isp` only; `get_status` names `ipinfo_lite`/`iptoasn`/`cn_isp` directly) — full decoupling is Phase 2 of the polish spec.
@@ -184,12 +184,14 @@ python3 -m pytest test_source_decls.py test_registry_new.py \
 python3 -m pytest -q                                        # full suite — expect the same pass/fail as before
 ```
 
-The full suite currently has **3 known failures** in
-`test_quota_thread_safety.py`. These are a quota-cap drift bug (tests assume a
-950 daily cap; the code allows 1000), **not** environmental rate-limiting — at
-`_daily_count=950` the tests proceed to call the real ipapi.is API, which 403s.
-They reproduce on a clean checkout and are unrelated to source work, so don't
-chase them — just make sure you didn't add a 4th.
+The full suite has **known unrelated failures** in `test_quota_thread_safety.py`
+— a quota-cap drift bug (tests assume a 950 daily cap; the code allows 1000),
+**not** environmental rate-limiting: at `_daily_count=950` the tests call the
+real ipapi.is API, which 403s. They reproduce on a clean checkout and are
+unrelated to source work, so don't chase them. **Re-run the suite before your
+change to confirm the current baseline** — the count drifts as the quota bug
+gets fixed, so don't trust a hardcoded number; just make sure you didn't add a
+new failure.
 
 Finally, sanity-check the lifecycle by hand:
 
