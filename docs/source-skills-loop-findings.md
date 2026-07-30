@@ -167,3 +167,40 @@ Audit of the 3 new sources for silently-dropped signal:
 - Sampled 400 binarydefense IPs via `/api/lookup`; found **cross-source corroboration**: `2.57.17.144` and `2.57.17.185` flagged by **both `ipsum` and `binarydefense`** on `blacklist` → `corroborated=True`, **confidence=80** (boosted from single-source baseline). → the new source adds real corroboration value to fusion.
 - tweetfeed (phishing) and urlhaus (botnet) fill **unique dead slots** no other source emits → single-source by design (`corroborated=False`), but they add **coverage value** (a new classification axis for those IPs). Different value vector from binarydefense, both valid.
 - **No reliability tuning needed** — the corroboration mechanism works correctly at default weights.
+
+---
+
+## Cross-Iteration Summary
+
+### Campaign outcome
+| Iteration | Source | Archetype | Slot filled | other% |
+|---|---|---|---|---|
+| R1 | binarydefense | IpListSource | blacklist (reinforces; dead slots had no native-IP feeds) | 0% |
+| R2 | tweetfeed | Source subclass + `TWEETFEED_MAP` | **phishing (dead)** | 34.3% |
+| R2.5 | urlhaus | Source subclass + `URLHAUS_MAP` (URL→IP harvest) | **botnet (dead)** | 0% |
+| R3 | (ApiSource deferred per user) | — | — | — |
+
+Plus R3 optimization pass: urlhaus/tweetfeed signal enrichment (last_seen, malware_name, tweet_url) + corroboration verified (binarydefense×ipsum → confidence 80) + skill coherence.
+
+### Skill gaps fixed (L1/L2/L4 — all committed)
+- **discover-intel-sources**: "Search hard (maximize discovery)" — multi-angle sweep + depth check (R1); `other`% expectation on the cleanliness axis (R2); "declare dead slot empty after one query" anti-pattern (R3c).
+- **add-intel-source references**: `fields` attr is decorative for typed sources (R1); "Multi-value category columns" — split + first-mappable-wins + base-over-other pattern (R2).
+
+### Coverage-frontier findings (empirical)
+- `phishing` dead slot → **TweetFeed** (categorized, accessible) — R1 missed it by searching too narrowly; R2's wider sweep found it. **Validates the maximize-discovery fix.**
+- `botnet` dead slot → **URLhaus** tags (mirai/Mozi/hajime).
+- `ddos` / `vulnerable-system` / `misconfiguration` → **no accessible free categorized feed exists** (plain IP-per-line only). These slots remain genuinely uncovered by free open feeds.
+
+### L3 backend flags
+**None.** No backend code change was needed (no blocker hit bar (c)). The ApiSource-in-synchronous-loop latency smell was NOT encountered (ApiSource deferred).
+
+### Open gap (honest)
+**ApiSource greenfield** — still 0 sources, 0 tests; its archetype skeleton (`source-archetypes.md §4`) remains unvalidated by a real source. Deferred per user direction; the skill still marks it honestly as "greenfield, 0 sources use it today."
+
+### Final regression
+**3 failed, 311 passed, 3 skipped** — same 3 pre-existing `test_quota_thread_safety` failures (950-vs-1000 quota drift); +7 new passing tests (3 binarydefense, 2 tweetfeed, 2 urlhaus); **0 new failures introduced across the whole campaign**.
+
+### Principle adherence (preserve signal / filter noise)
+- **Preserve**: every intel field routed to a home (core/canonical/extra) — native_type, reporter, last_seen, malware_name, tweet_url, url_status all kept; nothing silently dropped after R3a.
+- **Filter**: non-IP rows (tweetfeed/urlhaus), comment lines, domain-host URLs (~55% of urlhaus rows), structural noise — all dropped with documented reasons in each per-field routing audit table.
+- `other`% kept at 0% where a base classification exists (urlhaus); accepted 34% for a crowd-sourced hashtag feed (tweetfeed) with the expectation documented in the skill.
