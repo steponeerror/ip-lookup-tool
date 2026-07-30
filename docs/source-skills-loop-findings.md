@@ -125,3 +125,28 @@ The skill's "gap-first" core principle gives **no guidance** for the situation t
 ### Skill-gap candidates surfaced (for Task 8)
 1. Multi-value category field: TweetFeed's `tag` is a *space-separated hashtag list*, not a single value. `normalize()` takes one string; the source must split + pick a primary. `classification.md` / `source-archetypes.md §3` don't cover "category column is multi-valued → split + first-mappable-wins."
 2. `other`% expectation: crowd-sourced hashtag feeds run ~34% `other` (empty + unmappable tags). The skill could set expectations that this is normal for such feeds (not necessarily a quality bug).
+
+---
+
+## R2.5 — URLhaus (second R2 source; both viable candidates integrated per user)
+
+**Rationale:** both viable R2 candidates fill *different* dead slots (TweetFeed→phishing, URLhaus→botnet) and provide independent corroboration — keeping both aligns with the preserve-signal Principle. Domain-feed FLAG user-approved (URLs churn; mitigated via `stale_days=1` + time-decay).
+
+### Per-field routing audit (Principle)
+| Feed field | Home slot | Preserve/Filter | Reason |
+|---|---|---|---|
+| `url` host = domain | — (gate) | **filter** | IP tool; domain hosts = noise (~55% dropped) |
+| `url` host = IP-literal | key | preserve | identity |
+| `tags` (comma-list) | `classification_type` (URLHAUS_MAP) + `extra.native_type` (raw) | preserve | Conventions 1+2; arch noise (`32-bit/elf/mips`) skipped |
+| `threat` (`malware_download`) | base = `malware-distribution` | preserve (implicit) | every row serves malware |
+| `reporter` | `extra.reporter` | preserve | provenance |
+| `url_status` (online/offline) | `extra.url_status` | preserve | liveness/recency signal |
+| `dateadded` | `Evidence.first_seen` | preserve | drives confidence decay |
+| `urlhaus_link`, full URL path | — | **filter** | per-row, low marginal value |
+
+### Verification (c) + other%
+- `update_source("urlhaus")` → **1297** records (7223 IP-host rows → deduped; many URLs per compromised host), `loaded=True`, `is_stale=False`.
+- Distribution (real harvest): **malware-distribution 5689 (78.7%)**, **botnet 1534 (21.2%)**.
+- **`other`% = 0.0%** — cleanest possible: mirai/Mozi/hajime→botnet, every other row→malware-distribution base. No FLAG.
+- Query IP `61.54.253.89` (botnet) → `GET /api/lookup` **200**; `classifications.botnet.details[]` = `{source:"urlhaus", reliability:0.7, first_seen:"2026-07-30T11:54:23", extra:{native_type:"32-bit,elf,mips,Mozi", reporter:"geenensp", url_status:"online"}}` → **dead-slot botnet fill verified, all signal preserved**.
+- **L3 flags: none.**
