@@ -36,12 +36,27 @@ Baseline (Task 0): 3 failed (`test_quota_thread_safety` ×3 — 950-vs-1000 quot
 - Gate verdict:   **FLAG(commercial-use restriction — "public use only, no commercial resale"; needs explicit user sign-off)**
 - Notes:          overlap check — NOT aggregated by firehol (verified: no `binarydefense.ipset` in `firehol/blocklist-ipsets`, not in `firehol_level2.netset` source list); adds independent honeypot corroboration even with partial IP overlap. Two trade-offs: (1) reinforces a saturated threat axis (low coverage novelty); (2) **license FLAG needs user decision**.
 
-### R1 decision — needs user input
+### R1 decision — RESOLVED
 
-The top survivor is **FLAG'd on commercial-use license**. Per `discover-intel-sources`, a FLAG candidate needs explicit user sign-off before integration. Options:
-1. **Accept Binary Defense** — appropriate if ip-lookup-tool is non-commercial / personal / internal (the release zip is local-only; no fee-charging).
-2. **Reject and re-pivot** — to the asset axis (a hosting/datacenter or proxy list with a clean license), accepting reinforcement.
-3. **Name a specific alternative** native-IP feed you'd prefer.
+FLAG **accepted** (user sign-off): ip-lookup-tool is non-commercial / internal (release zip local-only, no fee-charging), so Binary Defense's "public use only, no commercial resale" clause is compatible.
+
+### Per-field routing audit (Principle)
+| Feed field | Home slot | Preserve/Filter | Reason |
+|---|---|---|---|
+| IPv4 address | key (CIDR) | preserve | identity |
+| `#` comment lines | — | **filter** | structural noise |
+| blank lines | — | **filter** | structural noise |
+| undifferentiated honeypot attack | `Evidence.classification_type = "blacklist"` | preserve | class attr (no subcategory → generic blacklist, Convention 2) |
+| raw native type | `Evidence.extra.native_type = "blacklist"` | preserve | Convention 1 (auto-wired by `IpListSource.get_insert_data`) |
+
+`other`% = **0** (single fixed `classification_type`, no `_MAP`, nothing falls through).
+
+### Verification (c) — closed loop
+- `update_source("binarydefense")` → downloaded **1515** records, `loaded=True`, `is_stale=False`.
+- Query IP: `1.162.11.208` (first record in the downloaded file).
+- `GET /api/lookup/1.162.11.208` → **200**; `resp.classifications.blacklist.details[]` contains `{"source":"binarydefense","reliability":0.65,"extra":{"native_type":"blacklist"}}` → **new source attributed correctly, native_type preserved**.
+- `corroborated: false` (only this source flags the IP under `blacklist` — expected; corroboration needs ≥2 independent sources on the same axis).
+- **L3 flags: none** — no backend fix needed; the lookup path worked end-to-end.
 
 ### Discovery skill-gap note (for Task 4)
 The skill's "gap-first" core principle gives **no guidance** for the situation this iteration hit: user wants an IpList, but every dead slot lacks a native-IP free feed, so the only survivors reinforce a saturated axis and/or carry a license FLAG. The skill needs a "dead-slot-has-no-native-IP-feed" fallback path (pivot to thin-axis reinforcement, or accept FLAG).
