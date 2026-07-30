@@ -86,6 +86,29 @@ MISP_CATEGORY_MAP = {
     "botnet": "botnet",
 }
 
+# TweetFeed (0xDanielLopez/TweetFeed) — infosec-X IOC feed. The `tag` field is a
+# space-separated hashtag list (e.g. "#C2 #CobaltStrike"); tweetfeed.harvest
+# splits it and applies the FIRST mappable hashtag. C2/RAT-infra tags collapse
+# to c2-server; malware-family tags without a vocab slot (#ransomware, #APT…)
+# fall to "other" with the raw tag preserved in extra.native_type (Convention 2).
+TWEETFEED_MAP = {
+    "#phishing": "phishing",
+    "#c2": "c2-server",
+    "#cobaltstrike": "c2-server",
+    "#remcos": "c2-server",
+    "#sliver": "c2-server",
+    "#interactsh": "c2-server",
+    "#deimos": "c2-server",
+    "#asyncrat": "c2-server",
+    "#formbook": "c2-server",
+    "#quasar": "c2-server",
+    "#malware": "malware",
+    "#botnet": "botnet",
+    "#mirai": "botnet",
+    "#mozi": "botnet",
+    "#ddos": "ddos",
+}
+
 
 def normalize(raw_type, mapping: dict) -> str:
     """Map a source-native category to a CONTROLLED IntelMQ classification.type

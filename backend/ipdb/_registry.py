@@ -142,6 +142,7 @@ SOURCE_CATEGORIES = {
     "feodo": "threat",
     "stopforumspam": "threat",
     "binarydefense": "threat",
+    "tweetfeed": "threat",
     "ip2proxy": "asset",
     "tor_exits": "asset",
     "x4bnet_vpn": "asset",
