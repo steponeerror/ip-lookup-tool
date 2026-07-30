@@ -52,6 +52,10 @@ results-final.png
 # Temp files
 *.tmp
 
+# Pytest regression baseline (closed-loop campaign scratch)
+.baseline-pytest.txt
+baseline-pytest.txt
+
 # Design scratch (superpowers brainstorm/plans/specs)
 docs/superpowers/
 .superpowers/
