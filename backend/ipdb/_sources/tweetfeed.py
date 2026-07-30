@@ -57,9 +57,14 @@ class TweetFeedSource(Source):
                 ip = row[3].strip()
                 raw_tag = row[4].strip()
                 first_seen = row[0].strip().replace(" ", "T")  # → ISO for decay parse
+                tweet_url = row[5].strip() if len(row) > 5 else ""
                 yield ip, Evidence(
                     classification_type=_classify_tag(raw_tag),
                     verdict="malicious",
                     first_seen=first_seen,
-                    extra={"native_type": raw_tag, "reporter": row[1].strip()},
+                    extra={
+                        "native_type": raw_tag,
+                        "reporter": row[1].strip(),
+                        "tweet_url": tweet_url,       # provenance back to the source report
+                    },
                 )
