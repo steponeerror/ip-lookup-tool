@@ -109,6 +109,19 @@ TWEETFEED_MAP = {
     "#ddos": "ddos",
 }
 
+# URLhaus (abuse.ch) malware-distribution-URL feed. The `tags` column is a
+# comma-separated list mixing malware-family names with file/arch noise
+# (``32-bit,elf,mips,Mozi``). urlhaus.harvest splits on ``,`` and applies the
+# first mappable tag. Only IoT-botnet families map to the ``botnet`` dead slot;
+# every other row falls to ``malware-distribution`` (the base classification —
+# every URLhaus URL serves malware), so ``other``% stays near 0. Raw tags +
+# reporter are preserved in ``extra``.
+URLHAUS_MAP = {
+    "mirai": "botnet",
+    "mozi": "botnet",
+    "hajime": "botnet",
+}
+
 
 def normalize(raw_type, mapping: dict) -> str:
     """Map a source-native category to a CONTROLLED IntelMQ classification.type
