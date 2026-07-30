@@ -36,10 +36,28 @@ Two rules, and everything else follows:
    **dead slots** — vocab terms no source actually emits (verify by grepping the
    `_sources/` for each `classification_type`). Dead slots + thin axes are the
    highest-value targets. State the gap in one sentence before looking at any feed.
-2. **Source candidates.** Use `agent-reach` (Exa search + GitHub) for discovery.
-   Good seed queries: "open source threat intelligence IP feeds list",
-   "<threat-type> IP blocklist", the feed catalogs (Bert-JanP/Open-Source-Threat-Intel-Feeds,
-   kraloveckey's collection). Cast wide; you'll cut later.
+2. **Search hard for candidates (maximize discovery).** Use `agent-reach`
+   (Exa search + GitHub) and cast a **wide, multi-angle** net — a single query
+   always misses something. Sweep these angles:
+   - **By attack type:** `"<threat-type> IP blocklist"` — scanner / botnet / phishing / ddos / proxy…
+   - **By format:** `"IP CIDR netset"`, `"IP blocklist txt"`, `"IP feed csv"`
+   - **By community/feed catalogs:** `Bert-JanP/Open-Source-Threat-Intel-Feeds`,
+     kraloveckey's collection, `firehol/blocklist-ipsets` (browse its ipsets for
+     sublists NOT already aggregated by this tool's `firehol` source), abuse.ch
+     feeds, AlienVault OTX pulses
+   - **By code:** `gh search code "<threat-type>" extension:txt` / `extension:netset` —
+     finds raw lists buried in repos that catalog/search misses
+   - **By the gap, not the feed:** a dead slot is the *highest-value* search target —
+     search it the *hardest*, do not skip it on the assumption it's "probably empty."
+
+   **gap-first = priority, not permission to skip.** A dead slot that looks empty
+   is a signal to search *harder* (its value is highest precisely because nothing
+   fills it), never to give up after one query. Cast wide; you'll cut later.
+
+   **Before recording a slot as "no native-IP feed found":** have you swept every
+   angle above + checked every catalog + tried `gh search code`? "Not found *this
+   run*" is a *finding* (write it to the report, dated) — **never** a permanent
+   claim baked back into this skill, which would suppress future discovery effort.
 3. **Verify each candidate against reality — never trust marketing.** `curl` the
    URL, fetch a real sample (3–5 lines verbatim), check the actual byte/record
    count. A feed advertised as "thousands of IOCs" that ships 37 rows changes
