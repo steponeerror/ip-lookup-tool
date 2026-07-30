@@ -119,6 +119,33 @@ Rules for building a map:
   silently maps to `other`. (This silently broke the MISP source until a
   pre-test self-check caught it.)
 
+### Multi-value category columns
+
+Some feeds put multiple values in one category field, delimited:
+- **TweetFeed** `tag` — space-separated hashtags: `"#C2 #CobaltStrike"`
+- **URLhaus** `tags` — comma-separated: `"32-bit,elf,mips,Mozi"`
+
+`normalize(raw_type, MAP)` takes a **single** string — it cannot handle these
+directly. Do the split in `harvest()`:
+
+```python
+def _classify(raw_tags: str) -> str:
+    """First mappable token wins; all-unmappable → your base slot (or other)."""
+    for tok in (raw_tags or "").split(DELIM):     # ' ' for tweetfeed, ',' for urlhaus
+        ctype = normalize(tok.strip(), YOUR_MAP)
+        if ctype != "other":
+            return ctype
+    return BASE_SLOT          # see below — prefer a base over "other"
+```
+
+- Preserve the **full raw string** in `extra.native_type` (Convention 1) — the
+  unpicked tokens are still signal, just not the axis label.
+- A **base classification** beats `other` when the feed has one. URLhaus URLs
+  all serve malware, so rows whose tags don't map fall to `malware-distribution`,
+  not `other` → `other`% stays near 0. Use this pattern whenever a feed has a
+  defining role independent of the per-row tag. Models: `tweetfeed.py`,
+  `urlhaus.py`.
+
 ### `field_map` vs `_MAP` — two different things
 
 Don't confuse the per-source classification `_MAP` (this section) with the
