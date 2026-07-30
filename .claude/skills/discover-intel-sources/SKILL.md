@@ -150,6 +150,11 @@ are filled. A dossier with missing slots is incomplete; go back and fetch.
 - **Feed-first instead of gap-first.** Don't start with "GreyNoise looks cool."
   Start with "the `scanner` axis has one real source." The gap determines which
   feeds are even worth evaluating.
+- **Declaring a dead slot empty after one query.** A single search angle misses
+  most feeds — in this campaign, one run concluded "phishing has no native-IP
+  feed"; a wider sweep next run found TweetFeed. Sweep every angle (attack-type
+  / format / catalogs / `gh search code`) before recording "no native-IP feed
+  found *this run*", and never bake that claim back in as permanent.
 - **Trusting the landing page.** The number of rows a feed *claims* vs *ships*
   diverges constantly. Always `curl` a sample. ThreatCluster claims "thousands,"
   ships 37.
