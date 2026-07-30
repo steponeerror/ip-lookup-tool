@@ -69,6 +69,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "stopforumspam": 0.70,
     "binarydefense": 0.65,
     "tweetfeed": 0.55,
+    "urlhaus": 0.70,
 }
 
 AUTHORITATIVE_SOURCES: dict[str, list[str]] = {

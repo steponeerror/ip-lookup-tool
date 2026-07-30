@@ -143,6 +143,7 @@ SOURCE_CATEGORIES = {
     "stopforumspam": "threat",
     "binarydefense": "threat",
     "tweetfeed": "threat",
+    "urlhaus": "threat",
     "ip2proxy": "asset",
     "tor_exits": "asset",
     "x4bnet_vpn": "asset",
