@@ -29,6 +29,8 @@ def test_urlhaus_drops_domain_hosts_and_classifies(tmp_path: Path):
     assert bot["classification_type"] == "botnet"
     assert bot["extra"]["native_type"] == "32-bit,elf,mips,Mozi"   # raw preserved
     assert bot["extra"]["reporter"] == "geenensp"
+    assert bot["malware_name"] == "Mozi"                          # enriched: matched family
+    assert bot.get("last_seen") == "2026-07-30T11:54:23"          # enriched: last_online recency
 
     hajime = s.query("9.10.11.12")[0]       # hajime tag
     assert hajime["classification_type"] == "botnet"

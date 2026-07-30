@@ -26,6 +26,7 @@ def test_tweetfeed_filters_nonip_and_classifies_per_row(tmp_path: Path):
     assert phish["classification_type"] == "phishing"
     assert phish["extra"]["native_type"] == "#phishing"     # Convention 1
     assert phish["extra"]["reporter"] == "catnap707"        # preserve-signal
+    assert phish["extra"]["tweet_url"] == "https://x.com/2" # enriched: provenance
     assert phish["verdict"] == "malicious"
 
     c2 = s.query("1.2.3.4")[0]

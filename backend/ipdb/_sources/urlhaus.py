@@ -41,18 +41,20 @@ def _host_ip(url: str) -> str | None:
     return host
 
 
-def _classify(tags_raw: str) -> str:
-    """First mappable tag wins (mirai/Mozi/hajime → botnet); otherwise the
-    ``malware-distribution`` base — every URLhaus row serves malware by
-    definition, so nothing lands in ``other``."""
+def _classify(tags_raw: str) -> tuple[str, str | None]:
+    """Return (classification, malware_name). First mappable tag wins
+    (mirai/Mozi/hajime → botnet, with the matched family as malware_name);
+    otherwise the ``malware-distribution`` base — every URLhaus row serves
+    malware by definition, so nothing lands in ``other``."""
     for tag in (tags_raw or "").split(","):
-        tag = tag.strip().lower()
-        if not tag or tag == "none":
+        tok = tag.strip()
+        key = tok.lower()
+        if not key or key == "none":
             continue
-        ctype = normalize(tag, URLHAUS_MAP)
+        ctype = normalize(key, URLHAUS_MAP)
         if ctype != "other":
-            return ctype
-    return "malware-distribution"
+            return ctype, tok          # original-case family name for display
+    return "malware-distribution", None
 
 
 class URLhausSource(Source):
@@ -80,10 +82,13 @@ class URLhausSource(Source):
                 if ip is None:
                     continue                               # domain host → filter
                 tags_raw = row[6].strip().strip('"')
+                ctype, malware_name = _classify(tags_raw)
                 yield ip, Evidence(
-                    classification_type=_classify(tags_raw),
+                    classification_type=ctype,
                     verdict="malicious",
                     first_seen=row[1].strip().strip('"').replace(" ", "T"),
+                    last_seen=row[4].strip().strip('"').replace(" ", "T"),  # recency
+                    malware_name=malware_name,            # mirai/Mozi/hajime
                     extra={
                         "native_type": tags_raw,
                         "reporter": row[8].strip().strip('"'),
