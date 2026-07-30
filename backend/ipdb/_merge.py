@@ -62,6 +62,10 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "blocklist_de":0.65,
     "emerging_threats":0.90,
     "otx":         0.75,
+    # threat sources also consumed by STIX export x_reliability (_stix_export._get_src_reliability)
+    "abuseipdb":   0.75,
+    "misp":        0.70,
+    "feodo":       0.85,
 }
 
 AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
