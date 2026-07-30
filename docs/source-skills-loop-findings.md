@@ -101,3 +101,27 @@ The skill's "gap-first" core principle gives **no guidance** for the situation t
 
 ### R2 decision — needs user input
 **TweetFeed** (recommended: fills the phishing dead slot R1 missed; no domain-feed FLAG; but C2-dominated + 26% empty tags) **vs URLhaus** (fills botnet; stronger Principle exercise — drop 55% domain rows + tag sanitization; but domain-feed FLAG needs sign-off).
+
+### R2 decision — RESOLVED
+**TweetFeed** chosen (fills the phishing dead slot R1 missed; no domain-feed FLAG).
+
+### Per-field routing audit (Principle)
+| Feed field | Home slot | Preserve/Filter | Reason |
+|---|---|---|---|
+| `type` (ip/domain/url/hash) | — (gate) | **filter** non-`ip` | IP tool; domain/url/hash = noise (drops ~55% of rows) |
+| IP (`value`, type==ip) | key | preserve | identity |
+| `tag` (hashtag list) | `classification_type` (normalized via `TWEETFEED_MAP`) + `extra.native_type` (raw) | preserve | Conventions 1+2 |
+| `reporter` (`author`) | `extra.reporter` | preserve | provenance signal |
+| `date` | `Evidence.first_seen` | preserve | drives confidence decay |
+| `link` (tweet URL) | — | **filter** | per-row provenance, lengthy, low marginal value |
+
+### Verification (c) + other%
+- `update_source("tweetfeed")` → **9741** records (11133 IP rows → deduped), `loaded=True`, `is_stale=False`.
+- Classification distribution (real harvest): **c2-server 5640 (50.7%)**, `other` 3818 (34.3%), **phishing 1373 (12.3%)**, `malware` 302 (2.7%).
+- **`other`% = 34.3%** — **below the 50% FLAG threshold** (no FLAG). Composed of empty-tag rows (~26%) + unmappable hashtags (`#ransomware`/`#APT`/`#Lazarus`). Recorded as a data-quality note: crowd-sourced hashtag feeds inherently carry high `other`%.
+- Query IP `47.85.82.194` (phishing) → `GET /api/lookup` **200**; `resp.classifications.phishing.details[]` = `{source:"tweetfeed", reliability:0.55, first_seen:"2025-07-31T01:36:19", extra:{native_type:"#phishing", reporter:"Metemcyber"}}` → **dead-slot phishing fill verified, attribution + native_type + reporter preserved**.
+- **L3 flags: none** — no backend fix needed.
+
+### Skill-gap candidates surfaced (for Task 8)
+1. Multi-value category field: TweetFeed's `tag` is a *space-separated hashtag list*, not a single value. `normalize()` takes one string; the source must split + pick a primary. `classification.md` / `source-archetypes.md §3` don't cover "category column is multi-valued → split + first-mappable-wins."
+2. `other`% expectation: crowd-sourced hashtag feeds run ~34% `other` (empty + unmappable tags). The skill could set expectations that this is normal for such feeds (not necessarily a quality bug).
