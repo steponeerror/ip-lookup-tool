@@ -18,7 +18,7 @@ def test_independence_groups_default():
     assert config.INDEPENDENCE_GROUPS["ipsum"] == "aggregated-threat"
 
 def test_warninglists_are_ip_relevant_only():
-    # cloud/CDN + public DNS; no domain/top-site lists.
-    for name in ["amazon-aws", "microsoft-azure", "google-gcp", "cloudflare",
-                 "fastly", "akamai", "public-dns-v4"]:
+    # provider substrings (cloud/CDN + public DNS); no domain/top-site patterns.
+    for name in ["amazon aws", "azure", "gcp", "cloudflare", "fastly", "akamai",
+                 "ipv4 public dns"]:
         assert name in config.IP_WARNINGLISTS

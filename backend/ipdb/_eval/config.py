@@ -25,11 +25,14 @@ INDEPENDENCE_GROUPS = {
     "ipsum":   "aggregated-threat",
 }
 
-# PyMISPWarningLists list names to load (IP-relevant only).
+# PyMISPWarningLists provider substrings treated as benign infrastructure
+# (FP-proxy). Matched case-insensitively against each WarningList's .name
+# (a human description, e.g. "List of known Amazon AWS IP address ranges").
+# search() only returns lists the IP actually hits, so non-IP lists never
+# appear; this just narrows to cloud/CDN/DNS providers.
 IP_WARNINGLISTS = [
-    "amazon-aws", "microsoft-azure", "google-gcp",
-    "cloudflare", "fastly", "akamai",
-    "public-dns-v4",
+    "amazon aws", "azure", "gcp", "cloudflare", "fastly", "akamai",
+    "ipv4 public dns",
 ]
 
 # Corpus sizing.
