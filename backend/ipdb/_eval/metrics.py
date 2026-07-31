@@ -138,7 +138,7 @@ def compute_other_distribution(source) -> dict[str, int]:
     Uses the same archetype-agnostic regex sampler as corpus.sample_source_ips
     plus a per-IP query to resolve the type."""
     from .corpus import sample_source_ips
-    if source is None or not getattr(source, "_path", None) or not source._path.exists():
+    if source is None or not getattr(source, "_path", None) or not source._path.is_file():
         return {}
     counts: dict[str, int] = {}
     for ip in sample_source_ips(source, 200):

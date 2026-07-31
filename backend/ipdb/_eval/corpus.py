@@ -42,7 +42,7 @@ def sample_source_ips(source, n: int, rng: random.Random | None = None) -> list[
     """Archetype-agnostic: regex-extract IP/CIDR tokens from the source's raw
     file and sample n (without replacement, capped at available)."""
     rng = rng or random.Random()
-    if not getattr(source, "_path", None) or not source._path.exists():
+    if not getattr(source, "_path", None) or not source._path.is_file():
         return []
     tokens = _IP_RE.findall(source._path.read_text(errors="ignore"))
     ips = [t.split("/")[0] for t in tokens]            # strip CIDR mask
