@@ -42,3 +42,10 @@ def test_build_benchmark_partitions_by_type(tmp_path):
                             rng=random.Random(0))
     assert set(bench.benchmark.keys()) == {"c2-server", "phishing"}
     assert all(len(v) <= 3 for v in bench.benchmark.values())
+
+def test_sample_source_ips_skips_directory(tmp_path):
+    d = tmp_path / "firehol"
+    d.mkdir()
+    (d / "level1.netset").write_text("1.2.3.4\n5.6.7.8\n")
+    src = _FakeSource("firehol", d)            # _path is a directory
+    assert sample_source_ips(src, n=10, rng=random.Random(0)) == []
