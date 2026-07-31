@@ -1,10 +1,13 @@
 # backend/ipdb/_eval/verdict.py
-"""5-state verdict + INSUFFICIENT-SAMPLE escape.
+"""6-state verdict: 5 net-impact states + 2 special cases.
 
 Benefit HIGH ⟺ MC≥θ_MC OR CG≥θ_CG. Cost HIGH ⟺ Conflict≥θ_conf OR FP≥θ_fp OR
 other%≥θ_other. The high-benefit/low-cost cell splits: VERIFIED if benefit is
 high via the CG gate, UNVERIFIED if high only via MC (dead-slot fillers).
-Below the n-floor, withhold the verdict entirely.
+
+States: (1) POSITIVE-VERIFIED / POSITIVE-UNVERIFIED / MIXED / MARGINAL / NEGATIVE
+(5 net-impact verdicts), (2) INSUFFICIENT-SAMPLE (n-floor escape), (3) N/A-ASSET
+(asset sources where CG does not apply; early return before n-floor check).
 """
 from dataclasses import dataclass, field
 
@@ -30,7 +33,7 @@ _ACTION = {
     "MARGINAL":            "Low benefit, low cost. Keep or drop — little signal either way.",
     "NEGATIVE":            "Drop (or disable by default). Cost exceeds benefit.",
     "INSUFFICIENT-SAMPLE": "Verdict withheld: candidate touches fewer than the n-floor corpus IPs. Metrics are descriptive only.",
-    "N/A-ASSET":            "Asset source (is_tor/is_vpn/is_proxy/is_hosting/is_mobile): these are this source's ground truth — CG (independent corroboration) does not apply. Weight via AUTHORITATIVE_SOURCES, not this verdict.",
+    "N/A-ASSET":           "Asset source (is_tor/is_vpn/is_proxy/is_hosting/is_mobile): these are this source's ground truth — CG (independent corroboration) does not apply. Weight via AUTHORITATIVE_SOURCES, not this verdict.",
 }
 
 
