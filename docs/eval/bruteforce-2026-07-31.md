@@ -1,4 +1,4 @@
-# Net-Impact Eval: `tweetfeed`
+# Net-Impact Eval: `bruteforce`
 
 **Verdict: POSITIVE-UNVERIFIED**
 
@@ -8,14 +8,14 @@
 
 | Metric | Value | n |
 |---|---|---|
-| MC | 0.2768 | 419 |
-| CG | 4.0000 | 4 |
+| MC | 0.1828 | 547 |
+| CG | 0.0000 | 0 |
 | conflict | 0.0000 | 0 |
-| oc | 0.0333 | 120 |
-| dead_slot_fill | 2.0000 | 2 |
-| confidence_uplift | 37.1000 | 120 |
-| fp | 0.0000 | 116 |
-| other | 0.3000 | 200 |
+| oc | 0.0000 | 100 |
+| dead_slot_fill | 0.0000 | 0 |
+| confidence_uplift | 60.0000 | 100 |
+| fp | 0.0000 | 100 |
+| other | 0.0000 | 200 |
 
 ## Verdict inputs
 - benefit_high: True
