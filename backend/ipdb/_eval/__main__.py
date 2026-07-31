@@ -81,7 +81,9 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
     # OC suspicion across all source pairs (advisory).
     pair_oc = _pair_oc_all_sources(registry, benign) if hasattr(registry, "sources") else {}
     flags = oc_suspicion_pairs(pair_oc)
-    verdict = assess(metrics, candidate_touched, flags)
+    from ipdb._registry import SOURCE_CATEGORIES
+    category = SOURCE_CATEGORIES.get(source_name, "other")
+    verdict = assess(metrics, candidate_touched, flags, source_category=category)
     md, js = write_report(source_name, verdict, metrics, corpus, out_dir)
     return md, js, verdict
 

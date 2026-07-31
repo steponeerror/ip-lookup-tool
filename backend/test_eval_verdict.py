@@ -42,3 +42,12 @@ def test_action_text_per_state():
     metrics = {"MC": _m(0.05), "CG": _m(0), "conflict": _m(0), "fp": _m(0.01), "other": _m(0.1)}
     v = assess(metrics, candidate_touched_n=100, suspicion_flags=[])
     assert "trust" in v.action.lower()           # UNVERIFIED mentions trust
+
+def test_asset_source_returns_na_verdict():
+    # asset 源(is_tor/is_vpn/...)是独占 ground truth,CG(独立 corroboration)不适用
+    # → verdict 应是 N/A-ASSET,不是 UNVERIFIED
+    v = assess({}, candidate_touched_n=100, suspicion_flags=[], source_category="asset")
+    assert v.state == "N/A-ASSET"
+    assert v.insufficient is False
+    assert v.verified is False
+    assert "does not apply" in v.action
