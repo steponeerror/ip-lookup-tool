@@ -1,8 +1,8 @@
 """CLI: wires the pure harness to the real ipdb._registry.
 
-  python -m ipdb.eval <source>      # single-source verdict + report
-  python -m ipdb.eval --rebuild     # rebuild the frozen benchmark corpus
-  python -m ipdb.eval --all         # per-source verdict table (no ranking in v1)
+  python -m ipdb._eval <source>      # single-source verdict + report
+  python -m ipdb._eval --rebuild     # rebuild the frozen benchmark corpus
+  python -m ipdb._eval --all         # per-source verdict table (no ranking in v1)
 """
 import argparse
 import random
@@ -94,7 +94,7 @@ def _pair_oc_all_sources(registry, benign):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="python -m ipdb.eval")
+    p = argparse.ArgumentParser(prog="python -m ipdb._eval")
     p.add_argument("source", nargs="?", help="source name to evaluate")
     p.add_argument("--rebuild", action="store_true", help="rebuild frozen benchmark corpus")
     p.add_argument("--all", action="store_true", help="evaluate every source (no ranking in v1)")

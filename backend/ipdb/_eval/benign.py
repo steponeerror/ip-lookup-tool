@@ -1,7 +1,7 @@
 # backend/ipdb/_eval/benign.py
 """FP-proxy: what fraction of a source's IPs hit known-good infrastructure.
 
-Loads PyMISPWarningLists (only IP-relevant cloud/CDN/DNS providers count).
+Loads WarningLists (only IP-relevant cloud/CDN/DNS providers count).
 This is a collateral-damage PROXY, not absolute precision: a compromised EC2
 instance sits in the AWS range but is genuinely malicious.
 """
@@ -11,7 +11,7 @@ from . import config
 
 
 def _default_loader():
-    """Lazily import + construct PyMISPWarningLists (loads all bundled lists)."""
+    """Lazily import + construct WarningLists (loads all bundled lists)."""
     from pymispwarninglists import WarningLists
     return WarningLists()
 
