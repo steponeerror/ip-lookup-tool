@@ -1200,36 +1200,43 @@ git commit -m "feat(eval): markdown + JSON report with per-quadrant actions"
 
 ```python
 # backend/test_eval_cli.py
-import json
 from unittest.mock import MagicMock
 from pathlib import Path
 from ipdb._eval.__main__ import run_for_source
 
+# 25 candidate IPs — clears the n-floor (N_FLOOR=20) so the verdict is
+# POSITIVE-UNVERIFIED (dead-slot fill, CG=0), not INSUFFICIENT-SAMPLE.
+_CAND_IPS = [f"203.0.113.{i}" for i in range(1, 26)]
+
+
+class _FakeBenign:
+    """Hermetic benign checker: no IPs hit infrastructure (FP=0)."""
+    def overall_hit_pct(self, ips): return 0.0
+    def hit_pct(self, ips): return {}
+
+
 class _FakeRegistry:
-    """Minimal registry double. Candidate 'cand' fills phishing on 2.2.2.2."""
+    """Minimal registry double. Candidate 'cand' fills phishing on _CAND_IPS."""
     def __init__(self):
         self.disabled = set()
         self.sources = [MagicMock(name="cand", classification_type="phishing",
                                   _path=Path("/nonexistent"))]
     def lookup(self, ip):
-        if "cand" in self.disabled:
+        if "cand" in self.disabled or ip not in set(_CAND_IPS):
             return {"ip": ip, "classifications": {}}
-        if ip == "2.2.2.2":
-            return {"ip": ip, "classifications": {"phishing": {
-                "type": "phishing", "verdict_conflict": False, "confidence": 50,
-                "sources": [{"source": "cand"}]}}}
-        return {"ip": ip, "classifications": {}}
+        return {"ip": ip, "classifications": {"phishing": {
+            "type": "phishing", "verdict_conflict": False, "confidence": 50,
+            "sources": [{"source": "cand"}]}}}
     def toggle(self, name, enabled):
         self.disabled = (self.disabled - {name}) if enabled else (self.disabled | {name})
 
 def test_run_for_source_produces_verdict_and_report(tmp_path):
     reg = _FakeRegistry()
-    # monkeypatch the candidate's raw file so corpus sampling yields 2.2.2.2
     reg.sources[0]._path = tmp_path / "cand.txt"
-    reg.sources[0]._path.write_text("2.2.2.2\n3.3.3.3\n4.4.4.4\n")
+    reg.sources[0]._path.write_text("\n".join(_CAND_IPS) + "\n")
     md, js, verdict = run_for_source("cand", registry=reg, corpus_path=tmp_path / "c.json",
-                                     out_dir=tmp_path)
-    assert verdict.state == "POSITIVE-UNVERIFIED"   # dead-slot fill, CG=0
+                                     out_dir=tmp_path, benign=_FakeBenign())
+    assert verdict.state == "POSITIVE-UNVERIFIED"   # dead-slot fill, CG=0, n>=floor
     assert md.exists() and js.exists()
     # candidate is left enabled (no on-disk state mutation leak)
     assert "cand" not in reg.disabled
@@ -1265,8 +1272,10 @@ from .metrics import (Metric, compute_other_distribution, mc, cg, conflict, oc,
 from .report import write_report
 from .verdict import assess
 
-REPORT_DIR = Path("docs/eval")
-CORPUS_PATH = Path("backend/ipdb/_eval/corpus.json")
+_PKG_DIR = Path(__file__).resolve().parent              # backend/ipdb/_eval
+_REPO_ROOT = _PKG_DIR.parents[2]                        # _eval -> ipdb -> backend -> repo root
+REPORT_DIR = _REPO_ROOT / "docs" / "eval"               # tracked findings (spec §11)
+CORPUS_PATH = _PKG_DIR / "corpus.json"                  # curated in-package asset (spec §5)
 
 
 def _real_registry():
@@ -1291,9 +1300,9 @@ def _real_registry():
 
 
 def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
-                   out_dir=REPORT_DIR):
+                   out_dir=REPORT_DIR, benign=None):
     registry = registry or _real_registry()
-    benign = BenignChecker()
+    benign = benign or BenignChecker()
 
     corpus = Corpus.load(corpus_path) if corpus_path.exists() else Corpus()
     # dynamic candidate stratum: fresh sample each run.
@@ -1312,12 +1321,13 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
         "oc": oc(baseline, candidate_snap, source_name),
         "dead_slot_fill": dead_slot_fill(baseline, candidate_snap),
         "confidence_uplift": confidence_uplift(baseline, candidate_snap),
-        "fp": fp_proxy([ip for ip, _ in mc(baseline, candidate_snap, source_name, total_pairs).detail],
-                       benign),
+        "fp": fp_proxy([ip for ip, _ in metrics["MC"].detail], benign),
         "other": other_pct(compute_other_distribution(src_obj)),
     }
-    candidate_touched = len({ip for ip in corpus.all_ips()
-                             if registry.lookup(ip).get("classifications")})
+    # n-floor (spec §7): candidate-asserted (ip,type) pairs. Counts ONLY the
+    # candidate's contribution so the floor actually protects niche sources
+    # (counting any-source classifications would always exceed the floor).
+    candidate_touched = len(pairs(candidate_snap, source_name))
     # OC suspicion across all source pairs (advisory).
     pair_oc = _pair_oc_all_sources(registry, benign) if hasattr(registry, "sources") else {}
     flags = oc_suspicion_pairs(pair_oc)
@@ -1367,7 +1377,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd backend && pytest test_eval_cli.py -v`
-Expected: PASS (1 test). Note: the test injects `_FakeRegistry`, so no real DB is loaded. If `compute_other_distribution` or `asdict_bench` are flagged missing, add them (see Step 3b).
+Expected: PASS (1 test). The test injects a `_FakeRegistry` (no real DB loaded) and a `_FakeBenign` (no `pymispwarninglists` needed). `compute_other_distribution` is added in Step 3b.
 
 - [ ] **Step 3b: Add the helper referenced above**
 
