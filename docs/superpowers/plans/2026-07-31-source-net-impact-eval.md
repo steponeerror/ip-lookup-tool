@@ -1075,7 +1075,7 @@ def test_render_md_contains_state_and_metrics():
     md = render_md("tweetfeed", _verdict(), _metrics(), Corpus())
     assert "POSITIVE-UNVERIFIED" in md
     assert "MC" in md and "0.05" in md
-    assert "trust" in md.lower()
+    assert "keep" in md.lower()   # the action text is rendered (> {action})
 
 def test_render_json_roundtrips_structure():
     d = render_json("tweetfeed", _verdict(), _metrics())
