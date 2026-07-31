@@ -131,3 +131,24 @@ def dead_slot_fill(baseline: Snapshot, candidate: Snapshot) -> Metric:
                   for ctype in res.get("classifications", {})}
     filled = sorted(cand_types - base_types)
     return Metric(value=len(filled), n=len(filled), detail=filled)
+
+
+def compute_other_distribution(source) -> dict[str, int]:
+    """Count the candidate source's rows by classification_type, for other%.
+    Uses the same archetype-agnostic regex sampler as corpus.sample_source_ips
+    plus a per-IP query to resolve the type."""
+    from .corpus import sample_source_ips
+    if source is None or not getattr(source, "_path", None) or not source._path.exists():
+        return {}
+    counts: dict[str, int] = {}
+    for ip in sample_source_ips(source, 200):
+        res = source.query(ip)
+        ctype = None
+        if isinstance(res, list):
+            for item in res:
+                ctype = item.get("classification_type") if isinstance(item, dict) else None
+                if ctype: break
+        elif isinstance(res, dict):
+            ctype = res.get("classification_type")
+        counts[ctype or "blacklist"] = counts.get(ctype or "blacklist", 0) + 1
+    return counts
