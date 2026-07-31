@@ -204,3 +204,46 @@ Plus R3 optimization pass: urlhaus/tweetfeed signal enrichment (last_seen, malwa
 - **Preserve**: every intel field routed to a home (core/canonical/extra) — native_type, reporter, last_seen, malware_name, tweet_url, url_status all kept; nothing silently dropped after R3a.
 - **Filter**: non-IP rows (tweetfeed/urlhaus), comment lines, domain-host URLs (~55% of urlhaus rows), structural noise — all dropped with documented reasons in each per-field routing audit table.
 - `other`% kept at 0% where a base classification exists (urlhaus); accepted 34% for a crowd-sourced hashtag feed (tweetfeed) with the expectation documented in the skill.
+
+---
+
+## Eval harness validation (2026-07-31)
+
+Ran `python -m ipdb._eval` (leave-one-out ablation over the frozen benchmark corpus + a
+seeded dynamic candidate stratum) on the three integrated sources. Verdicts are
+deterministic — candidate + other% sampling is seeded by source name (SHA-256,
+process-independent).
+
+| Source | Verdict | MC | CG | OC | FP% | other% | Reading |
+|---|---|---|---|---|---|---|---|
+| tweetfeed | POSITIVE-UNVERIFIED | 0.28 (419) | 4 | 0.03 | 0 | 30% | High marginal coverage (phishing dead-slot fill, `dead_slot_fill`=2); CG=4 just under θ_CG=5 — corroborates c2-server near-threshold (richer than the "CG=0 dead-slot filler" shorthand) |
+| urlhaus | POSITIVE-UNVERIFIED | 0.31 (432) | 1 | 0.01 | 0 | 0% | Botnet dead-slot fill (`dead_slot_fill`=1); near-zero corroboration — a near-pure dead-slot filler |
+| binarydefense | POSITIVE-VERIFIED | 0.06 (443) | 43 | 0.76 | 0 | 0% | Low new coverage (reinforces a saturated blacklist axis, OC=0.76) but strong independent corroboration (CG=43, with ipsum) → VERIFIED — matches §R3b (confidence 80) |
+
+Verdicts are consistent with the closed-loop findings. The harness is the loop's missing
+"+/−" stage: it quantifies each source's marginal coverage (MC), independent corroboration
+(CG), redundancy (OC), and noise cost (FP-proxy / other%), then emits an actionable verdict.
+
+### Findings beyond the spec's expectations
+- **tweetfeed is borderline VERIFIED/UNVERIFIED (CG=4).** The spec assumed tweetfeed is a
+  pure phishing dead-slot filler (CG=0). In fact tweetfeed is c2-server-dominated (50.7% of
+  its rows are c2-server, §R2) and corroborates existing c2-server sources
+  (threatfox/abuseipdb/feodo/otx) on ~4 sampled pairs — just under θ_CG=5. Its
+  POSITIVE-UNVERIFIED verdict therefore carries a "near-threshold corroboration" nuance the
+  report's CG value makes visible.
+- **binarydefense's value is corroboration, not coverage.** MC=0.06 (low) + OC=0.76 (high
+  redundancy) would read "marginal" on coverage alone, but CG=43 (strong corroboration)
+  flips it to POSITIVE-VERIFIED — exactly the fusion-level signal a coverage-only metric
+  would miss.
+
+### Validation-driven harness fixes (all reviewed clean)
+- `corpus.sample_source_ips`: guard `.exists()` → `.is_file()` (firehol's `_path` is a
+  directory; was crashing `--rebuild`).
+- `benign.py`: correct `pymispwarninglists` API — `WarningLists` (not `PyMISPWarningLists`);
+  `search()` returns objects with `.name`, not dicts; provider-substring matching against
+  `.name` (a human description like "List of known Amazon AWS IP address ranges", not the
+  short filename the config assumed).
+- Reproducibility: seed the candidate + other% sampling by source name (was unseeded →
+  borderline verdicts like tweetfeed flipped run-to-run).
+
+Composite ranking + skill auto-integration remain phase 2 (spec §13).
