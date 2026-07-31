@@ -51,3 +51,13 @@ def test_asset_source_returns_na_verdict():
     assert v.insufficient is False
     assert v.verified is False
     assert "does not apply" in v.action
+
+def test_asset_source_bypasses_n_floor_check():
+    # 关键不变性: asset 分支必须在 n-floor 检查之前返回
+    # 用 candidate_touched_n=0 (< N_FLOOR=20) 验证顺序
+    # 如果 asset 检查在 n-floor 之后,此测试会返回 INSUFFICIENT-SAMPLE
+    v = assess({}, candidate_touched_n=0, suspicion_flags=[], source_category="asset")
+    assert v.state == "N/A-ASSET", "asset check must come before n-floor check"
+    assert v.insufficient is False, "asset sources bypass n-floor INSUFFICIENT check"
+    assert v.verified is False
+    assert "does not apply" in v.action
