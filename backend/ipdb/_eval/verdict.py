@@ -30,11 +30,18 @@ _ACTION = {
     "MARGINAL":            "Low benefit, low cost. Keep or drop — little signal either way.",
     "NEGATIVE":            "Drop (or disable by default). Cost exceeds benefit.",
     "INSUFFICIENT-SAMPLE": "Verdict withheld: candidate touches fewer than the n-floor corpus IPs. Metrics are descriptive only.",
+    "N/A-ASSET":            "Asset source (is_tor/is_vpn/is_proxy/is_hosting/is_mobile): these are this source's ground truth — CG (independent corroboration) does not apply. Weight via AUTHORITATIVE_SOURCES, not this verdict.",
 }
 
 
 def assess(metrics: dict[str, Metric], candidate_touched_n: int,
-           suspicion_flags: list) -> Verdict:
+           suspicion_flags: list, source_category: str = "threat") -> Verdict:
+    if source_category == "asset":
+        return Verdict(state="N/A-ASSET", benefit_high=False, cost_high=False,
+                       verified=False, insufficient=False,
+                       suspicion_flags=suspicion_flags,
+                       action=_ACTION["N/A-ASSET"])
+
     if candidate_touched_n < config.N_FLOOR:
         return Verdict(state="INSUFFICIENT-SAMPLE", benefit_high=False,
                        cost_high=False, verified=False, insufficient=True,
