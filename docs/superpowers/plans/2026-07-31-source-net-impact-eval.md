@@ -796,7 +796,7 @@ def mc(baseline: Snapshot, candidate: Snapshot, candidate_src: str,
     base_pairs = pairs(baseline)
     added = cand_pairs - base_pairs
     denom = total_corpus_pairs or 1
-    return Metric(value=len(added) / denom, n=len(added), detail=sorted(added))
+    return Metric(value=len(added) / denom, n=denom, detail=sorted(added))
 
 
 def cg(baseline: Snapshot, candidate: Snapshot, candidate_src: str) -> Metric:
