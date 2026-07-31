@@ -1325,14 +1325,15 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
                                             source_name, corpus)
 
     total_pairs = len(pairs(candidate_snap)) or 1
+    _mc = mc(baseline, candidate_snap, source_name, total_pairs)
     metrics = {
-        "MC": mc(baseline, candidate_snap, source_name, total_pairs),
+        "MC": _mc,
         "CG": cg(baseline, candidate_snap, source_name),
         "conflict": conflict(baseline, candidate_snap),
         "oc": oc(baseline, candidate_snap, source_name),
         "dead_slot_fill": dead_slot_fill(baseline, candidate_snap),
         "confidence_uplift": confidence_uplift(baseline, candidate_snap),
-        "fp": fp_proxy([ip for ip, _ in metrics["MC"].detail], benign),
+        "fp": fp_proxy([ip for ip, _ in _mc.detail], benign),
         "other": other_pct(compute_other_distribution(src_obj)),
     }
     # n-floor (spec §7): candidate-asserted (ip,type) pairs. Counts ONLY the
