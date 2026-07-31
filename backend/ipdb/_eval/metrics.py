@@ -133,7 +133,7 @@ def dead_slot_fill(baseline: Snapshot, candidate: Snapshot) -> Metric:
     return Metric(value=len(filled), n=len(filled), detail=filled)
 
 
-def compute_other_distribution(source) -> dict[str, int]:
+def compute_other_distribution(source, rng=None) -> dict[str, int]:
     """Count the candidate source's rows by classification_type, for other%.
     Uses the same archetype-agnostic regex sampler as corpus.sample_source_ips
     plus a per-IP query to resolve the type."""
@@ -141,7 +141,7 @@ def compute_other_distribution(source) -> dict[str, int]:
     if source is None or not getattr(source, "_path", None) or not source._path.is_file():
         return {}
     counts: dict[str, int] = {}
-    for ip in sample_source_ips(source, 200):
+    for ip in sample_source_ips(source, 200, rng):
         res = source.query(ip)
         ctype = None
         if isinstance(res, list):
