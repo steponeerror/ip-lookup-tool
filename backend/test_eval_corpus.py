@@ -1,7 +1,7 @@
 # backend/test_eval_corpus.py
 import json, tempfile, os, random
 from pathlib import Path
-from ipdb._eval.corpus import Corpus, sample_source_ips, build_benchmark
+from ipdb._eval.corpus import Corpus, sample_source_ips, build_benchmark, stable_seed
 
 class _FakeSource:
     """Stand-in for a source: has _path pointing at a temp raw file."""
@@ -49,3 +49,19 @@ def test_sample_source_ips_skips_directory(tmp_path):
     (d / "level1.netset").write_text("1.2.3.4\n5.6.7.8\n")
     src = _FakeSource("firehol", d)            # _path is a directory
     assert sample_source_ips(src, n=10, rng=random.Random(0)) == []
+
+
+def test_stable_seed_is_deterministic_and_process_independent():
+    # same name -> same seed; not hash()-salted
+    assert stable_seed("tweetfeed") == stable_seed("tweetfeed")
+    assert stable_seed("tweetfeed") != stable_seed("urlhaus")
+
+
+def test_sample_source_ips_seeded_is_reproducible(tmp_path):
+    raw = tmp_path / "big.txt"
+    raw.write_text("\n".join(f"10.0.0.{i}" for i in range(1, 201)))  # 200 IPs, sample 100
+    src = _FakeSource("cand", raw, "phishing")
+    a = sample_source_ips(src, 100, random.Random(stable_seed("cand")))
+    b = sample_source_ips(src, 100, random.Random(stable_seed("cand")))
+    assert a == b                       # same seed -> same sample
+    assert len(a) == 100                # actually subsamples (200 available)

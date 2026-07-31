@@ -5,13 +5,14 @@
   python -m ipdb.eval --all         # per-source verdict table (no ranking in v1)
 """
 import argparse
+import random
 import sys
 from pathlib import Path
 
 from . import config
 from .ablation import run_ablation, take_snapshot
 from .benign import BenignChecker
-from .corpus import Corpus, build_benchmark, sample_source_ips
+from .corpus import Corpus, build_benchmark, sample_source_ips, stable_seed
 from .independence import oc_suspicion_pairs
 from .metrics import (Metric, compute_other_distribution, mc, cg, conflict, oc,
                       fp_proxy, other_pct, confidence_uplift, dead_slot_fill,
@@ -50,12 +51,13 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
                    out_dir=REPORT_DIR, benign=None):
     registry = registry or _real_registry()
     benign = benign or BenignChecker()
+    rng = random.Random(stable_seed(source_name))
 
     corpus = Corpus.load(corpus_path) if corpus_path.exists() else Corpus()
     # dynamic candidate stratum: fresh sample each run.
     src_obj = next((s for s in registry.sources if s.name == source_name), None)
     if src_obj is not None:
-        corpus.candidate_ips = sample_source_ips(src_obj, config.CORPUS_CANDIDATE_N)
+        corpus.candidate_ips = sample_source_ips(src_obj, config.CORPUS_CANDIDATE_N, rng)
 
     baseline, candidate_snap = run_ablation(registry.lookup, registry.toggle,
                                             source_name, corpus)
@@ -70,7 +72,7 @@ def run_for_source(source_name: str, registry=None, corpus_path=CORPUS_PATH,
         "dead_slot_fill": dead_slot_fill(baseline, candidate_snap),
         "confidence_uplift": confidence_uplift(baseline, candidate_snap),
         "fp": fp_proxy([ip for ip, _ in _mc.detail], benign),
-        "other": other_pct(compute_other_distribution(src_obj)),
+        "other": other_pct(compute_other_distribution(src_obj, rng)),
     }
     # n-floor (spec §7): candidate-asserted (ip,type) pairs. Counts ONLY the
     # candidate's contribution so the floor actually protects niche sources

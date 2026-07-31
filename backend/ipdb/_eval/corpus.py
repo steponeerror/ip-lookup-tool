@@ -4,6 +4,7 @@ reserved) + a dynamic candidate stratum. The frozen part is a curated asset
 tracked in git for reproducibility; the candidate stratum is sampled fresh
 per evaluation.
 """
+import hashlib
 import json
 import random
 import re
@@ -36,6 +37,11 @@ class Corpus:
     @classmethod
     def load(cls, path) -> "Corpus":
         return cls(**json.loads(path.read_text()))
+
+
+def stable_seed(name: str) -> int:
+    """Process-independent int seed from a name (hash() is PYTHONHASHSEED-salted)."""
+    return int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big")
 
 
 def sample_source_ips(source, n: int, rng: random.Random | None = None) -> list[str]:
