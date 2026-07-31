@@ -12,7 +12,7 @@ It引用 `discover-intel-sources` / `add-intel-source`(不加源实现,不复述
 ## 5-minute mental model
 
 1. **discover** — invoke `discover-intel-sources` 找候选。
-2. **验活** — 多维验活(curl 4 组合 + jina),三分类(真死/换URL/受限)。见 `references/empirical-liveness.md`。
+2. **验活** — 多维验活(curl 4 组合 + jina),四分类(真死/换URL/受限/免费key但bulk付费)。见 `references/empirical-liveness.md`。
 3. **add** — invoke `add-intel-source` Phase 1-4 加源。
 4. **evaluate** — `download` 后 `python -m ipdb._eval <source>`。见 `references/eval-harness.md`。
 5. **tune** — verdict → action(全 lever 表 + 数值分档)。见 `references/verdict-action.md`;权威源查第三方实测(见 `references/third-party-calibration.md`)。
@@ -36,5 +36,5 @@ It引用 `discover-intel-sources` / `add-intel-source`(不加源实现,不复述
 
 - `references/verdict-action.md` — verdict → action 全 lever 表 + 数值分档 + weight-invariant 警告
 - `references/eval-harness.md` — download→eval 流程 + metrics 解读
-- `references/empirical-liveness.md` — 多维验活 + 三分类
+- `references/empirical-liveness.md` — 多维验活 + 四分类 + 免费 bulk pricing 验证
 - `references/third-party-calibration.md` — 权威源权重前的第三方实测查证
