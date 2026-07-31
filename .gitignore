@@ -60,5 +60,8 @@ baseline-pytest.txt
 docs/superpowers/
 .superpowers/
 
+# Eval harness reports: markdown findings tracked, JSON artifacts ignored (spec §11)
+docs/eval/*.json
+
 # Nested separate repository (has its own .git)
 misp-docker/
