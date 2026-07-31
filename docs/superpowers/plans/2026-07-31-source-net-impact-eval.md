@@ -1200,13 +1200,25 @@ git commit -m "feat(eval): markdown + JSON report with per-quadrant actions"
 
 ```python
 # backend/test_eval_cli.py
-from unittest.mock import MagicMock
 from pathlib import Path
 from ipdb._eval.__main__ import run_for_source
 
 # 25 candidate IPs — clears the n-floor (N_FLOOR=20) so the verdict is
 # POSITIVE-UNVERIFIED (dead-slot fill, CG=0), not INSUFFICIENT-SAMPLE.
 _CAND_IPS = [f"203.0.113.{i}" for i in range(1, 26)]
+
+
+class _FakeSource:
+    """Stand-in source with REAL .name/.classification_type/._path.
+    MagicMock's `name=` kwarg sets the repr, not the attribute, so a real
+    class is required for `s.name == 'cand'` to match in run_for_source.
+    query() returns [] so compute_other_distribution sees no classification."""
+    def __init__(self, name, path, classification_type):
+        self.name = name
+        self._path = path
+        self.classification_type = classification_type
+    def query(self, ip):
+        return []
 
 
 class _FakeBenign:
@@ -1219,8 +1231,7 @@ class _FakeRegistry:
     """Minimal registry double. Candidate 'cand' fills phishing on _CAND_IPS."""
     def __init__(self):
         self.disabled = set()
-        self.sources = [MagicMock(name="cand", classification_type="phishing",
-                                  _path=Path("/nonexistent"))]
+        self.sources = [_FakeSource("cand", Path("/nonexistent"), "phishing")]
     def lookup(self, ip):
         if "cand" in self.disabled or ip not in set(_CAND_IPS):
             return {"ip": ip, "classifications": {}}
