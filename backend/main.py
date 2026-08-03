@@ -21,10 +21,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ipdb import (
-    load_db, lookup, get_status, refresh_stale,
-    get_download_steps,
+    load_db, lookup, get_status,
     enrich_with_ipapi, enrich_with_ipapi_is,
-    list_sources, set_source_enabled, update_source, update_source_streaming,
+    list_sources, set_source_enabled,
+    manager, stale_source_names,
 )
 
 import os
@@ -82,12 +82,52 @@ async def _stream_lookup(
     }) + "\n"
 
 
+def _is_cold_start() -> bool:
+    """True if NO enabled offline source has an existing data file on disk.
+
+    Online (ApiSource) sources never have a data file and are ignored — they
+    must not force a cold-start just because they lack ``_path``. A source
+    missing the ``_path`` attribute entirely is treated as having no data
+    (defensive; real offline sources always set it in IpListSource.__init__).
+    """
+    from ipdb._registry import _enabled_sources, _archetype
+    offline = [s for s in _enabled_sources() if _archetype(s) == "offline"]
+    return not any(getattr(s, "_path", None) and Path(s._path).exists()
+                   for s in offline)
+
+
+def _do_cold_start():
+    """Cold start: synchronously download the first batch via run_batch_blocking.
+
+    Blocks lifespan startup until every enabled offline source has settled
+    (done/failed/cancelled). The server then serves from the freshly-written
+    data files. Skips the blocking call when there are no offline sources.
+    """
+    from ipdb._registry import _enabled_sources, _archetype
+    names = [s.name for s in _enabled_sources() if _archetype(s) == "offline"]
+    if names:
+        manager.run_batch_blocking(names)
+
+
+def _startup_warm():
+    """Warm path: load all sources from disk immediately, then refresh any stale
+    ones in the background (non-blocking — the whole point of the warm branch)."""
+    load_db()
+    stale = stale_source_names()
+    if stale:
+        manager.enqueue_stale(stale)
+
+
+def _startup():
+    if _is_cold_start():
+        _do_cold_start()
+    else:
+        _startup_warm()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Download only sources whose data file is stale/missing, then load all.
-    # Avoids re-downloading fresh data on every restart (staleness is file-mtime
-    # based, not in-memory load time).
-    refresh_stale()
+    _startup()
     yield
 
 app = FastAPI(title="IP Lookup Tool", lifespan=lifespan)
@@ -185,65 +225,34 @@ async def db_status():
     return get_status()
 
 
-async def _stream_update_db() -> AsyncIterator:
-    """Stream database update progress as NDJSON events."""
-    steps = get_download_steps()
-    total = len(steps) + 1
-    errors: list[str] = []
-    done = 0
-
-    yield json.dumps({"type": "start", "total": total}) + "\n"
-
-    for name, fn in steps:
-        yield json.dumps({
-            "type": "step", "done": done, "total": total,
-            "name": name, "status": "downloading",
-        }) + "\n"
-        try:
-            await asyncio.to_thread(fn)
-            done += 1
-            yield json.dumps({
-                "type": "step", "done": done, "total": total,
-                "name": name, "status": "done",
-            }) + "\n"
-        except Exception as e:
-            done += 1
-            errors.append(f"{name}: {e}")
-            yield json.dumps({
-                "type": "step", "done": done, "total": total,
-                "name": name, "status": "failed", "error": str(e),
-            }) + "\n"
-        await asyncio.sleep(0)
-
-    yield json.dumps({
-        "type": "step", "done": done, "total": total,
-        "name": "Loading DB", "status": "loading",
-    }) + "\n"
-    try:
-        await asyncio.to_thread(load_db)
-        done += 1
-        yield json.dumps({
-            "type": "step", "done": done, "total": total,
-            "name": "Loading DB", "status": "done",
-        }) + "\n"
-    except Exception as e:
-        done += 1
-        errors.append(f"Loading DB: {e}")
-        yield json.dumps({
-            "type": "step", "done": done, "total": total,
-            "name": "Loading DB", "status": "failed", "error": str(e),
-        }) + "\n"
-
-    status = get_status()
-    if errors:
-        status["warnings"] = errors
-    yield json.dumps({"type": "complete", "status": status}) + "\n"
+def _offline_enabled_names():
+    """Names of enabled offline sources (candidates for batch update)."""
+    from ipdb._registry import _enabled_sources, _archetype
+    return [s.name for s in _enabled_sources() if _archetype(s) == "offline"]
 
 
 @app.post("/api/update-db")
 async def update_db():
-    return StreamingResponse(
-        _stream_update_db(), media_type="application/x-ndjson")
+    bid = manager.enqueue_batch(_offline_enabled_names())
+    return {"batch_id": bid}
+
+
+@app.post("/api/update-db/cancel")
+async def update_db_cancel():
+    manager.cancel_batch(manager._active_batch)
+    return {"ok": True}
+
+
+@app.post("/api/update-db/pause")
+async def update_db_pause():
+    manager.pause()
+    return {"ok": True}
+
+
+@app.post("/api/update-db/resume")
+async def update_db_resume():
+    manager.resume()
+    return {"ok": True}
 
 
 @app.get("/api/lookup/{ip}")
@@ -289,20 +298,45 @@ async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
 @app.post("/api/sources/{name}/update")
 async def update_source_route(name: str):
     try:
-        return await asyncio.to_thread(update_source, name)
+        t = manager.enqueue_one(name)
     except ValueError:
         raise HTTPException(404, f"unknown source: {name}")
+    return {"task_id": t.id}
 
 
-@app.post("/api/sources/{name}/update/stream")
-async def update_source_stream_route(name: str):
+@app.post("/api/tasks/{task_id}/cancel")
+async def cancel_task_route(task_id: str):
+    manager.cancel(task_id)
+    return {"ok": True}
+
+
+@app.get("/api/tasks")
+async def tasks_snapshot():
+    """Point-in-time snapshot of in-flight tasks + active batch."""
+    return manager.snapshot()
+
+
+@app.get("/api/events")
+async def events():
+    """SSE stream of task/batch events. Yields an initial snapshot event on
+    connect so reconnects resync, then one `data: <json>` line per event."""
+    loop = asyncio.get_running_loop()
+    q = manager.subscribe(loop)
+
     async def gen():
         try:
-            for evt in update_source_streaming(name):
-                yield json.dumps(evt) + "\n"
-        except ValueError:
-            yield json.dumps({"type": "error", "error": f"unknown source: {name}"}) + "\n"
-    return StreamingResponse(gen(), media_type="application/x-ndjson")
+            yield f"data: {json.dumps({'type': 'snapshot', 'data': manager.snapshot()})}\n\n"
+            while True:
+                evt = await q.get()
+                yield f"data: {json.dumps(evt)}\n\n"
+        finally:
+            manager.unsubscribe(q)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 class SpaStaticFiles(StaticFiles):

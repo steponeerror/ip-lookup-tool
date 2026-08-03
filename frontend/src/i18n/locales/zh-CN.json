@@ -106,6 +106,10 @@
   "dbStatus.retrying": "重试中...",
   "dbStatus.updating": "更新中...",
   "dbStatus.update": "更新数据库",
+  "dbStatus.paused": "已暂停",
+  "dbStatus.pause": "暂停",
+  "dbStatus.resume": "继续",
+  "dbStatus.abort": "终止",
   "dbStatus.statusUnavailable": "状态不可用",
   "dbStatus.updateFailed": "数据库更新失败",
 

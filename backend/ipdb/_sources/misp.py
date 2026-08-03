@@ -23,7 +23,8 @@ as a list (list-per-CIDR), deduped by identical evidence.
 Migrated from standalone to the unified Source base (Task 3.4): download()
 stays bespoke (REST POST with ssl + auth + JSON body — _http_get is GET-only),
 harvest() yields `(cidr, Evidence)` per kept attribute. load()/query()/health()
-are inherited unchanged.
+are inherited unchanged. download() accepts an optional CancelToken and
+checks it before issuing the POST so a queued update can be cancelled.
 """
 import ipaddress
 import json
@@ -33,6 +34,7 @@ import ssl
 import urllib.request
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
@@ -41,6 +43,7 @@ from .._classification import (
     extract_malware_family,
     resolve_misp_type,
 )
+from ._download import CancelToken
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +78,10 @@ class MispSource(Source):
         tags = [t.strip() for t in os.environ.get("MISP_TAGS", "").split(",") if t.strip()]
         self._tags = tags or None
 
+    @property
+    def download_host(self) -> str | None:
+        return urlparse(self._url).hostname if self._url else None
+
     def _search_body(self) -> dict:
         body = {
             "returnFormat": "json",
@@ -87,13 +94,16 @@ class MispSource(Source):
             body["tags"] = self._tags
         return body
 
-    def download(self) -> None:
+    def download(self, token: CancelToken | None = None) -> None:
         """Bespoke REST POST — MISP needs POST + ssl context + auth header +
         JSON body, so the Source base's GET-only _http_get does not apply."""
         if not self._url or not self._key:
             raise RuntimeError(
                 "MISP_URL and MISP_KEY must be set — point at your MISP instance "
                 "(see https://www.misp-project.org/communities/) and add them to .env")
+        if token is not None and token.is_cancelled():
+            from ._download import CancelledError
+            raise CancelledError(f"{self.name} download cancelled")
         self._data_dir.mkdir(parents=True, exist_ok=True)
         endpoint = f"{self._url}/attributes/restSearch"
         logger.info(f"Downloading {self.name} from {self._url} (last={self._last})...")

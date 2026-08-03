@@ -1,12 +1,16 @@
 """Firehol blocklist source — IpListSource subclass with multi-list download."""
+import logging
 import time
-import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 from ._base import IpListSource
+from ._download import download_file, CancelToken, CancelledError
 from .._types import SourceHealth
 
 _BASE_URL = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master"
+
+logger = logging.getLogger(__name__)
 
 
 class FireholBlocklistSource(IpListSource):
@@ -26,24 +30,24 @@ class FireholBlocklistSource(IpListSource):
         self._path = data_dir / "firehol"  # directory, not file
         self._files = [self._path / f"{name}.netset" for name in self._lists]
 
-    def download(self) -> None:
+    @property
+    def download_host(self) -> str | None:
+        # url class attr is "" but downloads actually come from _BASE_URL.
+        return urlparse(_BASE_URL).hostname
+
+    def download(self, token: CancelToken | None = None) -> None:
         self._path.mkdir(parents=True, exist_ok=True)
         for list_name in self._lists:
+            if token is not None and token.is_cancelled():
+                raise CancelledError(f"{self.name} download cancelled")
             url = f"{_BASE_URL}/{list_name}.netset"
             dest = self._path / f"{list_name}.netset"
-            import logging
-            logger = logging.getLogger(__name__)
             logger.info(f"Downloading {list_name}...")
             try:
-                req = urllib.request.Request(
-                    url, headers={"User-Agent": "ip-lookup-tool/1.0"})
-                with urllib.request.urlopen(req, timeout=120) as resp:
-                    data = resp.read()
-                if not data.strip():
+                download_file(url, dest, token=token,
+                              headers={"User-Agent": "ip-lookup-tool/1.0"})
+                if not dest.read_bytes().strip():
                     dest.unlink(missing_ok=True)   # don't leave stale to be mixed in
-                    continue
-                with open(dest, "wb") as f:
-                    f.write(data)
             except Exception as e:
                 logger.error(f"Failed to download {list_name}: {e}")
                 dest.unlink(missing_ok=True)       # don't leave stale to be mixed in

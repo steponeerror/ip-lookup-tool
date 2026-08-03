@@ -67,9 +67,29 @@ def test_ip2proxy_download_extracts_zip_to_path_then_loads(tmp_path, monkeypatch
         zf.writestr("IP2PROXY-LITE.PX2.CSV", csv_bytes)
     zip_bytes = buf.getvalue()
 
+    class _Resp:
+        def __init__(self, b):
+            self._b = b
+            self._pos = 0
+
+        def read(self, n=-1):
+            if n is None or n < 0:
+                data, self._pos = self._b[self._pos:], len(self._b)
+                return data
+            data = self._b[self._pos:self._pos + n]
+            self._pos += len(data)
+            return data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
     s = IP2ProxySource(data_dir=tmp_path)
-    s._token = "fake"                                   # non-empty → url() set
-    monkeypatch.setattr(s, "_http_get", lambda url, **kw: zip_bytes)
+    s._token = "fake"                                   # non-empty → _url() set
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda req, timeout=30: _Resp(zip_bytes))
 
     assert not s._path.exists()                         # nothing extracted yet
     s.download()

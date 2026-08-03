@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import {
+  enqueueBatch,
+  enqueueSingle,
   getSources,
   setSourceEnabled,
-  updateDbStream,
-  updateSourceStream,
 } from "../api";
 import type { SourceInfo } from "../api";
 import { useI18n } from "../i18n";
+import { useTasks } from "../tasks/TaskProvider";
 
 const CATEGORY_ORDER = ["geo_asn", "threat", "asset", "other"];
 
@@ -63,12 +64,10 @@ function Toggle({ on, disabled, onChange, label }: {
 
 export default function SourcesPage() {
   const { t } = useI18n();
+  const { tasks, batch } = useTasks();
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busyNames, setBusyNames] = useState<Set<string>>(() => new Set());
-  const [progress, setProgress] = useState<Record<string, "downloading" | "loading">>({});
-  const [refreshingAll, setRefreshingAll] = useState(false);
   const reduce = useReducedMotion();
 
   const fmtTime = (iso: string | null) => {
@@ -93,6 +92,17 @@ export default function SourcesPage() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchSources(); }, [fetchSources]);
 
+  // Debounce-refetch: when the count of finished tasks (done/failed/cancelled)
+  // changes, re-sync the source list after 500ms so health/record_count updates.
+  const doneCount = tasks.filter(
+    (tk) => tk.state === "done" || tk.state === "failed" || tk.state === "cancelled",
+  ).length;
+  useEffect(() => {
+    if (doneCount === 0) return;
+    const id = setTimeout(() => { void fetchSources(); }, 500);
+    return () => clearTimeout(id);
+  }, [doneCount, fetchSources]);
+
   const patch = (name: string, change: Partial<SourceInfo>) => {
     setSources((prev) => prev.map((s) => (s.name === name ? { ...s, ...change } : s)));
   };
@@ -109,44 +119,24 @@ export default function SourcesPage() {
   };
 
   const handleUpdate = async (name: string) => {
-    setBusyNames((prev) => {
-      const next = new Set(prev);
-      next.add(name);
-      return next;
-    });
     try {
-      const updated = await updateSourceStream(name, (p) => {
-        setProgress((prev) => ({ ...prev, [name]: p.phase }));
-      });
-      patch(name, { health: updated.health });
+      await enqueueSingle(name);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("sources.updateOneFailed", { name }));
-    } finally {
-      setBusyNames((prev) => {
-        const next = new Set(prev);
-        next.delete(name);
-        return next;
-      });
-      setProgress((prev) => {
-        if (!(name in prev)) return prev;
-        const next = { ...prev };
-        delete next[name];
-        return next;
-      });
     }
   };
 
   const handleRefreshAll = async () => {
-    setRefreshingAll(true);
     try {
-      await updateDbStream(() => {});
-      await fetchSources();
+      await enqueueBatch();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("sources.refreshAllFailed"));
-    } finally {
-      setRefreshingAll(false);
     }
   };
+
+  // Batch active → global "refreshing" indicator (disables per-row Update + the
+  // Refresh-all button). Derived from context, no local state.
+  const refreshingAll = batch?.state === "running";
 
   const grouped = CATEGORY_ORDER
     .map((cat) => ({ cat, items: sources.filter((s) => s.category === cat) }))
@@ -196,8 +186,14 @@ export default function SourcesPage() {
             >
               {items.map((s) => {
                 const st = statusOf(s);
-                const busy = busyNames.has(s.name);
-                const phase = progress[s.name];
+                // Per-row phase comes from the tasks context (SSE-driven), not
+                // local state. A row is "busy" only when a task for this source
+                // is queued / downloading / loading.
+                const phase = tasks.find((tk) => tk.source === s.name)?.state;
+                const busy =
+                  phase === "queued" ||
+                  phase === "downloading" ||
+                  phase === "loading";
                 return (
                   <li key={s.name} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                     <span className="w-32 shrink-0 font-mono text-sm text-zinc-200">{s.name}</span>
@@ -216,13 +212,19 @@ export default function SourcesPage() {
                         onChange={(v) => handleToggle(s, v)}
                         label={t("sources.toggleAria", { name: s.name })}
                       />
-                      <button
-                        onClick={() => handleUpdate(s.name)}
-                        disabled={busy || refreshingAll}
-                        className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {busy ? (phase === "loading" ? t("sources.loading") : t("sources.downloading")) : t("sources.update")}
-                      </button>
+                      {s.archetype === "online" ? null : (
+                        <button
+                          onClick={() => handleUpdate(s.name)}
+                          disabled={busy || refreshingAll}
+                          className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {phase === "loading"
+                            ? t("sources.loading")
+                            : phase === "downloading"
+                              ? t("sources.downloading")
+                              : t("sources.update")}
+                        </button>
+                      )}
                     </div>
                   </li>
                 );

@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { DbStatusBar } from "./components/DbStatusBar";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { useI18n } from "./i18n";
+import { TaskProvider } from "./tasks/TaskProvider";
 
 export default function Layout() {
   const { t } = useI18n();
@@ -11,28 +12,30 @@ export default function Layout() {
     }`;
 
   return (
-    <div className="dot-grid min-h-screen pb-14">
-      <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
-        <header className="mb-8">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
-                {t("layout.title")}
-              </h1>
-              <p className="mt-1 text-sm text-zinc-500">{t("layout.subtitle")}</p>
+    <TaskProvider>
+      <div className="dot-grid min-h-screen pb-14">
+        <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
+          <header className="mb-8">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+                  {t("layout.title")}
+                </h1>
+                <p className="mt-1 text-sm text-zinc-500">{t("layout.subtitle")}</p>
+              </div>
+              <LocaleSwitcher />
             </div>
-            <LocaleSwitcher />
-          </div>
-          <nav className="mt-4">
-            <div className="flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
-              <NavLink to="/" end className={linkClass}>{t("layout.nav.lookup")}</NavLink>
-              <NavLink to="/sources" className={linkClass}>{t("layout.nav.sources")}</NavLink>
-            </div>
-          </nav>
-        </header>
-        <Outlet />
+            <nav className="mt-4">
+              <div className="flex gap-1 rounded-lg bg-zinc-900 p-1 sm:inline-flex">
+                <NavLink to="/" end className={linkClass}>{t("layout.nav.lookup")}</NavLink>
+                <NavLink to="/sources" className={linkClass}>{t("layout.nav.sources")}</NavLink>
+              </div>
+            </nav>
+          </header>
+          <Outlet />
+        </div>
+        <DbStatusBar />
       </div>
-      <DbStatusBar />
-    </div>
+    </TaskProvider>
   );
 }

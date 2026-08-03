@@ -27,7 +27,7 @@ def write_mmdb(records: Iterable[tuple[str, object]], mmdb_path: Path,
     for cidr, value in records:
         writer.insert_network(netaddr.IPSet([cidr]), value)
         count += 1
-    tmp = mmdb_path.parent / (mmdb_path.name + ".tmp")
+    tmp = mmdb_path.parent / (mmdb_path.name + f".{os.getpid()}.tmp")
     try:
         writer.to_db_file(str(tmp))
         os.replace(str(tmp), str(mmdb_path))
