@@ -62,7 +62,7 @@
 |---|------|---------|
 | 9 | **批量暂停 + 单源/批量协作中止** | 暂停作用于调度器（跑完当前、不发新源）；中止给 `download()` 加 `CancelToken`，分块循环检查、丢弃结果、跳过加载。 |
 | 10 | **有界并发，默认 3**（可配置 `IP_RADAR_UPDATE_CONCURRENCY`） | 批量快很多；与单源已有的跨源并发一致。 |
-| 11 | **短超时 + 分块检** | 共享 helper `connect 10s / read 30s` + 分块循环检令牌，中止延迟 ≤ 一次 read。 |
+| 11 | **短超时 + 分块检** | 共享 helper 单 socket `timeout=30s`（stdlib urllib 对 connect+read 用同一超时、不可拆分）+ 分块循环检令牌，中止延迟 ≤ 一次 read（30s 上界）。（T1 评审修正：原"connect 10s/read 30s"拆分用 stdlib urllib 不可实现，改为单一 30s。） |
 | 12 | **按 host 串行** | 全局 cap 3 + per-host 锁，同 host 源不并发（防 abuse.ch 等 429）。 |
 | 13 | **三锁顺序 host→sem→source** | 无死锁、无槽浪费（同 host 串行在取 semaphore 槽之前）。 |
 
@@ -225,7 +225,7 @@ lifespan(app):
 ## 8. 配置
 
 - `IP_RADAR_UPDATE_CONCURRENCY`（默认 3）：批量并发上限。
-- helper 超时固定 `connect=10s / read=30s`（可后续提为配置项）。
+- helper 超时固定为单一 socket `timeout=30s`（stdlib urllib 不可拆分 connect/read；可后续提为配置项）。
 - SSE 订阅队列上限固定 256。
 
 ## 9. 实现顺序（建议）

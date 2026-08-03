@@ -9,6 +9,8 @@ is derived from the protocol keyword in the pulse name (e.g. SMTP → brute-forc
 Migrated from CsvSource onto the unified Source base (Task 4.1): the complex
 REST pagination state machine in ``download()`` is preserved verbatim, while
 ``harvest()`` is the single CSV parser (replacing the former ``parse_row``).
+``download()`` checks the optional CancelToken at the top of each page
+iteration so a long-running pagination can be cancelled between pages.
 """
 
 import csv
@@ -19,17 +21,19 @@ import os
 import re
 import time
 import urllib.request
+from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
 from .._classification import OTX_PROTOCOL_MAP
+from ._download import CancelToken, CancelledError
 
 logger = logging.getLogger(__name__)
 
 _ACTIVITY_URL = "https://otx.alienvault.com/api/v1/pulses/activity"
-# Safety net for the backgrounded refresh thread (OtxSource.async_refresh=True):
-# generous enough to fully paginate a 7-day window (~574 pages) even at the
-# ~6s/page OTX serves in practice. The per-request _TIMEOUT still bounds hangs.
+# Budget safety net: generous enough to fully paginate a 7-day window
+# (~574 pages) even at the ~6s/page OTX serves in practice. The
+# per-request _TIMEOUT still bounds hangs.
 _DEFAULT_POLL_SECONDS = 3600
 _DEFAULT_LOOKBACK_DAYS = 7
 _PAGE_SIZE = 20
@@ -72,13 +76,14 @@ class OtxSource(Source):
     stale_days = 1
     reliability = 0.75
     authoritative_for = []
-    # REST pagination is slow (20/page, ~2.5-6s/page); refresh in a background
-    # thread at startup so the budget-gated full pull doesn't block the app.
-    async_refresh = True
 
     def __init__(self, data_dir):
         super().__init__(data_dir)
         self._cursor_path = data_dir / "otx_last_fetch.txt"
+
+    @property
+    def download_host(self) -> str | None:
+        return urlparse(_ACTIVITY_URL).hostname
 
     # ── Download (REST pagination with modified_since) ──
 
@@ -102,7 +107,7 @@ class OtxSource(Source):
         raise RuntimeError(  # pragma: no cover
             f"{self.name}: fetch failed after {retries} retries")
 
-    def download(self) -> None:
+    def download(self, token: CancelToken | None = None) -> None:
         key = os.environ.get("OTX_API_KEY", "").strip()
         if not key:
             raise RuntimeError("OTX_API_KEY not set; skipping OTX download")
@@ -130,6 +135,8 @@ class OtxSource(Source):
         first = True
 
         while True:
+            if token is not None and token.is_cancelled():
+                raise CancelledError(f"{self.name} download cancelled")
             if time.time() - t0 > budget:
                 logger.info(
                     f"{self.name}: reached {budget}s budget, stopping early")

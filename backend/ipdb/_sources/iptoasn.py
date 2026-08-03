@@ -1,11 +1,12 @@
 import gzip
 import logging
 import shutil
-import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 from .._evidence import Evidence
 from .._source_base import Source
+from ._download import download_file, CancelToken
 
 logger = logging.getLogger(__name__)
 
@@ -22,33 +23,29 @@ class IPtoASNSource(Source):
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)
 
-    def download(self) -> None:
-        tmp_path = self._data_dir / "ip-to-asn.tsv.tmp"
+    @property
+    def download_host(self) -> str | None:
+        return urlparse(_TSV_URL).hostname
+
+    def download(self, token: CancelToken | None = None) -> None:
         gz_path = self._data_dir / "ip-to-asn.tsv.gz"
+        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
         logger.info("Downloading IPtoASN...")
         try:
-            req = urllib.request.Request(
-                _TSV_URL, headers={"User-Agent": "ip-lookup-tool/1.0"}
-            )
-            with urllib.request.urlopen(req, timeout=120) as resp, open(
-                gz_path, "wb"
-            ) as f:
-                shutil.copyfileobj(resp, f)
+            download_file(_TSV_URL, gz_path, token=token,
+                          headers={"User-Agent": "ip-lookup-tool/1.0"})
             with gzip.open(gz_path, "rb") as f_in:
-                with open(tmp_path, "wb") as f_out:
+                with open(tmp, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
-            with open(tmp_path, "r", encoding="utf-8") as f:
+            tmp.replace(self._path)
+            with open(self._path, "r", encoding="utf-8") as f:
                 line_count = sum(1 for _ in f)
             if line_count == 0:
                 raise RuntimeError("Downloaded file is empty")
-            tmp_path.rename(self._path)
-            gz_path.unlink(missing_ok=True)
             logger.info(f"Downloaded IPtoASN ({line_count} lines)")
         finally:
-            if tmp_path.exists():
-                tmp_path.unlink(missing_ok=True)
-            if gz_path.exists():
-                gz_path.unlink(missing_ok=True)
+            gz_path.unlink(missing_ok=True)
+            tmp.unlink(missing_ok=True)
 
     def harvest(self):
         import ipaddress as _ipa

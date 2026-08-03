@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Concurrency default 3, configurable via `IP_RADAR_UPDATE_CONCURRENCY` (positive int).
-- Download helper timeouts fixed: connect 10s, read 30s.
+- Download helper uses a single socket timeout of 30s (stdlib `urllib` applies one `timeout` to all socket ops — connect+read — and cannot split them; bounds abort latency to ≤ one read = 30s). Resolved during T1 review.
 - SSE subscriber queue cap 256 (drop oldest on full).
 - Batch/update operate on `offline` sources only (`ApiSource.download()` is a no-op).
 - File writes atomic: raw file via `download_file` (temp + `os.replace`); MMDB via `write_mmdb` (temp + `os.replace`, unique tmp name).
@@ -65,8 +65,8 @@ Spec §6 says `set_source_enabled`'s `load()` is lock-free and safe due to atomi
 - Test: `backend/test_download.py`
 
 **Interfaces:**
-- Produces: `CancelToken` (`.is_cancelled() -> bool`, `.cancel() -> None`), `CancelledError(Exception)`, `download_file(url: str, dest: pathlib.Path, token: CancelToken | None = None, *, connect_timeout=10, read_timeout=30, headers: dict | None = None, chunk_size=65536) -> None`.
-- `download_file` writes `dest` atomically (sibling `.tmp` + `os.replace`), reads in chunks, checks `token` between chunks, cleans tmp on any failure/cancel.
+- Produces: `CancelToken` (`.is_cancelled() -> bool`, `.cancel() -> None`), `CancelledError(Exception)`, `download_file(url: str, dest: pathlib.Path, token: CancelToken | None = None, *, timeout: float = 30, headers: dict | None = None, chunk_size=65536) -> None`.
+- `download_file` writes `dest` atomically (sibling `.tmp` + `os.replace`), reads in chunks, checks `token` between chunks, cleans tmp on any failure/cancel. Uses a single socket `timeout` (stdlib `urllib` cannot split connect/read).
 
 - [ ] **Step 1: Write failing tests**
 
@@ -166,6 +166,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'ipdb._sources._downloa
 ```python
 """Cancel-aware atomic download helper shared by file-backed sources."""
 import os
+import threading
 import urllib.request
 from pathlib import Path
 
@@ -178,7 +179,6 @@ class CancelToken:
     """Thread-safe cancellation flag checked between download chunks."""
 
     def __init__(self):
-        import threading
         self._event = threading.Event()
 
     def cancel(self) -> None:
@@ -193,8 +193,7 @@ def download_file(
     dest: Path,
     token: CancelToken | None = None,
     *,
-    connect_timeout: float = 10,
-    read_timeout: float = 30,
+    timeout: float = 30,
     headers: dict | None = None,
     chunk_size: int = 65536,
 ) -> None:
@@ -203,6 +202,8 @@ def download_file(
     Writes a sibling .tmp file, then os.replace onto `dest` on success — so
     readers only ever see a complete old or new file. Checks `token` between
     chunks; on cancel/failure the .tmp is removed and `dest` is untouched.
+    `timeout` is the stdlib urllib socket timeout applied to all ops
+    (connect+read); it cannot be split, and bounds abort latency to one read.
     """
     if token is not None and token.is_cancelled():
         raise CancelledError("cancelled before start")
@@ -211,9 +212,7 @@ def download_file(
     tmp = dest.parent / (dest.name + ".tmp")
     req = urllib.request.Request(url, headers=headers or {})
     try:
-        with urllib.request.urlopen(
-            req, timeout=connect_timeout
-        ) as resp:  # connect timeout applies; read loop enforces read timeout
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             with open(tmp, "wb") as f:
                 while True:
                     if token is not None and token.is_cancelled():
@@ -460,22 +459,36 @@ def test_dedup_same_source_returns_existing_task():
 
 
 def test_bounded_concurrency():
-    srcs = [FakeSource(f"s{i}", host=f"h{i}", slow=0.2) for i in range(5)]
-    mgr, by_name = _make_manager(srcs, concurrency=2)
-    mgr.enqueue_batch([s.name for s in srcs])
-    _wait_states(mgr, lambda s: s["batch"]["state"] == "done", timeout=10)
-    # at most `concurrency` sources ever ran simultaneously
-    assert max(s.peak_concurrent for s in srcs) <= 1  # each source sees its own concurrency=1
-    # overall concurrency bound: sum of in-flight at any instant <= 2 — checked via host spread
-    # (stronger concurrency test is in test_per_host_serial pair below)
+    probe = {"in_flight": 0, "peak": 0}
+    lock = threading.Lock()
+    srcs = []
+    for i in range(5):
+        s = FakeSource(f"s{i}", host=f"h{i}", slow=0.2)
+        def _dl(token=None, p=probe, l=lock):
+            with l:
+                p["in_flight"] += 1
+                p["peak"] = max(p["peak"], p["in_flight"])
+            try:
+                time.sleep(0.2)
+            finally:
+                with l:
+                    p["in_flight"] -= 1
+        s.download = _dl
+        srcs.append(s)
+    mgr, _ = _make_manager(srcs, concurrency=2)
+    for s in srcs:
+        mgr.enqueue_one(s.name)
+    _wait_states(mgr, lambda s: all(tk["state"] in ("done","failed","cancelled") for tk in s["tasks"]), timeout=10)
+    assert probe["peak"] <= 2   # global concurrency never exceeded the cap
+    assert probe["peak"] >= 2   # and actually used the available parallelism
 
 
 def test_per_host_serial():
     a = FakeSource("a", host="abuse.ch", slow=0.2)
     b = FakeSource("b", host="abuse.ch", slow=0.2)
     mgr, _ = _make_manager([a, b], concurrency=3)
-    mgr.enqueue_batch(["a", "b"])
-    _wait_states(mgr, lambda s: s["batch"]["state"] == "done", timeout=10)
+    mgr.enqueue_one("a"); mgr.enqueue_one("b")
+    _wait_states(mgr, lambda s: all(tk["state"] in ("done","failed","cancelled") for tk in s["tasks"]), timeout=10)
     # same-host sources never overlapped: their combined peak concurrency == 1
     assert max(a.peak_concurrent, b.peak_concurrent) <= 1
 ```
@@ -682,8 +695,8 @@ class UpdateManager:
 
 - [ ] **Step 4: Run core tests**
 
-Run: `cd backend && pytest test_tasks.py::test_enqueue_one_runs_download_and_load test_tasks.py::test_dedup_same_source_returns_existing_task test_tasks.py::test_per_host_serial -v`
-Expected: PASS (3). (`test_bounded_concurrency` becomes meaningful in Task 6 once batch + concurrency-count helper exist; keep it, it should still pass.)
+Run: `cd backend && pytest test_tasks.py::test_enqueue_one_runs_download_and_load test_tasks.py::test_dedup_same_source_returns_existing_task test_tasks.py::test_per_host_serial test_tasks.py::test_bounded_concurrency -v`
+Expected: PASS (all four tests are self-contained in T3 — they use `enqueue_one`, not `enqueue_batch` which arrives in T4).
 
 - [ ] **Step 5: Commit**
 

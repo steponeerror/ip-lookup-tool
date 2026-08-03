@@ -4,6 +4,7 @@ import urllib.request
 from pathlib import Path
 
 from .._source_base import Source
+from ._download import CancelToken, CancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,19 @@ class ChineseISPSource(Source):
         super().__init__(data_dir)   # _data_dir, _path, _mmdb_path, _reader, _count, _loaded_at
         self._isp_dir = data_dir / "isp"
 
-    def download(self) -> None:
+    @property
+    def download_host(self) -> str | None:
+        # No single canonical URL — download() iterates _ISP_FILES under _ISP_BASE_URL.
+        # Exposed for source-update UX; callers wanting a single host can derive it
+        # from _ISP_BASE_URL. Returned as None because there's no ONE primary URL.
+        return None
+
+    def download(self, token: CancelToken | None = None) -> None:
         self._isp_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Downloading Chinese ISP data from {_ISP_BASE_URL}...")
         for isp_name in _ISP_FILES:
+            if token is not None and token.is_cancelled():
+                raise CancelledError(f"{self.name} download cancelled")
             url = f"{_ISP_BASE_URL}/{isp_name}.txt"
             dest = self._isp_dir / f"{isp_name}.txt"
             try:

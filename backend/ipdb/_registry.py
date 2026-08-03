@@ -4,11 +4,9 @@ import importlib
 import ipaddress
 import logging
 import os
-import queue
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
@@ -91,10 +89,10 @@ _update_locks_guard = threading.Lock()
 
 
 def _update_lock_for(name: str) -> threading.Lock:
-    """Per-source lock so concurrent update_source calls on the SAME source
-    serialize. IpListSource.download() writes its data file in place, so
-    overlapping updates (or download racing another thread's load) corrupt it.
-    Different sources still update in parallel."""
+    """Per-source lock so concurrent UpdateManager._run_task calls on the SAME
+    source serialize. IpListSource.download() writes its data file in place,
+    so overlapping updates (or download racing another thread's load) corrupt
+    it. Different sources still update in parallel."""
     with _update_locks_guard:
         lock = _update_locks.get(name)
         if lock is None:
@@ -200,6 +198,30 @@ def _find_source(name: str):
     return None
 
 
+# --- UpdateManager (Task 7) ---
+# Placed after _find_source / _update_lock_for / _archetype / _enabled_sources
+# so direct references resolve at import time. _tasks.py imports only from
+# _sources._download (not _registry), so no circular import.
+from ._tasks import UpdateManager
+
+_concurrency = int(os.environ.get("IP_RADAR_UPDATE_CONCURRENCY", "3"))
+manager = UpdateManager(
+    resolve_source=_find_source,
+    lock_for=_update_lock_for,
+    archetype_of=_archetype,
+    concurrency=max(1, _concurrency),
+)
+
+
+def stale_source_names() -> list[str]:
+    """Names of enabled offline sources whose data file is stale/missing.
+
+    Used by lifespan at startup to seed manager.enqueue_stale().
+    """
+    return [s.name for s in _enabled_sources()
+            if _archetype(s) == "offline" and s.health().is_stale]
+
+
 def set_source_enabled(name: str, enabled: bool) -> dict:
     """Toggle a source on/off, persist the choice, and load when enabling.
 
@@ -220,58 +242,6 @@ def set_source_enabled(name: str, enabled: bool) -> dict:
     return _source_info(source)
 
 
-def update_source(name: str) -> dict:
-    """Force re-download + reload of one source. Returns updated source info.
-
-    Works regardless of enabled state (refreshes the data file on disk).
-    Raises ValueError for unknown names.
-    """
-    source = _find_source(name)
-    if source is None:
-        raise ValueError(f"unknown source: {name}")
-    with _update_lock_for(name):
-        source.download()
-        source.load()
-    return _source_info(source)
-
-
-def update_source_streaming(name: str) -> Iterator[dict]:
-    """Stream per-source update progress as event dicts.
-
-    Yields start → phase(downloading) → phase(loading) → complete(source_info),
-    or an error event if download/load raises. Download+load run on a worker
-    thread holding the per-source lock, so the caller's event loop stays free
-    and same-source calls still serialize (different sources run in parallel).
-    """
-    source = _find_source(name)
-    if source is None:
-        raise ValueError(f"unknown source: {name}")
-
-    q: queue.Queue = queue.Queue()
-    _DONE = object()
-
-    def worker():
-        try:
-            with _update_lock_for(name):
-                q.put({"type": "phase", "phase": "downloading"})
-                source.download()
-                q.put({"type": "phase", "phase": "loading"})
-                source.load()
-            q.put({"type": "complete", "source": _source_info(source)})
-        except Exception as e:
-            q.put({"type": "error", "error": str(e)})
-        finally:
-            q.put(_DONE)
-
-    threading.Thread(target=worker, daemon=True).start()
-    yield {"type": "start", "name": name}
-    while True:
-        item = q.get()
-        if item is _DONE:
-            return
-        yield item
-
-
 # --- Public API ---
 
 def load_db() -> None:
@@ -283,44 +253,6 @@ def load_db() -> None:
             logger.warning(f"{source.name} load failed: {e}")
     counts = " + ".join(f"{s.health().record_count} {s.name}" for s in enabled)
     logger.info(f"Loaded {counts} records")
-
-
-def _refresh_source(source, do_load: bool) -> None:
-    """Download one source if its data file is stale.
-
-    With do_load=True the source also loads itself after download — used for
-    async_refresh sources whose background thread runs after load_db().
-    """
-    try:
-        if source.health().is_stale:
-            logger.info(f"{source.name}: data file stale/missing, downloading...")
-            source.download()
-            if do_load:
-                source.load()
-    except Exception as e:
-        logger.warning(f"{source.name} download failed: {e}")
-
-
-def refresh_stale() -> None:
-    """Startup refresh: download only sources whose data file is stale/missing,
-    then load all from disk.
-
-    Sources flagged ``async_refresh`` (e.g. OTX, whose REST pagination is slow)
-    download+load in a daemon thread so startup isn't blocked; they self-load
-    when done. Other sources download synchronously, then load_db() loads all.
-
-    Contrast reload_db(), which force-refreshes EVERY source. This cheap path
-    avoids re-downloading fresh data on every restart — staleness now reflects
-    the data file's mtime, not in-memory load time.
-    """
-    for source in _enabled_sources():
-        if getattr(source, "async_refresh", False):
-            threading.Thread(
-                target=_refresh_source, args=(source, True), daemon=True
-            ).start()
-        else:
-            _refresh_source(source, False)
-    load_db()
 
 
 def expected_counts() -> dict[str, int]:
@@ -463,25 +395,6 @@ def get_status() -> dict:
 
 def is_db_stale() -> bool:
     return any(s.health().is_stale for s in _enabled_sources())
-
-
-def reload_db() -> dict:
-    errors = []
-    for source in _enabled_sources():
-        try:
-            source.download()
-        except Exception as e:
-            logger.warning(f"{source.name} download failed: {e}")
-            errors.append(source.name)
-    load_db()
-    status = get_status()
-    if errors:
-        status["warnings"] = [f"{n} download failed" for n in errors]
-    return status
-
-
-def get_download_steps() -> list[tuple[str, Callable]]:
-    return [(s.name, s.download) for s in _enabled_sources()]
 
 
 def enrich_with_ipapi(ips: list[str]) -> dict[str, dict]:

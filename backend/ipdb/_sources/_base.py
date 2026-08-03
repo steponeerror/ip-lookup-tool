@@ -4,6 +4,7 @@ import time
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from .._types import SourceHealth
 
@@ -62,17 +63,27 @@ class IpListSource:
 
     # ── Standard lifecycle ──
 
-    def download(self) -> None:
+    @property
+    def download_host(self) -> str | None:
+        """Hostname of the primary remote URL (None when url is unset/local)."""
+        return urlparse(self.url).hostname or None if getattr(self, "url", "") else None
+
+    def download(self, token=None) -> None:
+        """Fetch the raw list atomically, then parse + rewrite as entries.
+
+        Token-aware: pass a CancelToken to allow cooperative cancellation
+        between chunk reads. Subclasses may override for bespoke fetch logic.
+        """
+        from ._download import download_file
         self._data_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Downloading {self.name}...")
         try:
-            req = urllib.request.Request(
-                self.url, headers={"User-Agent": "ip-lookup-tool/1.0"})
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = resp.read()
-            if not data.strip():
+            download_file(self.url, self._path, token=token,
+                          headers={"User-Agent": "ip-lookup-tool/1.0"})
+            raw = self._path.read_bytes()
+            if not raw.strip():
                 raise RuntimeError(f"Empty response from {self.url}")
-            entries = self.parse_raw(data)
+            entries = self.parse_raw(raw)
             if not entries:
                 raise RuntimeError(f"No entries parsed from {self.name} response")
             with open(self._path, "w", encoding="utf-8") as f:
@@ -237,7 +248,12 @@ class ApiSource:
     def query_api(self, ip: str) -> dict:
         raise NotImplementedError("ApiSource subclasses must implement query_api()")
 
-    def download(self) -> None:
+    @property
+    def download_host(self) -> str | None:
+        """API sources have no single remote download URL."""
+        return None
+
+    def download(self, token=None) -> None:
         pass  # no-op for API sources
 
     def load(self) -> int:
