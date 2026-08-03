@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useI18n } from "../i18n";
 
 interface FileUploadProps {
   onUpload: (file: File) => void;
@@ -7,6 +8,7 @@ interface FileUploadProps {
 }
 
 export function FileUpload({ onUpload, loading, progress }: FileUploadProps) {
+  const { t } = useI18n();
   const [dragOver, setDragOver] = useState(false);
 
   const handleDrop = useCallback(
@@ -18,11 +20,11 @@ export function FileUpload({ onUpload, loading, progress }: FileUploadProps) {
       const validExtensions = [".txt", ".csv"];
       const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
       if (!validExtensions.includes(ext)) {
-        alert("Please drop a .txt or .csv file");
+        alert(t("fileUpload.invalidType"));
         return;
       }
       if (file.size > 50 * 1024 * 1024) {
-        alert("File exceeds 50MB limit");
+        alert(t("fileUpload.tooLarge"));
         return;
       }
       onUpload(file);
@@ -66,9 +68,9 @@ export function FileUpload({ onUpload, loading, progress }: FileUploadProps) {
             </svg>
             {progress
               ? progress.phase === "enrich"
-                ? `Enriching ${progress.done.toLocaleString()} / ${progress.total.toLocaleString()}`
-                : `${progress.done.toLocaleString()} / ${progress.total.toLocaleString()} IPs`
-              : "Uploading file..."}
+                ? t("fileUpload.enriching", { done: progress.done.toLocaleString(), total: progress.total.toLocaleString() })
+                : t("fileUpload.lookingUp", { done: progress.done.toLocaleString(), total: progress.total.toLocaleString() })
+              : t("fileUpload.uploading")}
           </div>
           {progress ? (
             <div className="w-56 h-1 overflow-hidden rounded-full bg-zinc-800">
@@ -78,17 +80,14 @@ export function FileUpload({ onUpload, loading, progress }: FileUploadProps) {
               />
             </div>
           ) : (
-            <p className="text-xs text-zinc-500">Looking up IPs, please wait</p>
+            <p className="text-xs text-zinc-500">{t("fileUpload.waiting")}</p>
           )}
         </>
       ) : (
         <>
-          <p className="text-sm text-zinc-400">
-            Drag and drop a <code className="text-emerald-400">.txt</code> or{" "}
-            <code className="text-emerald-400">.csv</code> file
-          </p>
+          <p className="text-sm text-zinc-400">{t("fileUpload.dropHint")}</p>
           <label className="cursor-pointer rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98]">
-            Choose File
+            {t("fileUpload.choose")}
             <input
               type="file"
               accept=".txt,.csv"

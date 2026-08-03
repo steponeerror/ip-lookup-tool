@@ -139,6 +139,8 @@ SOURCE_CATEGORIES = {
     "firehol": "threat",
     "abuseipdb": "threat",
     "misp": "threat",
+    "feodo": "threat",
+    "stopforumspam": "threat",
     "ip2proxy": "asset",
     "tor_exits": "asset",
     "x4bnet_vpn": "asset",

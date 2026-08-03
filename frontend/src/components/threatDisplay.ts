@@ -12,15 +12,6 @@ export function confTextColor(conf: number): string {
   return "text-red-400";
 }
 
-export const VERDICT_LABEL: Record<string, string> = {
-  malicious: "恶意",
-  suspicious: "可疑",
-  benign: "可信",
-  informational: "未知",
-  clean: "—",
-  reserved: "保留地址",
-};
-
 export const VERDICT_STYLE: Record<string, string> = {
   malicious: "bg-red-500/15 text-red-300 ring-1 ring-red-500/30",
   suspicious: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30",
@@ -42,26 +33,30 @@ export const ALGORITHM_ICONS: Record<string, string> = {
   corroboration: "🤝",
 };
 
-const CLASS_LABELS: Record<string, string> = {
-  "c2_server": "C2",
-  botnet_cc: "C2",
-  scanner: "扫描",
-  brute_force: "暴力破解",
-  malware: "恶意软件",
-  blacklist: "黑名",
-  tor: "Tor",
-  proxy: "代理",
-  hosting: "机房",
-  vpn: "VPN",
+const CLASS_KEYS: Record<string, string> = {
+  "c2_server": "class.c2_server",
+  botnet_cc: "class.botnet_cc",
+  scanner: "class.scanner",
+  brute_force: "class.brute_force",
+  malware: "class.malware",
+  blacklist: "class.blacklist",
+  tor: "class.tor",
+  proxy: "class.proxy",
+  hosting: "class.hosting",
+  vpn: "class.vpn",
 };
 
 export function normType(type: string): string {
   return type.replace(/-/g, "_");
 }
 
-export function classLabel(type: string): string {
-  const t = normType(type);
-  return CLASS_LABELS[t] ?? t.replace(/_/g, " ");
+export function verdictLabelKey(code: string): string {
+  return `verdict.${code}`;
+}
+
+export function classLabel(type: string, t: (key: string, vars?: Record<string, string | number>) => string): string {
+  const key = CLASS_KEYS[normType(type)];
+  return key ? t(key) : normType(type).replace(/_/g, " ");
 }
 
 export function familyShort(name: string): string {
