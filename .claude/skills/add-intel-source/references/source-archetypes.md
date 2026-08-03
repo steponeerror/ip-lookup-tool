@@ -45,7 +45,7 @@ class <FeedName>Source(IpListSource):
     name = "<feedname>"                 # lowercase, == filename stem
     url = "https://example.com/feed.txt"
     filename = "<feedname>.txt"
-    fields = ("is_malicious",)          # tuple; must exist (discovery checks it)
+    fields = ("is_malicious",)          # must exist (discovery checks it). Decorative for typed sources — the base builds Evidence from classification_type, so this value is house style (matches spamhaus), not functional. See §"legacy {fields[0]: True}" below for the only path that reads it.
 
     # ── threat semantics ──
     classification_type = "blacklist"   # controlled vocab term; see classification.md

@@ -36,10 +36,28 @@ Two rules, and everything else follows:
    **dead slots** — vocab terms no source actually emits (verify by grepping the
    `_sources/` for each `classification_type`). Dead slots + thin axes are the
    highest-value targets. State the gap in one sentence before looking at any feed.
-2. **Source candidates.** Use `agent-reach` (Exa search + GitHub) for discovery.
-   Good seed queries: "open source threat intelligence IP feeds list",
-   "<threat-type> IP blocklist", the feed catalogs (Bert-JanP/Open-Source-Threat-Intel-Feeds,
-   kraloveckey's collection). Cast wide; you'll cut later.
+2. **Search hard for candidates (maximize discovery).** Use `agent-reach`
+   (Exa search + GitHub) and cast a **wide, multi-angle** net — a single query
+   always misses something. Sweep these angles:
+   - **By attack type:** `"<threat-type> IP blocklist"` — scanner / botnet / phishing / ddos / proxy…
+   - **By format:** `"IP CIDR netset"`, `"IP blocklist txt"`, `"IP feed csv"`
+   - **By community/feed catalogs:** `Bert-JanP/Open-Source-Threat-Intel-Feeds`,
+     kraloveckey's collection, `firehol/blocklist-ipsets` (browse its ipsets for
+     sublists NOT already aggregated by this tool's `firehol` source), abuse.ch
+     feeds, AlienVault OTX pulses
+   - **By code:** `gh search code "<threat-type>" extension:txt` / `extension:netset` —
+     finds raw lists buried in repos that catalog/search misses
+   - **By the gap, not the feed:** a dead slot is the *highest-value* search target —
+     search it the *hardest*, do not skip it on the assumption it's "probably empty."
+
+   **gap-first = priority, not permission to skip.** A dead slot that looks empty
+   is a signal to search *harder* (its value is highest precisely because nothing
+   fills it), never to give up after one query. Cast wide; you'll cut later.
+
+   **Before recording a slot as "no native-IP feed found":** have you swept every
+   angle above + checked every catalog + tried `gh search code`? "Not found *this
+   run*" is a *finding* (write it to the report, dated) — **never** a permanent
+   claim baked back into this skill, which would suppress future discovery effort.
 3. **Verify each candidate against reality — never trust marketing.** `curl` the
    URL, fetch a real sample (3–5 lines verbatim), check the actual byte/record
    count. A feed advertised as "thousands of IOCs" that ships 37 rows changes
@@ -68,6 +86,15 @@ Coverage) mapped onto this tool's contract. Score them, don't narrate them.
 **Total = sum of the six (6–30).** Rank survivors by total. The rubric is the
 *ranking* mechanism — if your final order isn't the rubric order, say explicitly
 why (e.g. "cost tied, #2 wins on uniqueness").
+
+**Reading `other`% on the cleanliness axis:** crowd-sourced / hashtag feeds
+(TweetFeed, community IOC lists) naturally run 20–40% `other` — empty tags,
+niche malware families, arch/file tokens. That alone is **not** a reject signal;
+the corroboration axis still benefits from the rows that *do* map. To keep
+`other` low when the feed has a defining role, map a **base classification**
+(URLhaus: every row serves malware → unmappable tags fall to
+`malware-distribution`, not `other` → `other`% ≈ 0). See
+`add-intel-source/references/classification.md` § "Multi-value category columns".
 
 ## Hard gates (kill criteria — apply before scoring saves time)
 
@@ -123,6 +150,11 @@ are filled. A dossier with missing slots is incomplete; go back and fetch.
 - **Feed-first instead of gap-first.** Don't start with "GreyNoise looks cool."
   Start with "the `scanner` axis has one real source." The gap determines which
   feeds are even worth evaluating.
+- **Declaring a dead slot empty after one query.** A single search angle misses
+  most feeds — in this campaign, one run concluded "phishing has no native-IP
+  feed"; a wider sweep next run found TweetFeed. Sweep every angle (attack-type
+  / format / catalogs / `gh search code`) before recording "no native-IP feed
+  found *this run*", and never bake that claim back in as permanent.
 - **Trusting the landing page.** The number of rows a feed *claims* vs *ships*
   diverges constantly. Always `curl` a sample. ThreatCluster claims "thousands,"
   ships 37.
