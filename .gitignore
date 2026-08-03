@@ -39,6 +39,10 @@ release/data/
 release/python/
 release/static/
 
+# Windows release zip — contains live API keys (copies backend/.env).
+# For LOCAL USE ONLY. Never commit/push to GitHub.
+IPRadar-Windows.zip
+
 # Debug screenshots
 favicon-preview.png
 page-empty.png
@@ -48,8 +52,16 @@ results-final.png
 # Temp files
 *.tmp
 
+# Pytest regression baseline (closed-loop campaign scratch)
+.baseline-pytest.txt
+baseline-pytest.txt
+
 # Design scratch (superpowers brainstorm/plans/specs)
 docs/superpowers/
+.superpowers/
+
+# Eval harness reports: markdown findings tracked, JSON artifacts ignored (spec §11)
+docs/eval/*.json
 
 # Nested separate repository (has its own .git)
 misp-docker/

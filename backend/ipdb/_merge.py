@@ -60,13 +60,19 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "spamhaus":    0.90,
     "threatfox":   0.85,
     "blocklist_de":0.65,
-    "emerging_threats":0.90,
-    "otx":         0.75,
+    "emerging_threats":0.85,
+    "otx":         0.55,
     # threat sources also consumed by STIX export x_reliability (_stix_export._get_src_reliability)
-    "abuseipdb":   0.75,
+    "abuseipdb":   0.65,
     "misp":        0.70,
     "feodo":       0.85,
     "stopforumspam": 0.70,
+    "binarydefense": 0.65,
+    "tweetfeed": 0.45,
+    "urlhaus": 0.55,
+    "ciarm": 0.60,
+    "bruteforce": 0.60,
+    "greensnow": 0.60,
 }
 
 AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
