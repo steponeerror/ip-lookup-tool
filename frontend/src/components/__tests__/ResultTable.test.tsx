@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent } from "@testing-library/react";
+import { renderWithI18n } from "../../test/i18nTestUtils";
 import { ResultTable } from "../ResultTable";
 import type { LookupResult } from "../../api";
 
@@ -17,8 +18,8 @@ const reserved: LookupResult = {
 
 describe("ResultTable reserved rows", () => {
   it("renders 保留地址 verdict for a reserved IP", () => {
-    render(<ResultTable results={[reserved]} />);
-    expect(screen.getAllByText("保留地址").length).toBeGreaterThanOrEqual(1);
+    renderWithI18n(<ResultTable results={[reserved]} />);
+    expect(screen.getAllByText("Reserved").length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -30,13 +31,13 @@ const lowConf: LookupResult = {
 
 describe("Expand disagreements toggle", () => {
   it("expands on first click, collapses on second", async () => {
-    render(<ResultTable results={[lowConf]} />);
+    renderWithI18n(<ResultTable results={[lowConf]} />);
     // collapsed initially – detail panel not shown
-    expect(screen.queryByText("威胁明细")).not.toBeInTheDocument();
+    expect(screen.queryByText("Threat details")).not.toBeInTheDocument();
 
     const expand = screen.getByRole("button", { name: /expand disagreements/i });
     fireEvent.click(expand);
-    expect(await screen.findByText("威胁明细")).toBeInTheDocument();
+    expect(await screen.findByText("Threat details")).toBeInTheDocument();
 
     // button flipped to Collapse; clicking it collapses
     const collapse = screen.getByRole("button", { name: /collapse disagreements/i });

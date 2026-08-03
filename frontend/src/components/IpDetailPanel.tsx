@@ -1,5 +1,6 @@
 import type { LookupResult, MergedField } from "../api";
 import { confColor, confTextColor, ALGORITHM_ICONS } from "./threatDisplay";
+import { useI18n } from "../i18n";
 import { ClassificationBlock } from "./ClassificationBlock";
 
 function FieldDetail<T>({
@@ -41,16 +42,17 @@ function FieldDetail<T>({
 }
 
 export function IpDetailPanel({ r }: { r: LookupResult }) {
+  const { t } = useI18n();
   const classKeys = Object.keys(r.classifications);
   return (
     <div className="grid gap-2.5">
-      <FieldDetail label="国家" field={r.country} format={String} />
+      <FieldDetail label={t("ipDetail.country")} field={r.country} format={String} />
       <FieldDetail label="ASN" field={r.asn} format={(v) => String(v)} />
-      <FieldDetail label="机构 / ISP" field={r.as_name} format={String} />
+      <FieldDetail label={t("ipDetail.org")} field={r.as_name} format={String} />
       <div>
-        <span className="text-xs font-medium text-zinc-300">威胁明细</span>
+        <span className="text-xs font-medium text-zinc-300">{t("ipDetail.threatDetails")}</span>
         {classKeys.length === 0 ? (
-          <div className="ml-3 mt-1 text-[11px] text-zinc-600">未命中</div>
+          <div className="ml-3 mt-1 text-[11px] text-zinc-600">{t("ipDetail.noHits")}</div>
         ) : (
           <div className="ml-3 mt-1 space-y-2.5">
             {classKeys.map((type) => (
@@ -59,7 +61,7 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
           </div>
         )}
       </div>
-      <FieldDetail label="网段" field={r.ip_range} format={String} />
+      <FieldDetail label={t("ipDetail.range")} field={r.ip_range} format={String} />
     </div>
   );
 }

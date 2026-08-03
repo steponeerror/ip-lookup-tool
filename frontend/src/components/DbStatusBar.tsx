@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { getDbStatus, updateDbStream } from "../api";
 import type { DbStatus, UpdateProgress } from "../api";
+import { useI18n } from "../i18n";
 
 export function DbStatusBar() {
+  const { t } = useI18n();
   const [status, setStatus] = useState<DbStatus | null>(null);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -11,8 +13,8 @@ export function DbStatusBar() {
   useEffect(() => {
     getDbStatus()
       .then(setStatus)
-      .catch((e) => setError(e instanceof Error ? e.message : "Status unavailable"));
-  }, []);
+      .catch((e) => setError(e instanceof Error ? e.message : t("dbStatus.statusUnavailable")));
+  }, [t]);
 
   const handleUpdate = async () => {
     setUpdating(true);
@@ -22,7 +24,7 @@ export function DbStatusBar() {
       const s = await updateDbStream(setProgress);
       setStatus(s);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Database update failed");
+      setError(e instanceof Error ? e.message : t("dbStatus.updateFailed"));
     } finally {
       setUpdating(false);
       setProgress(null);
@@ -35,12 +37,12 @@ export function DbStatusBar() {
   if (updating && progress) {
     const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
     const stepLabel = progress.stepStatus === "downloading"
-      ? `Downloading ${progress.currentStep}...`
+      ? t("dbStatus.downloading", { step: progress.currentStep })
       : progress.stepStatus === "loading"
-        ? "Loading database..."
+        ? t("dbStatus.loading")
         : progress.currentStep
           ? `${progress.currentStep} ${progress.stepStatus}`
-          : "Starting...";
+          : t("dbStatus.starting");
     return (
       <div className="fixed bottom-0 inset-x-0 border-t border-emerald-500/30 bg-zinc-950/90 backdrop-blur-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2 text-xs font-mono">
@@ -84,7 +86,7 @@ export function DbStatusBar() {
             disabled={updating}
             className="rounded px-3 py-1 text-red-400 transition-colors hover:bg-zinc-800 hover:text-red-300 disabled:opacity-50"
           >
-            {updating ? "Retrying..." : "Retry"}
+            {updating ? t("dbStatus.retrying") : t("dbStatus.retry")}
           </button>
         </div>
       </div>
@@ -101,7 +103,7 @@ export function DbStatusBar() {
             <span>{status.warnings!.join("; ")}</span>
             <span className="text-zinc-700">|</span>
             <span className="text-zinc-500">
-              {status.total_records.toLocaleString()} 条记录
+              {t("dbStatus.records", { n: status.total_records.toLocaleString() })}
             </span>
           </div>
           <button
@@ -109,7 +111,7 @@ export function DbStatusBar() {
             disabled={updating}
             className="rounded px-3 py-1 text-amber-400 transition-colors hover:bg-zinc-800 hover:text-amber-300 disabled:opacity-50"
           >
-            {updating ? "Updating..." : "Retry"}
+            {updating ? t("dbStatus.updating") : t("dbStatus.retry")}
           </button>
         </div>
       </div>
@@ -125,23 +127,23 @@ export function DbStatusBar() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
           </span>
-          <span>{status.total_records.toLocaleString()} 条记录</span>
+          <span>{t("dbStatus.records", { n: status.total_records.toLocaleString() })}</span>
           <span className="text-zinc-700">|</span>
           <span className="text-zinc-500 tabular-nums">
-            {status.scalar_records.toLocaleString()} 标量
+            {status.scalar_records.toLocaleString()} {t("dbStatus.scalar")}
           </span>
           <span className="text-zinc-600">·</span>
           <span className="text-zinc-500 tabular-nums">
-            {status.threat_records.toLocaleString()} 威胁
+            {status.threat_records.toLocaleString()} {t("dbStatus.threat")}
           </span>
           <span className="text-zinc-600">·</span>
           <span className="text-zinc-500 tabular-nums">
-            {status.asset_records.toLocaleString()} 资产
+            {status.asset_records.toLocaleString()} {t("dbStatus.asset")}
           </span>
           <span className="text-zinc-700">|</span>
-          <span>更新 {status.last_updated}</span>
+          <span>{t("dbStatus.updated", { time: status.last_updated })}</span>
           {status.is_stale && (
-            <span className="text-yellow-500">(stale)</span>
+            <span className="text-yellow-500">({t("dbStatus.stale")})</span>
           )}
         </div>
         <button
@@ -149,7 +151,7 @@ export function DbStatusBar() {
           disabled={updating}
           className="rounded px-3 py-1 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-400 disabled:opacity-50"
         >
-          {updating ? "Updating..." : "Update DB"}
+          {updating ? t("dbStatus.updating") : t("dbStatus.update")}
         </button>
       </div>
     </div>

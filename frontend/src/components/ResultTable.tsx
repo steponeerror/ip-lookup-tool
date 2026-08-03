@@ -2,10 +2,13 @@ import { useState, useMemo, useEffect, Fragment } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import type { LookupResult } from "../api";
 import {
-  confTextColor, VERDICT_LABEL, VERDICT_STYLE, VERDICT_RANK,
+  confTextColor, VERDICT_STYLE, VERDICT_RANK, verdictLabelKey,
   normType, classLabel, familyShort, threatSummary,
 } from "./threatDisplay";
+import { useI18n } from "../i18n";
 import { IpDetailPanel } from "./IpDetailPanel";
+
+type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
 interface ResultTableProps {
   results: LookupResult[];
@@ -16,24 +19,22 @@ type SortKey = "ip" | "asn" | "country" | "as_name" | "verdict" | "threat" | "ip
 // 基础设施类标签 (anonymizing infra): neutral, not malicious.
 const INFRA_TYPES = new Set(["tor", "proxy", "vpn", "hosting", "scanner_hosting"]);
 
-// Asset attribute labels (rendered in the asset zone, separate from threats).
-const ASSET_LABELS: Record<string, string> = {
-  is_proxy: "代理",
-  is_hosting: "机房",
-  is_tor: "Tor",
-  is_vpn: "VPN",
-  carrier: "运营商",
-};
-
 // Classification types that ALSO appear as asset keys — when a classification
 // of this type exists, the asset badge is suppressed to avoid duplication.
 const ASSET_DUPLICATES_CLASSIFICATION = new Set(["is_tor", "is_vpn", "is_proxy"]);
 
-function assetBadges(r: LookupResult): { label: string; detail: string; key: string }[] {
+function assetBadges(r: LookupResult, t: TFn): { label: string; detail: string; key: string }[] {
   const out: { label: string; detail: string; key: string }[] = [];
   const classTypes = new Set(Object.keys(r.classifications));
   for (const [key, stmts] of Object.entries(r.attributes ?? {})) {
-    if (!ASSET_LABELS[key]) continue;
+    const assetKey = {
+      is_proxy: "asset.is_proxy",
+      is_hosting: "asset.is_hosting",
+      is_tor: "asset.is_tor",
+      is_vpn: "asset.is_vpn",
+      carrier: "asset.carrier",
+    }[key];
+    if (!assetKey) continue;
     // De-dup: if classification already covers this, skip
     if (ASSET_DUPLICATES_CLASSIFICATION.has(key)) {
       const ctype: Record<string, string> = { is_tor: "tor", is_proxy: "proxy", is_vpn: "proxy" };
@@ -44,7 +45,7 @@ function assetBadges(r: LookupResult): { label: string; detail: string; key: str
     let detail = first.source;
     if (first.native_type) detail += ` · ${first.native_type}`;
     if (key === "carrier") detail = String(first.value);
-    out.push({ label: ASSET_LABELS[key], detail, key });
+    out.push({ label: t(assetKey), detail, key });
   }
   return out;
 }
@@ -83,17 +84,18 @@ function classPalette(type: string): string {
 }
 
 function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> }) {
-  const label = VERDICT_LABEL[summary.verdict] ?? "未知";
+  const { t } = useI18n();
+  const label = t(verdictLabelKey(summary.verdict));
   const style = VERDICT_STYLE[summary.verdict] ?? VERDICT_STYLE.informational;
   const showConf = summary.verdict === "malicious" || summary.verdict === "suspicious";
   const tooltip = summary.hasThreats
-    ? `${label}${showConf ? ` 置信度 ${summary.confidence}` : ""}${summary.sourceCount ? ` · ${summary.sourceCount} 源` : ""}${summary.corroborated ? " · 已印证" : ""}${summary.conflict ? " · 判定冲突" : ""}`
+    ? `${label}${showConf ? ` ${t("common.confidence")} ${summary.confidence}` : ""}${summary.sourceCount ? ` · ${t("common.sourceCount", { n: summary.sourceCount })}` : ""}${summary.corroborated ? ` · ${t("common.corroborated")}` : ""}${summary.conflict ? ` · ${t("common.conflict")}` : ""}`
     : "";
   if (summary.verdict === "reserved") {
     return (
-      <span title="保留地址 · 不可路由 · 未查询威胁情报"
+      <span title={t("reserved.notice")}
         className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold ${VERDICT_STYLE.reserved}`}>
-        保留地址
+        {t("verdict.reserved")}
       </span>
     );
   }
@@ -107,6 +109,7 @@ function VerdictCell({ summary }: { summary: ReturnType<typeof threatSummary> })
 }
 
 function ThreatTags({ r, summary }: { r: LookupResult; summary: ReturnType<typeof threatSummary> }) {
+  const { t } = useI18n();
   const keys = Object.keys(r.classifications).filter((t) => {
     const ca = r.classifications[t];
     return ca.detected && ca.confidence > 0;
@@ -116,9 +119,9 @@ function ThreatTags({ r, summary }: { r: LookupResult; summary: ReturnType<typeo
     <span className="inline-flex flex-wrap items-center gap-1">
       {keys.map((type) => {
         const ca = r.classifications[type];
-        const label = classLabel(type);
+        const label = classLabel(type, t);
         const family = ca.malware_names.length > 0 ? familyShort(ca.malware_names[0]) : null;
-        const tooltip = `${label}: ${VERDICT_LABEL[ca.verdict] ?? ca.verdict}, 置信度 ${ca.confidence}${ca.corroborated ? ", 已印证" : ""}`;
+        const tooltip = `${label}: ${t(verdictLabelKey(ca.verdict))}, ${t("common.confidence")} ${ca.confidence}${ca.corroborated ? `, ${t("common.corroborated")}` : ""}`;
         return (
           <span key={type} title={tooltip} className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${classPalette(type)}`}>
             {label}{family && <span className="ml-0.5 opacity-70">·{family}</span>}
@@ -126,13 +129,13 @@ function ThreatTags({ r, summary }: { r: LookupResult; summary: ReturnType<typeo
         );
       })}
       {summary.sourceCount > 0 && (
-        <span className="text-[10px] text-zinc-500" title="命中情报源数">
-          {summary.sourceCount}源{summary.corroborated && <span className="ml-px text-emerald-400">✓</span>}
+        <span className="text-[10px] text-zinc-500" title={t("common.sourcesHit")}>
+          {t("common.sourceCount", { n: summary.sourceCount })}{summary.corroborated && <span className="ml-px text-emerald-400">✓</span>}
         </span>
       )}
       {summary.conflict && (
-        <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-amber-500/25" title="多源判定冲突">
-          ⚠冲突
+        <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-400 ring-1 ring-amber-500/25" title={t("common.conflictTooltip")}>
+          {t("common.conflictBadge")}
         </span>
       )}
     </span>
@@ -151,6 +154,7 @@ function lowestConfidence(r: LookupResult): number {
 }
 
 export function SummaryBar({ results }: { results: LookupResult[] }) {
+  const { t } = useI18n();
   const stats = useMemo(() => {
     const classTotals: Record<string, number> = {};
     let ispCount = 0;
@@ -183,7 +187,7 @@ export function SummaryBar({ results }: { results: LookupResult[] }) {
       <div className="flex items-center gap-3 text-xs text-zinc-500">
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          全部 {results.length.toLocaleString()} 条 高置信
+          {t("summary.allHigh", { n: results.length.toLocaleString() })}
         </span>
       </div>
     );
@@ -194,26 +198,26 @@ export function SummaryBar({ results }: { results: LookupResult[] }) {
       {stats.lowConf > 0 && (
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500" />
-          {stats.lowConf} 低置信
+          {t("summary.lowConf", { n: stats.lowConf.toLocaleString() })}
         </span>
       )}
       {stats.medConf > 0 && (
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
-          {stats.medConf} 中置信
+          {t("summary.medConf", { n: stats.medConf.toLocaleString() })}
         </span>
       )}
       {stats.highConf > 0 && (
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          {stats.highConf} 高置信
+          {t("summary.highConf", { n: stats.highConf.toLocaleString() })}
         </span>
       )}
       {activeClasses.length > 0 && <span className="text-zinc-600">|</span>}
       {activeClasses.map((type) => (
         <span key={type} className="flex items-center gap-1">
           <span className={`rounded px-1 py-0.5 text-[10px] font-medium ${classPalette(type)}`}>
-            {classLabel(type)}
+            {classLabel(type, t)}
           </span>
           <span className="text-zinc-500">{stats.classTotals[type]}</span>
         </span>
@@ -234,7 +238,7 @@ export function SummaryBar({ results }: { results: LookupResult[] }) {
           <span className="text-zinc-600">|</span>
           <span className="flex items-center gap-1">
             <span className="rounded bg-zinc-600/40 px-1 py-0.5 text-[10px] font-medium text-zinc-400 ring-1 ring-zinc-500/30">
-              保留地址
+              {t("verdict.reserved")}
             </span>
             <span className="text-zinc-500">{stats.reservedCount}</span>
           </span>
@@ -278,13 +282,14 @@ function Pagination({
   onPage: (p: number) => void;
   onPageSize: (s: number) => void;
 }) {
+  const { t } = useI18n();
   if (total === 0) return null;
   const from = page * pageSize + 1;
   const to = Math.min((page + 1) * pageSize, total);
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-400">
       <div className="flex items-center gap-2">
-        <span className="text-zinc-500">每页</span>
+        <span className="text-zinc-500">{t("pagination.perPage")}</span>
         <select
           value={pageSize}
           onChange={(e) => onPageSize(Number(e.target.value))}
@@ -324,6 +329,7 @@ function Pagination({
 }
 
 export function ResultTable({ results }: ResultTableProps) {
+  const { t } = useI18n();
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -431,11 +437,11 @@ export function ResultTable({ results }: ResultTableProps) {
   const cols: { key: SortKey; label: string; className?: string }[] = [
     { key: "ip", label: "IP" },
     { key: "asn", label: "ASN", className: "w-24" },
-    { key: "country", label: "国家", className: "w-24" },
-    { key: "as_name", label: "ISP/Org" },
-    { key: "verdict", label: "判定", className: "w-20 text-center" },
-    { key: "threat", label: "威胁标签", className: "min-w-[180px]" },
-    { key: "ip_range", label: "Range", className: "w-44" },
+    { key: "country", label: t("column.country"), className: "w-24" },
+    { key: "as_name", label: t("ipDetail.org") },
+    { key: "verdict", label: t("column.verdict"), className: "w-20 text-center" },
+    { key: "threat", label: t("column.threat"), className: "min-w-[180px]" },
+    { key: "ip_range", label: t("ipDetail.range"), className: "w-44" },
   ];
 
   return (
@@ -445,7 +451,7 @@ export function ResultTable({ results }: ResultTableProps) {
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="text"
-          placeholder="Filter by IP, org, country, range..."
+          placeholder={t("resultTable.filterPlaceholder")}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="flex-1 min-w-48 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-600 focus:border-emerald-500/40 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"
@@ -458,7 +464,7 @@ export function ResultTable({ results }: ResultTableProps) {
               : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
           }`}
         >
-          Disagreements first
+          {t("resultTable.disagreementsFirst")}
         </button>
         <button
           onClick={toggleDisagreements}
@@ -468,7 +474,7 @@ export function ResultTable({ results }: ResultTableProps) {
               : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
           }`}
         >
-          {allDisagreementsExpanded ? "Collapse disagreements" : "Expand disagreements"}
+          {allDisagreementsExpanded ? t("resultTable.collapseAll") : t("resultTable.expandAll")}
         </button>
         <button
           onClick={() => {
@@ -477,9 +483,9 @@ export function ResultTable({ results }: ResultTableProps) {
           }}
           disabled={results.length !== 1}
           className="rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          title={results.length !== 1 ? "STIX export works on single-IP lookups" : "Export STIX 2.1 Bundle"}
+          title={results.length !== 1 ? t("resultTable.stixDisabledTitle") : t("resultTable.stixTitle")}
         >
-          Export STIX
+          {t("resultTable.exportStix")}
         </button>
         {filter && (
           <span className="text-xs text-zinc-500">
@@ -509,7 +515,7 @@ export function ResultTable({ results }: ResultTableProps) {
           <tbody>
             {pageRows.map((r, i) => {
               const summary = threatSummary(r);
-              const badges = assetBadges(r);
+              const badges = assetBadges(r, t);
               return (
               <Fragment key={r.ip + i}>
                 <motion.tr
@@ -565,7 +571,7 @@ export function ResultTable({ results }: ResultTableProps) {
                     >
                       <td colSpan={7} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
                         {r.is_reserved ? (
-                          <div className="text-xs text-zinc-500">保留地址 · 不可路由 · 未查询威胁情报</div>
+                          <div className="text-xs text-zinc-500">{t("reserved.notice")}</div>
                         ) : (
                           <IpDetailPanel r={r} />
                         )}
@@ -579,7 +585,7 @@ export function ResultTable({ results }: ResultTableProps) {
             {sorted.length === 0 && filter && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-xs text-zinc-600">
-                  No results matching "{filter}"
+                  {t("resultTable.noMatch", { filter })}
                 </td>
               </tr>
             )}

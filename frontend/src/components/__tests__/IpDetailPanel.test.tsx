@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithI18n } from "../../test/i18nTestUtils";
 import { IpDetailPanel } from "../IpDetailPanel";
 import type { LookupResult } from "../../api";
 
@@ -28,26 +29,26 @@ const r: LookupResult = {
 
 describe("IpDetailPanel", () => {
   it("renders Z1 identity fields", () => {
-    render(<IpDetailPanel r={r} />);
-    expect(screen.getByText("国家")).toBeInTheDocument();
+    renderWithI18n(<IpDetailPanel r={r} />);
+    expect(screen.getByText("Country")).toBeInTheDocument();
     // FieldDetail renders the value both in the header row and in each source row;
     // the mf() fixture reuses the same value for both, so use getAllByText here.
     expect(screen.getAllByText("US")[0]).toBeInTheDocument();
     expect(screen.getByText("ASN")).toBeInTheDocument();
-    expect(screen.getByText("机构 / ISP")).toBeInTheDocument();
-    expect(screen.getByText("网段")).toBeInTheDocument();
+    expect(screen.getByText("Org / ISP")).toBeInTheDocument();
+    expect(screen.getByText("Range")).toBeInTheDocument();
   });
 
   it("renders the 威胁明细 section with the classification block", () => {
-    render(<IpDetailPanel r={r} />);
-    expect(screen.getByText("威胁明细")).toBeInTheDocument();
+    renderWithI18n(<IpDetailPanel r={r} />);
+    expect(screen.getByText("Threat details")).toBeInTheDocument();
     expect(screen.getByText("C2")).toBeInTheDocument();
-    expect(screen.getByText(/·3上报/)).toBeInTheDocument();
+    expect(screen.getByText(/3 reporters/)).toBeInTheDocument();
   });
 
   it("shows 未命中 when there are no classifications", () => {
     const clean = { ...r, classifications: {} };
-    render(<IpDetailPanel r={clean} />);
-    expect(screen.getByText("未命中")).toBeInTheDocument();
+    renderWithI18n(<IpDetailPanel r={clean} />);
+    expect(screen.getByText("No hits")).toBeInTheDocument();
   });
 });
