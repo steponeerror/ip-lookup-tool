@@ -15,7 +15,7 @@ def test_stopforumspam_loads_cidr_list(tmp_path):
     hit = s.query("109.200.1.5")[0]               # inside the /24
     assert hit["classification_type"] == "spam"
     assert hit["extra"] == {"native_type": "spam"}
-    assert hit["verdict"] == "malicious"
+    assert hit["verdict"] == "informational"
     assert hit["reliability"] == 0.70
 
     assert s.query("174.76.30.11")[0]["classification_type"] == "spam"   # exact /32

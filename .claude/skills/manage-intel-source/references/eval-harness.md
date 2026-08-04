@@ -30,4 +30,4 @@ print(s.health())   # 确认 record_count > 0、is_stale=False
 
 ## INSUFFICIENT-SAMPLE 别误判
 
-多为 corpus 偏向(geo/asn 源 IP 不在威胁 corpus),不是源差。例:cn_isp/iptoasn/ipinfo_lite(geo)、feodo/ip2proxy/stopforumspam(数据少或 IP 不在样本)。处理:补样本 / 换 corpus / 接受(geo 源本就不靠威胁 corpus 评估)。
+多为 corpus 偏向(geo/asn 源 IP 不在威胁 corpus),不是源差。例:cn_isp/iptoasn/ipinfo_lite(geo)、ip2proxy/stopforumspam(数据少或 IP 不在样本)。处理:补样本 / 换 corpus / 接受(geo 源本就不靠威胁 corpus 评估)。
