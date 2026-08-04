@@ -135,6 +135,7 @@
   "sources.titleCount": "Sources ({n})",
   "sources.refreshingAll": "Refreshing all...",
   "sources.refreshAll": "Refresh all",
+  "sources.allFresh": "All sources are already up to date",
   "sources.none": "No sources discovered",
   "sources.loading": "Loading…",
   "sources.downloading": "Downloading…",

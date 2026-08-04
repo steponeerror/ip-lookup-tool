@@ -135,6 +135,7 @@
   "sources.titleCount": "数据源（{n}）",
   "sources.refreshingAll": "全部刷新中...",
   "sources.refreshAll": "全部刷新",
+  "sources.allFresh": "所有源均已是最新的",
   "sources.none": "未发现数据源",
   "sources.loading": "加载中…",
   "sources.downloading": "下载中…",

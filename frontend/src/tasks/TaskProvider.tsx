@@ -9,7 +9,7 @@ type Ctx = {
   tasks: TaskState[];
   batch: BatchState | null;
   enqueueSingle: (name: string) => Promise<void>;
-  enqueueBatch: () => Promise<void>;
+  enqueueBatch: () => Promise<{ batch_id: string | null; refreshed?: number }>;
   cancelTask: (id: string) => Promise<void>;
   cancelBatch: () => Promise<void>;
   pause: () => Promise<void>;
@@ -55,7 +55,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   const value: Ctx = {
     tasks, batch,
     enqueueSingle: async (n) => { await apiEnqueueSingle(n); },
-    enqueueBatch: async () => { await apiEnqueueBatch(); },
+    enqueueBatch: async () => { return apiEnqueueBatch(); },
     cancelTask: async (id) => { await apiCancelTask(id); },
     cancelBatch: async () => { await apiCancelBatch(); },
     pause: async () => { await pauseBatch(); },

@@ -287,7 +287,7 @@ export async function getTasks(): Promise<TasksSnapshot> {
   return res.json();
 }
 
-export async function enqueueBatch(): Promise<{ batch_id: string }> {
+export async function enqueueBatch(): Promise<{ batch_id: string | null; refreshed?: number }> {
   const res = await fetch("/api/update-db", { method: "POST" });
   if (!res.ok) throw new Error("Failed to start batch");
   return res.json();

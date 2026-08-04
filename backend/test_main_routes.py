@@ -1,5 +1,7 @@
 """Tests for main.py routes returning new response shape."""
 import json
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 
 
@@ -67,3 +69,30 @@ class TestLookupResponseShape:
         assert "country" in r
         assert isinstance(r["country"]["confidence"], int)
         assert "classifications" in r
+
+    def test_update_db_skips_when_nothing_stale(self):
+        """Refresh-all must not enqueue a batch (or force MMDB rebuilds) when
+        every source is fresh — rebuilding fresh multi-million-row sources OOMs
+        the host. Returns refreshed=0 so the UI can show 'nothing to do'."""
+        import main
+        with patch.object(main, "stale_source_names", return_value=[]), \
+             patch.object(main.manager, "enqueue_batch") as mock_enq:
+            resp = self.client.post("/api/update-db")
+        assert resp.status_code == 200
+        assert resp.json() == {"batch_id": None, "refreshed": 0}
+        mock_enq.assert_not_called()
+
+    def test_update_db_only_enqueues_stale_sources(self):
+        import main
+        seen = {}
+        def _capture(names):
+            seen["names"] = names
+            return "batch-id-1"
+        with patch.object(main, "stale_source_names", return_value=["alpha", "beta"]), \
+             patch.object(main.manager, "enqueue_batch", side_effect=_capture):
+            resp = self.client.post("/api/update-db")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["batch_id"] == "batch-id-1"
+        assert body["refreshed"] == 2
+        assert seen["names"] == ["alpha", "beta"]

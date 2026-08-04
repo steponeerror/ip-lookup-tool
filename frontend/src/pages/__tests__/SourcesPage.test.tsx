@@ -130,4 +130,28 @@ describe("SourcesPage", () => {
       { timeout: 2000 },
     );
   });
+
+  it("shows progress from the latest task when a source has stale history", async () => {
+    // Regression: tasks arrive oldest-first and a source accumulates terminal
+    // tasks across batches. Picking the first match masked the current phase,
+    // so re-updating a previously-updated source showed "Update" instead of
+    // "Downloading". The latest task per source must win.
+    render(<SourcesPage />);
+    await screen.findByText("feodo");
+    const calls = (subscribeTasks as any).mock.calls;
+    const cb = calls[calls.length - 1][0] as (e: any) => void;
+    act(() => {
+      cb({
+        type: "snapshot",
+        data: {
+          tasks: [
+            { id: "t-old", source: "feodo", host: null, state: "done", error: null, batch_id: null },
+            { id: "t-new", source: "feodo", host: null, state: "downloading", error: null, batch_id: null },
+          ],
+          batch: null,
+        },
+      });
+    });
+    expect(await screen.findByRole("button", { name: /Downloading/i })).toBeInTheDocument();
+  });
 });
