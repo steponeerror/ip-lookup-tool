@@ -16,9 +16,9 @@ class StopForumSpamSource(IpListSource):
     name = "stopforumspam"
     url = "https://www.stopforumspam.com/downloads/toxic_ip_cidr.txt"
     filename = "stopforumspam.txt"
-    fields = ("is_malicious",)
+    fields = ("spam",)
     classification_type = "spam"
-    verdict = "malicious"
+    verdict = "informational"
     stale_days = 1
     reliability = 0.70
     authoritative_for = []

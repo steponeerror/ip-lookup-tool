@@ -1,3 +1,5 @@
+> 注：截至 2026-08-04，feodo 源已移除（abuse.ch sunset）。下文为历史快照，feodo 相关覆盖描述不再反映现状。
+
 # Source-Skills Closed-Loop — Findings Report
 
 Campaign: `feat/source-skills-loop`. Spec: `docs/superpowers/specs/2026-07-30-source-skills-closed-loop-design.md`. Plan: `docs/superpowers/plans/2026-07-30-source-skills-closed-loop.md`.

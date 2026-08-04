@@ -2,7 +2,7 @@
 
 ## 何时查
 
-权威源(SOURCE_RELIABILITY 影响最大的:spamhaus/emerging_threats/threatfox/feodo/abuseipdb 等)在**调整权重前**,用第三方独立实测支撑/质疑数值。非权威/社区源不必(分档表够)。
+权威源(SOURCE_RELIABILITY 影响最大的:spamhaus/emerging_threats/threatfox/abuseipdb 等)在**调整权重前**,用第三方独立实测支撑/质疑数值。非权威/社区源不必(分档表够)。
 
 ## 工具(agent-reach skill)
 

@@ -21,7 +21,7 @@
 
 | 类型 | 基线 | 例 |
 |---|---|---|
-| 权威 curated | 0.85–0.90 | spamhaus, emerging_threats, threatfox, feodo, abuseipdb |
+| 权威 curated | 0.85–0.90 | spamhaus, emerging_threats, threatfox, abuseipdb |
 | 社区聚合 | 0.50–0.70 | otx, firehol, ipsum, blocklist_de, binarydefense, urlhaus, tweetfeed |
 | asset 权威 | 0.70–0.95 | tor_exits, x4bnet_vpn, ip2proxy |
 

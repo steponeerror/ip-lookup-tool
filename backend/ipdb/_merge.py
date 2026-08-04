@@ -65,7 +65,6 @@ SOURCE_RELIABILITY: dict[str, float] = {
     # threat sources also consumed by STIX export x_reliability (_stix_export._get_src_reliability)
     "abuseipdb":   0.65,
     "misp":        0.70,
-    "feodo":       0.85,
     "stopforumspam": 0.70,
     "binarydefense": 0.65,
     "tweetfeed": 0.45,
@@ -79,7 +78,7 @@ AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
     "is_proxy":     ["ip2proxy"],
     "is_tor":       ["tor_exits"],
     "is_vpn":       ["x4bnet_vpn"],
-    "is_malicious": ["threatfox", "feodo", "emerging_threats", "spamhaus"],
+    "is_malicious": ["threatfox", "emerging_threats", "spamhaus"],
     "is_hosting":   ["ipinfo_lite"],
     "is_mobile":    ["ipinfo_lite"],
 }

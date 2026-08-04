@@ -137,7 +137,6 @@ SOURCE_CATEGORIES = {
     "firehol": "threat",
     "abuseipdb": "threat",
     "misp": "threat",
-    "feodo": "threat",
     "stopforumspam": "threat",
     "binarydefense": "threat",
     "tweetfeed": "threat",
