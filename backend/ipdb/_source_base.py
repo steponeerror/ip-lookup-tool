@@ -35,6 +35,13 @@ class Source:
     stale_days: int = 7
     reliability: float = 0.5
     authoritative_for: list = []
+    # When True, load() streams one (cidr, [evidence]) per harvest yield
+    # straight into write_mmdb instead of accumulating a full acc dict. Safe
+    # only for sources whose harvest yields each CIDR at most once (geo/asset
+    # lists like ip2proxy/iptoasn); insert_network overwrites idempotently, so
+    # a stray duplicate is harmless. Multi-evidence threat sources must leave
+    # this False — they rely on acc to group several evidence per CIDR.
+    single_evidence: bool = False
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir
@@ -45,8 +52,12 @@ class Source:
         self._loaded_at = 0.0
 
     # ── hooks ──
-    def download(self) -> None:
-        """Default: simple GET → self._path. Override for bespoke fetch."""
+    def download(self, token=None) -> None:
+        """Default: simple GET → self._path. Override for bespoke fetch.
+
+        ``token`` is accepted (and ignored) so UpdateManager can call
+        ``download(token=...)`` uniformly; subclasses with non-cancellable
+        fetches need not override for signature compatibility alone."""
         self._data_dir.mkdir(parents=True, exist_ok=True)
         req = urllib.request.Request(
             self.url, headers={"User-Agent": "ip-lookup-tool/1.0"})
@@ -75,14 +86,22 @@ class Source:
             if self._reader is not None:
                 self._reader.close()
                 self._reader = None
-            acc: dict[str, list[dict]] = {}
-            for cidr, ev in self.harvest():
-                ev = self.normalize(ev)
-                d = ev.to_dict()
-                bucket = acc.setdefault(cidr, [])
-                if d not in bucket:                 # full-evidence dedup
-                    bucket.append(d)
-            records = ((k, v) for k, v in acc.items())
+            if self.single_evidence:
+                # Stream lazily — no full acc dict (saves ~1GB for million-row
+                # geo sources). Each CIDR yielded once → one-evidence list.
+                def _records():
+                    for cidr, ev in self.harvest():
+                        yield cidr, [self.normalize(ev).to_dict()]
+                records = _records()
+            else:
+                acc: dict[str, list[dict]] = {}
+                for cidr, ev in self.harvest():
+                    ev = self.normalize(ev)
+                    d = ev.to_dict()
+                    bucket = acc.setdefault(cidr, [])
+                    if d not in bucket:                 # full-evidence dedup
+                        bucket.append(d)
+                records = ((k, v) for k, v in acc.items())
             n = write_mmdb(records, self._mmdb_path,
                            database_type=f"IP-Radar-{self.name}")
             count_path.write_text(str(n))
