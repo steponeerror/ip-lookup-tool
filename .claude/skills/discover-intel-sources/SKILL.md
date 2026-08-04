@@ -109,6 +109,7 @@ pricing/model/terms before applying a gate**, since access tiers and licenses dr
 | **Structural model mismatch** — reports scoped to *your own* ASN/CIDR (Shadowserver), not global | REJECT | doesn't serve arbitrary-IP lookup |
 | **Feed marked "unverified" / "community"** and you'd consume it on the corroboration axis | REJECT | pollutes fusion; keep only verified for the axis |
 | **~100% overlap with an existing source** (verify: is it already aggregated into `firehol`/`ipsum`/`spamhaus`?) | REJECT | redundant |
+| **Sunset/frozen feed** — data-internal timestamp (`Last updated`/`Generated`/`As-of`) older than 30 days at sample-fetch; OR (no internal timestamp) publisher shows no GitHub commit / changelog / release within 30 days AND no content change across ≥2 fetches on different days | REJECT | re-serves a stale file though the URL responds; `file-mtime` is NOT liveness evidence (frozen re-download bumps it — this is how the sunset `feodo` feed slipped in) |
 | **Domain/URL-only feed** needing URL→IP resolution at fetch time (PhishTank, OpenPhish free) | FLAG | fragile, expires; prefer native-IP feeds |
 | **Ambiguous commercial-use license** ("not for commercial resale") | FLAG | needs explicit user sign-off before integrating |
 
@@ -133,6 +134,7 @@ table, so a filled dossier hands off with zero rework.
 - Format:         <plain IP list | CSV cols | JSON | ZIP/gzip-wrapped>
 - Auth:           <none | API key (env var name) | licensed>
 - Cadence:        <hourly|daily|weekly>  →  stale_days = <N>
+- Data freshness verified: <internal timestamp, e.g. "Last updated 2026-08-01"> | <"no internal ts — publisher liveness: <evidence URL> checked on YYYY-MM-DD, content changed across fetches on D1/D2">
 - Fields:         <what a row carries; per-field routing: X→Evidence.Y, ...>
 - Reliability:    <0–1, with reason>
 - License/quota:  <terms + any rate limit>
@@ -144,6 +146,8 @@ table, so a filled dossier hands off with zero rework.
 Leave no slot blank. "Unknown" is an acceptable value only for `Fields`/`Cadence`
 *until you fetch the sample* — the sample resolves them, so by dossier time they
 are filled. A dossier with missing slots is incomplete; go back and fetch.
+
+The `Data freshness verified` slot is mandatory: a candidate whose data is stale beyond the sunset hard-gate is REJECTed before dossier time, so a surviving dossier always has fresh data. `file-mtime` / "the URL responds" are not acceptable freshness evidence.
 
 ## Common mistakes
 

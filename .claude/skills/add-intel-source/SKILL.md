@@ -62,6 +62,8 @@ order / delimiter / comment style to write the parser. ThreatFox and IPsum are
 good reminders of how format quirks (ZIP wrapping, tab delimiters, header lines
 to skip) shape the implementation.
 
+**Freshness gate (mandatory, mirrors discover-intel-sources):** before proceeding, verify the feed is alive. If the sample embeds a `Last updated` / `Generated` / `As-of` timestamp, confirm it is <30 days old. If it has no internal timestamp, verify publisher liveness — a GitHub commit / official changelog / release within 30 days, OR observed content change across ≥2 fetches on different days. `file-mtime` and "the URL responded" are NOT liveness evidence (a sunset feed re-serves a frozen file and bumps the mtime). If the feed fails this gate, STOP — do not implement; tell the user the feed appears sunset and point them to `discover-intel-sources`'s hard-gate for the rationale.
+
 ### Per-field routing (逐字段路由判定) — decide each field's home
 
 Before picking an archetype, walk every field the feed carries and decide where
@@ -88,6 +90,8 @@ typos and collisions.
 **Output of Phase 1:** a one-paragraph decision: archetype + the class attributes
 + the env var name + whether a new classification map is needed + the per-field
 routing table. Confirm with the user before implementing if anything is ambiguous.
+
++ freshness verified (<30d internal ts OR publisher-liveness evidence recorded)
 
 ## Phase 2 — Pick the archetype
 
