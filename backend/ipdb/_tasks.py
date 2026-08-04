@@ -90,7 +90,14 @@ class UpdateManager:
 
     def snapshot(self) -> dict:
         with self._lock:
-            tasks = [t.to_dict() for t in self._tasks.values()]
+            # _tasks accumulates terminal tasks across batches; iteration order
+            # is insertion (oldest→newest), so the last task seen per source is
+            # the current one. Collapse to one-per-source so a stale terminal
+            # task can't mask a re-enqueued source's live phase.
+            by_source: dict[str, "Task"] = {}
+            for t in self._tasks.values():
+                by_source[t.source_name] = t
+            tasks = [t.to_dict() for t in by_source.values()]
             batch = self._batches[self._active_batch].to_dict() if self._active_batch else None
             return {"tasks": tasks, "batch": batch}
 

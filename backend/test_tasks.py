@@ -238,6 +238,24 @@ def test_snapshot_matches_live_state():
     assert snap == mgr.snapshot()
 
 
+def test_snapshot_returns_one_task_per_source_after_reupdate():
+    """Terminal tasks accumulate in _tasks. After a source is updated again,
+    snapshot() must return only the latest task for that source — otherwise the
+    UI sees a stale terminal task and masks the current phase (regression:
+    re-updating a previously-updated source showed no progress)."""
+    src = FakeSource("a", host="h")
+    mgr, _ = _make_manager([src])
+    mgr.enqueue_one("a")
+    _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]))
+    mgr.enqueue_one("a")  # re-enqueue now that the first task is terminal
+    deadline = time.time() + 5
+    while time.time() < deadline and src.download_calls < 2:
+        time.sleep(0.02)
+    snap = mgr.snapshot()
+    a_tasks = [t for t in snap["tasks"] if t["source"] == "a"]
+    assert len(a_tasks) == 1, f"snapshot leaked {len(a_tasks)} tasks for source a: {a_tasks}"
+
+
 def test_emit_drops_oldest_when_queue_full():
     """_emit must drop the oldest event on a full subscriber queue (keep newest).
     Regression guard for the call_soon_threadsafe + QueueFull bug (T6 Part B):

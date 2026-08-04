@@ -34,6 +34,7 @@ class IP2ProxySource(Source):
     verdict = "suspicious"
     stale_days = 7
     reliability = 0.80
+    single_evidence = True   # one evidence per CIDR → stream load() (OOM guard)
     authoritative_for = ["is_proxy"]
 
     def __init__(self, data_dir: Path):

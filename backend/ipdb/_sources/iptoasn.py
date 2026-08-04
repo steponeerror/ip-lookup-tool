@@ -19,6 +19,7 @@ class IPtoASNSource(Source):
     url = _TSV_URL
     fields = ("country_code", "asn", "as_name", "ip_range")
     stale_days = 7
+    single_evidence = True   # one evidence per CIDR → stream load() (OOM guard)
 
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)

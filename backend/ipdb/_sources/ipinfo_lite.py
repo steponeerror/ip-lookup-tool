@@ -77,39 +77,42 @@ class IPinfoLiteSource:
                 self._reader.close()
                 self._reader = None
             import csv as _csv
-            records = []
-            with open(self._path, "r", encoding="utf-8") as f:
-                reader = _csv.reader(f)
-                next(reader, None)
-                for row in reader:
-                    if len(row) < 8:
-                        continue
-                    network, country_code, asn, as_name, as_domain = (
-                        row[0], row[2], row[5], row[6], row[7])
-                    try:
-                        _ipa.IPv4Network(network, strict=False)
-                    except (_ipa.AddressValueError, ValueError):
-                        continue
-                    asn_val: int | str = "N/A"
-                    has_asn = False
-                    if asn.startswith("AS"):
+            # Stream rows lazily into write_mmdb instead of accumulating a
+            # 3.6M-entry `records` list — the list alone was ~1.2GB and peaked
+            # alongside the MMDB SearchTree, OOMing the host on every rebuild.
+            def _records():
+                with open(self._path, "r", encoding="utf-8") as f:
+                    reader = _csv.reader(f)
+                    next(reader, None)
+                    for row in reader:
+                        if len(row) < 8:
+                            continue
+                        network, country_code, asn, as_name, as_domain = (
+                            row[0], row[2], row[5], row[6], row[7])
                         try:
-                            asn_val = int(asn[2:]); has_asn = True
-                        except ValueError:
-                            pass
-                    elif asn:
-                        try:
-                            asn_val = int(asn); has_asn = True
-                        except ValueError:
-                            pass
-                    records.append((network, {
-                        "country_code": country_code,
-                        "asn": asn_val,
-                        "as_name": as_name or as_domain or "N/A",
-                        "has_asn": has_asn,
-                        "_net": network,
-                    }))
-            n = write_mmdb(records, self._mmdb_path,
+                            _ipa.IPv4Network(network, strict=False)
+                        except (_ipa.AddressValueError, ValueError):
+                            continue
+                        asn_val: int | str = "N/A"
+                        has_asn = False
+                        if asn.startswith("AS"):
+                            try:
+                                asn_val = int(asn[2:]); has_asn = True
+                            except ValueError:
+                                pass
+                        elif asn:
+                            try:
+                                asn_val = int(asn); has_asn = True
+                            except ValueError:
+                                pass
+                        yield network, {
+                            "country_code": country_code,
+                            "asn": asn_val,
+                            "as_name": as_name or as_domain or "N/A",
+                            "has_asn": has_asn,
+                            "_net": network,
+                        }
+            n = write_mmdb(_records(), self._mmdb_path,
                            database_type="IP-Radar-ipinfo-lite")
             count_path.write_text(str(n))
 
