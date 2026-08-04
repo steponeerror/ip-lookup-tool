@@ -6,7 +6,7 @@ import {
   getSources,
   setSourceEnabled,
 } from "../api";
-import type { SourceInfo } from "../api";
+import type { SourceInfo, TaskState } from "../api";
 import { useI18n } from "../i18n";
 import { useTasks } from "../tasks/TaskProvider";
 
@@ -68,6 +68,7 @@ export default function SourcesPage() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const reduce = useReducedMotion();
 
   const fmtTime = (iso: string | null) => {
@@ -127,8 +128,10 @@ export default function SourcesPage() {
   };
 
   const handleRefreshAll = async () => {
+    setInfo(null);
     try {
-      await enqueueBatch();
+      const { refreshed } = await enqueueBatch();
+      if (refreshed === 0) setInfo(t("sources.allFresh"));
     } catch (e) {
       setError(e instanceof Error ? e.message : t("sources.refreshAllFailed"));
     }
@@ -141,6 +144,13 @@ export default function SourcesPage() {
   const grouped = CATEGORY_ORDER
     .map((cat) => ({ cat, items: sources.filter((s) => s.category === cat) }))
     .filter((g) => g.items.length > 0);
+
+  // tasks arrive oldest-first and a source accumulates terminal tasks across
+  // batches; the last state seen per source is the current one. Index once so
+  // re-updating a previously-updated source still reflects its live phase
+  // (regression: `find()` returned the stale first task and hid the progress).
+  const phaseBySource = new Map<string, TaskState["state"]>();
+  for (const tk of tasks) phaseBySource.set(tk.source, tk.state);
 
   return (
     <section className="space-y-6">
@@ -160,6 +170,12 @@ export default function SourcesPage() {
       {error && (
         <div className="rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-400">
           {error}
+        </div>
+      )}
+
+      {info && !error && (
+        <div className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-400">
+          {info}
         </div>
       )}
 
@@ -189,7 +205,7 @@ export default function SourcesPage() {
                 // Per-row phase comes from the tasks context (SSE-driven), not
                 // local state. A row is "busy" only when a task for this source
                 // is queued / downloading / loading.
-                const phase = tasks.find((tk) => tk.source === s.name)?.state;
+                const phase = phaseBySource.get(s.name);
                 const busy =
                   phase === "queued" ||
                   phase === "downloading" ||

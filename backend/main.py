@@ -233,8 +233,19 @@ def _offline_enabled_names():
 
 @app.post("/api/update-db")
 async def update_db():
-    bid = manager.enqueue_batch(_offline_enabled_names())
-    return {"batch_id": bid}
+    """Refresh stale sources only.
+
+    Fresh sources are skipped: re-downloading them bumps the raw file's mtime
+    past the MMDB's, forcing a full MMDB rebuild. For multi-million-row sources
+    (ipinfo_lite 3.6M, ip2proxy 2.9M) a single rebuild peaks at several GB and
+    can OOM the host. Skipping fresh sources bounds the batch to what actually
+    needs updating. ``refreshed=0`` lets the UI show "nothing to do".
+    """
+    stale = stale_source_names()
+    if not stale:
+        return {"batch_id": None, "refreshed": 0}
+    bid = manager.enqueue_batch(stale)
+    return {"batch_id": bid, "refreshed": len(stale)}
 
 
 @app.post("/api/update-db/cancel")
