@@ -10,8 +10,6 @@ const sampleResult: LookupResult = {
   ip_range: { value: "1.2.3.0/24", confidence: 100, algorithm: "authority", sources: [] },
   is_isp: false,
   classifications: {},
-  is_whitelisted: false,
-  whitelist_notes: [],
 };
 
 describe("buildCsvContent", () => {
