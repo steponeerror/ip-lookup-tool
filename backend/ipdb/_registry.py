@@ -149,6 +149,7 @@ SOURCE_CATEGORIES = {
     "ip2proxy": "asset",
     "tor_exits": "asset",
     "x4bnet_vpn": "asset",
+    "proxyscrape": "asset",
 }
 
 

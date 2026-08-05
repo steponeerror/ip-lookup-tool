@@ -74,6 +74,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "greensnow": 0.60,
     "dataplane": 0.70,
     "f3csystems": 0.60,
+    "proxyscrape": 0.45,
 }
 
 AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
