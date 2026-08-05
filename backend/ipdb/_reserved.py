@@ -22,10 +22,17 @@ it MUST skip IPs whose LookupResult.is_reserved is True.
 import ipaddress
 
 
+def is_reserved_addr(addr: ipaddress.IPv4Address) -> bool:
+    """True if a parsed IPv4Address is non-globally-routable (bogon). Use this
+    when the caller has already parsed the address, to avoid re-parsing the
+    string a second time."""
+    return (not addr.is_global) or addr.is_multicast
+
+
 def is_reserved(ip: str) -> bool:
     """True if ip is a non-globally-routable (bogon) IPv4 address."""
     try:
         addr = ipaddress.IPv4Address(ip)
     except (ipaddress.AddressValueError, ValueError):
         return False
-    return (not addr.is_global) or addr.is_multicast
+    return is_reserved_addr(addr)

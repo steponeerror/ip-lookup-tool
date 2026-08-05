@@ -14,7 +14,7 @@ from typing import Any, Optional
 from dotenv import load_dotenv
 from ipdb._source_state import load_disabled, save_disabled
 from ._evidence import route_record, SCALAR_SLOTS, ASSET_SLOTS
-from ._reserved import is_reserved
+from ._reserved import is_reserved_addr
 from ._types import SourceHealth, LookupResult, MergedField, ClassificationAssessment, AssetStatement
 from ._merge import (
     FactualVoting,
@@ -84,6 +84,12 @@ def _instantiate_source(cls, data_dir: Path) -> list:
 _sources = _discover_sources(DATA_DIR)
 _disabled = load_disabled(_STATE_PATH)
 _state_lock = threading.Lock()
+# Cache of lookup()'s "is DB loaded" guard, keyed by the identities of _sources
+# and _disabled. The guard (any enabled source has a loaded reader) is stable
+# across lookups and only changes when the source set or enabled-state changes,
+# so caching avoids re-stat'ing source files on every lookup (health() does
+# self._path.stat() — up to 16 stats for multi-file sources like cn_isp).
+_loaded_cache: dict = {"key": None, "value": False}
 _update_locks: dict[str, threading.Lock] = {}
 _update_locks_guard = threading.Lock()
 
@@ -163,6 +169,21 @@ def is_enabled(name: str) -> bool:
 
 def _enabled_sources() -> list:
     return [s for s in _sources if is_enabled(s.name)]
+
+
+def _db_loaded() -> bool:
+    """True if any enabled source has a loaded reader. Cached by the identities
+    of _sources and _disabled so it recomputes only when the source set or
+    enabled-state changes (not per lookup). Background per-source reloads do not
+    change those identities; a briefly-stale True during a reload is benign —
+    the query loop treats a None reader as an empty result for that source."""
+    key = (id(_sources), id(_disabled))
+    if _loaded_cache["key"] == key:
+        return _loaded_cache["value"]
+    value = any(s.health().loaded for s in _enabled_sources())
+    _loaded_cache["key"] = key
+    _loaded_cache["value"] = value
+    return value
 
 
 def _archetype(source) -> str:
@@ -264,13 +285,13 @@ def expected_counts() -> dict[str, int]:
 
 def lookup(ip: str) -> LookupResult:
     """Look up an IP address and return a typed LookupResult."""
-    if not any(s.health().loaded for s in _enabled_sources()):
+    if not _db_loaded():
         raise RuntimeError("Database not loaded")
     try:
-        ipaddress.IPv4Address(ip)
+        addr = ipaddress.IPv4Address(ip)
     except (ipaddress.AddressValueError, ValueError):
         return _error_result(ip)
-    if is_reserved(ip):
+    if is_reserved_addr(addr):
         return _reserved_result(ip)
 
     # Collect scalar fields + evidence observations from all sources.

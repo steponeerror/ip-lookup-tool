@@ -39,6 +39,17 @@ def test_public_ips_are_not_reserved():
     assert not is_reserved("1.1.1.1")
 
 
+def test_is_reserved_addr_agrees_with_is_reserved_for_string():
+    """is_reserved_addr takes an already-parsed IPv4Address so callers that have
+    parsed the IP (e.g. lookup()) can avoid re-parsing the string a second time."""
+    import ipaddress
+    from ipdb._reserved import is_reserved_addr
+    cases = ["10.0.0.1", "127.0.0.1", "169.254.1.1", "100.64.0.1",
+             "224.0.0.1", "240.0.0.1", "0.0.0.0", "8.8.8.8", "1.1.1.1"]
+    for ip in cases:
+        assert is_reserved_addr(ipaddress.IPv4Address(ip)) == is_reserved(ip), ip
+
+
 def test_invalid_format_is_not_reserved():
     # Format validation is lookup()'s job; is_reserved returns False rather than raising.
     assert not is_reserved("not-an-ip")

@@ -202,29 +202,31 @@ class RangeSpecificity:
         import ipaddress as _ipa
 
         attributions = _to_attributions(source_values, self.field)
-        ip = context.get("ip", "")
+        try:
+            ip_addr = _ipa.IPv4Address(context.get("ip", ""))
+        except (_ipa.AddressValueError, ValueError):
+            ip_addr = None
 
-        valid: list[SourceAttribution] = []
+        # (net, attribution) pairs — parse each value once, reuse for both the
+        # containment test and the prefixlen comparison below.
+        valid: list[tuple[_ipa.IPv4Network, SourceAttribution]] = []
         for a in attributions:
             if not a.value or a.value == "N/A":
                 continue
             try:
                 net = _ipa.IPv4Network(a.value, strict=False)
-                if _ipa.IPv4Address(ip) in net:
-                    valid.append(a)
             except (_ipa.AddressValueError, ValueError):
                 continue
+            if ip_addr is not None and ip_addr in net:
+                valid.append((net, a))
 
         if not valid:
             return MergedField("N/A", 0, "specificity", attributions)
         if len(valid) == 1:
-            return MergedField(valid[0].value, 50, "specificity", attributions)
+            return MergedField(valid[0][1].value, 50, "specificity", attributions)
 
-        most_specific = max(
-            valid,
-            key=lambda a: _ipa.IPv4Network(a.value, strict=False).prefixlen,
-        )
-        return MergedField(most_specific.value, 85, "specificity", attributions)
+        most_specific = max(valid, key=lambda na: na[0].prefixlen)
+        return MergedField(most_specific[1].value, 85, "specificity", attributions)
 
 
 def _decay_confidence(base: int, first_seen) -> int:

@@ -38,7 +38,11 @@ def write_mmdb(records: Iterable[tuple[str, object]], mmdb_path: Path,
 
 def open_reader(mmdb_path: Path) -> maxminddb.Reader:
     """Open an MMDB file as an mmap reader. Use as a context manager."""
-    return maxminddb.open_database(str(mmdb_path), maxminddb.MODE_MMAP)
+    # MODE_AUTO picks MODE_MMAP_EXT (the compiled C extension) when available —
+    # ~30x faster get() than the pure-Python MODE_MMAP reader — and falls back to
+    # pure-Python mmap on hosts without the extension. reader.get() is ~70% of
+    # per-lookup CPU, so this mode is the single biggest lookup-cost lever.
+    return maxminddb.open_database(str(mmdb_path), maxminddb.MODE_AUTO)
 
 
 def needs_convert(raw_path: Path, mmdb_path: Path) -> bool:

@@ -93,10 +93,12 @@ def test_reload_closes_prior_reader(tmp_path, monkeypatch):
         "8.8.8.0,8.8.8.255,US,CA,LA,AS15169,Google LLC,google.com\n")
     src = IPinfoLiteSource(data_dir=tmp_path)
     src.load()
-    first = src._reader
-    assert first is not None
+    assert src._reader is not None
+    # The reader may be a C-extension object whose instance attrs are read-only,
+    # so swap in a plain close-spy to observe the close() call on reconversion.
+    from types import SimpleNamespace
     closed = []
-    monkeypatch.setattr(first, "close", lambda: closed.append(1))
+    src._reader = SimpleNamespace(close=lambda: closed.append(1))
 
     # force reconvert via deterministic mtime (wall-clock sleep is flaky under load)
     os.utime(csv, (src._mmdb_path.stat().st_mtime + 100,) * 2)
