@@ -22,6 +22,17 @@
     <link rel="preconnect" href="https://cdn.jsdelivr.net" />
     <link href="https://cdn.jsdelivr.net/npm/geist@1/dist/fonts/geist-sans/style.css" rel="stylesheet" />
     <link href="https://cdn.jsdelivr.net/npm/geist@1/dist/fonts/geist-mono/style.css" rel="stylesheet" />
+    <!-- CJK: Geist is Latin-only. Noto Sans SC/TC cover Chinese glyphs; each
+         weight CSS is unicode-range subsetted so only used glyph ranges fetch.
+         font-display:swap renders system CJK first, swaps to Noto when ready. -->
+    <link href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5/400.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5/500.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5/600.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5/700.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-tc@5/400.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-tc@5/500.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-tc@5/600.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-tc@5/700.css" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>
