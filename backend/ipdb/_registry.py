@@ -144,6 +144,8 @@ SOURCE_CATEGORIES = {
     "ciarm": "threat",
     "bruteforce": "threat",
     "greensnow": "threat",
+    "dataplane": "threat",
+    "f3csystems": "threat",
     "ip2proxy": "asset",
     "tor_exits": "asset",
     "x4bnet_vpn": "asset",

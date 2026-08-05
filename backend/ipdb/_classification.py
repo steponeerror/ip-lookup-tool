@@ -122,6 +122,15 @@ URLHAUS_MAP = {
     "hajime": "botnet",
 }
 
+# dataplane.org signal → IntelMQ. sshpwauth/telnetlogin are credential
+# brute-force against the sensor; dnsrd = source IPs sending recursive DNS
+# queries (probing), not open resolvers — scanner, not misconfiguration.
+DATAPLANE_MAP = {
+    "sshpwauth": "brute-force",
+    "telnetlogin": "brute-force",
+    "dnsrd": "scanner",
+}
+
 
 def normalize(raw_type, mapping: dict) -> str:
     """Map a source-native category to a CONTROLLED IntelMQ classification.type
