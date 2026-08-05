@@ -183,12 +183,12 @@ Then run, from `backend/`:
 
 ```bash
 python3 -m pytest tests/sources/test_<name>.py -q          # your source's test
-python3 -m pytest test_source_decls.py test_registry_new.py \
-                  test_registry_bugs.py test_source_query_shapes.py -q   # it registers + has the right shape
+python3 -m pytest tests/source_infra/test_source_decls.py tests/source_infra/test_registry_new.py \
+                  tests/source_infra/test_registry_bugs.py tests/source_infra/test_source_query_shapes.py -q   # it registers + has the right shape
 python3 -m pytest -q                                        # full suite — expect the same pass/fail as before
 ```
 
-The full suite has **known unrelated failures** in `test_quota_thread_safety.py`
+The full suite has **known unrelated failures** in `tests/core/test_quota_thread_safety.py`
 — a quota-cap drift bug (tests assume a 950 daily cap; the code allows 1000),
 **not** environmental rate-limiting: at `_daily_count=950` the tests call the
 real ipapi.is API, which 403s. They reproduce on a clean checkout and are
