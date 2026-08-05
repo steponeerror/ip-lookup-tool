@@ -172,6 +172,12 @@ def test_batch_flows_through_manager_and_snapshot(monkeypatch):
         monkeypatch.setattr(s, "download", lambda token=None: None)
         monkeypatch.setattr(s, "load", lambda: 0)
 
+    # /api/update-db enqueues only STALE sources. Force every offline source
+    # stale so the batch is non-empty regardless of on-disk data freshness
+    # (CI has no data → all stale; a dev worktree with fresh data → none stale
+    # without this, and the batch would be empty).
+    monkeypatch.setattr(main, "stale_source_names", lambda: [s.name for s in offline])
+
     mgr = main.manager
     sub_loop = asyncio.new_event_loop()
     q = mgr.subscribe(sub_loop)
@@ -185,29 +191,25 @@ def test_batch_flows_through_manager_and_snapshot(monkeypatch):
             assert r.status_code == 200
             bid = r.json()["batch_id"]
 
-            # Poll snapshot until batch is fully done (state==done AND
-            # done==total). With no-op downloads this resolves in milliseconds;
-            # the 10s deadline is a safety net. Checking done==total (not just
-            # state==done) avoids a false pass from the premature-done race
-            # where the batch flips before all tasks have settled.
+            # Poll until every task has settled. A terminal batch releases the
+            # active slot, so snapshot stops reporting it; completion is confirmed
+            # via tasks reaching terminal plus the SSE `done` event (asserted below).
             terminal = {"done", "failed", "cancelled"}
             deadline = time.time() + 10
             snap = before
             while time.time() < deadline:
                 snap = c.get("/api/tasks").json()
-                b = snap.get("batch")
-                if (b and b.get("state") == "done"
-                        and b.get("done") == b.get("total")
-                        and b.get("total", 0) > 0):
+                states = {t["state"] for t in snap["tasks"]}
+                if states and states <= terminal:
+                    # all settled; let the `done` event land on the bus before draining
+                    time.sleep(0.05)
                     break
                 time.sleep(0.02)
 
         # --- snapshot consistency ---
-        assert snap["batch"] is not None, "batch never reached done within deadline"
-        assert snap["batch"]["id"] == bid
-        assert snap["batch"]["state"] == "done"
-        assert snap["batch"]["done"] == snap["batch"]["total"]
-        assert snap["batch"]["total"] >= 1
+        # snapshot must NOT report the now-terminal batch as active
+        assert snap["batch"] is None
+        assert snap["tasks"], "no tasks observed for the batch"
         task_states = {t["state"] for t in snap["tasks"]}
         assert task_states <= terminal, f"non-terminal tasks remain: {task_states}"
 
@@ -230,3 +232,12 @@ def test_batch_flows_through_manager_and_snapshot(monkeypatch):
         f"SSE bus never delivered a terminal `done` event; got types={evt_types}"
     assert "task" in evt_types or "batch" in evt_types, \
         f"SSE bus delivered no task/batch progress events; got types={evt_types}"
+
+    # The terminal `done` event carries the finished batch (snapshot no longer
+    # does); assert it is internally consistent (the property previously checked
+    # on the snapshot).
+    done_batch = next(e["batch"] for e in received if e.get("type") == "done")
+    assert done_batch["id"] == bid
+    assert done_batch["state"] == "done"
+    assert done_batch["done"] == done_batch["total"]
+    assert done_batch["total"] >= 1

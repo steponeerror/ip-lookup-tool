@@ -124,10 +124,13 @@ def test_enqueue_batch_offline_only_tracks_done_total():
     mgr, _ = _make_manager(srcs)
     mgr._archetype_of = lambda s: "online" if s.name == "x" else "offline"
     bid = mgr.enqueue_batch(["a", "b", "x"])  # "x" is online → excluded
-    snap = _wait_states(mgr, lambda s: s["batch"] and s["batch"]["state"] == "done", timeout=10)
-    assert snap["batch"]["total"] == 2          # only a + b counted
-    assert snap["batch"]["done"] == 2
-    assert bid == snap["batch"]["id"]
+    _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]), timeout=10)
+    b = mgr._batches[bid]
+    assert b.state == "done"
+    assert b.total == 2          # only a + b counted
+    assert b.done == 2
+    # terminal batch is no longer reported as active by snapshot
+    assert mgr.snapshot()["batch"] is None
 
 
 def test_online_sources_excluded():
@@ -157,7 +160,7 @@ def test_pause_stops_dispatch_then_resume():
     started = sum(1 for s in [src] + fast if s.download_calls > 0)
     assert started <= 2
     mgr.resume()
-    _wait_states(mgr, lambda s: s["batch"] and s["batch"]["state"] == "done", timeout=10)
+    _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]), timeout=10)
 
 
 def test_cancel_running_task():
@@ -176,9 +179,58 @@ def test_cancel_batch_cancels_all():
     bid = mgr.enqueue_batch([s.name for s in srcs])
     time.sleep(0.1)
     mgr.cancel_batch(bid)
-    snap = _wait_states(mgr, lambda s: s["batch"] and s["batch"]["state"] == "done", timeout=5)
+    snap = _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]), timeout=5)
     states = [t["state"] for t in snap["tasks"]]
     assert all(s == "cancelled" for s in states)
+    assert mgr._batches[bid].state == "done"
+
+
+# --- download byte-progress (task_progress events, throttled) ---
+
+def test_download_progress_emitted_throttled_with_final_100():
+    """download_file reports byte progress via token.on_progress; the manager
+    relays it as task_progress events, throttled (not one per chunk) and ending
+    with the final 100%."""
+    import asyncio
+
+    class ProgSource(FakeSource):
+        def download(self, token=None):
+            total = 1000
+            for i in range(1, 11):           # 10 chunks of 100 bytes
+                if token is not None and token.is_cancelled():
+                    from ipdb._sources._download import CancelledError
+                    raise CancelledError()
+                if token is not None and token.on_progress:
+                    token.on_progress(i * 100, total)
+                time.sleep(0.05)             # 10×0.05s = 0.5s spans throttle windows
+
+    src = ProgSource("p", host="h")
+    mgr, _ = _make_manager([src])
+    loop = asyncio.new_event_loop()
+    q = mgr.subscribe(loop)
+    try:
+        mgr.enqueue_one("p")
+        _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]), timeout=10)
+        loop.run_until_complete(asyncio.sleep(0.1))
+        evts = []
+        while not q.empty():
+            try:
+                evts.append(q.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        prog = [e for e in evts if e.get("type") == "task_progress"]
+        assert prog, "no task_progress events emitted"
+        # throttled: far fewer events than the 10 chunks (≤10 is a loose upper bound)
+        assert len(prog) <= 10
+        # final 100% lands
+        assert any(e["received"] == 1000 and e["total"] == 1000 for e in prog), \
+            f"final 100% not emitted; got {prog}"
+        # monotonically increasing received
+        recvs = [e["received"] for e in prog]
+        assert recvs == sorted(recvs), f"non-monotonic progress: {recvs}"
+    finally:
+        mgr.unsubscribe(q)
+        loop.close()
 
 
 # --- Task 8: run_batch_blocking (cold-start sync wait) ---
@@ -238,9 +290,25 @@ def test_snapshot_matches_live_state():
     assert snap == mgr.snapshot()
 
 
+def test_finished_batch_releases_active_slot_and_single_update_is_batchless():
+    """Regression: _active_batch was never cleared after a batch finished, so
+    single-source updates (enqueue_one) silently attached to the stale done
+    batch — accruing its done/total counter and showing bogus batch context
+    (e.g. 3/2 · 150%). After a batch finishes, _active_batch must be None so
+    the next single-source update runs batchless, and snapshot must not report
+    a terminal batch as active."""
+    srcs = [FakeSource("a", host="h1"), FakeSource("b", host="h2")]
+    mgr, _ = _make_manager(srcs)
+    mgr.enqueue_batch(["a", "b"])
+    _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]), timeout=10)
+    assert mgr._active_batch is None, "finished batch did not release the active slot"
+    assert mgr.snapshot()["batch"] is None, "snapshot reports a terminal batch as active"
+    t = mgr.enqueue_one("a")
+    assert t.batch_id is None, f"single-source update attached to stale batch {t.batch_id}"
+
+
 def test_snapshot_returns_one_task_per_source_after_reupdate():
     """Terminal tasks accumulate in _tasks. After a source is updated again,
-    snapshot() must return only the latest task for that source — otherwise the
     UI sees a stale terminal task and masks the current phase (regression:
     re-updating a previously-updated source showed no progress)."""
     src = FakeSource("a", host="h")

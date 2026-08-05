@@ -71,6 +71,7 @@ def test_ip2proxy_download_extracts_zip_to_path_then_loads(tmp_path, monkeypatch
         def __init__(self, b):
             self._b = b
             self._pos = 0
+            self.headers = {}
 
         def read(self, n=-1):
             if n is None or n < 0:

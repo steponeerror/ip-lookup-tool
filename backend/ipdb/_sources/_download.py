@@ -3,6 +3,7 @@ import os
 import threading
 import urllib.request
 from pathlib import Path
+from typing import Callable, Optional
 
 
 class CancelledError(Exception):
@@ -10,10 +11,17 @@ class CancelledError(Exception):
 
 
 class CancelToken:
-    """Thread-safe cancellation flag checked between download chunks."""
+    """Thread-safe cancellation flag checked between download chunks.
+
+    Also carries an optional ``on_progress`` reporter so ``download_file`` can
+    stream byte progress (received, total) to the task runner without each
+    source having to thread a callback through its ``download()`` signature —
+    every source already passes its ``token`` to ``download_file``.
+    """
 
     def __init__(self):
         self._event = threading.Event()
+        self.on_progress: Optional[Callable[[int, int], None]] = None
 
     def cancel(self) -> None:
         self._event.set()
@@ -48,8 +56,11 @@ def download_file(
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.parent / (dest.name + ".tmp")
     req = urllib.request.Request(url, headers=headers or {})
+    on_progress = getattr(token, "on_progress", None) if token is not None else None
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
+            total = int(resp.headers.get("Content-Length") or 0)
+            received = 0
             with open(tmp, "wb") as f:
                 while True:
                     if token is not None and token.is_cancelled():
@@ -58,6 +69,11 @@ def download_file(
                     if not chunk:
                         break
                     f.write(chunk)
+                    received += len(chunk)
+                    if on_progress is not None:
+                        on_progress(received, total)
+            if on_progress is not None and total > 0:
+                on_progress(received, total)  # ensure final 100% lands
         os.replace(str(tmp), str(dest))
     except BaseException:
         tmp.unlink(missing_ok=True)

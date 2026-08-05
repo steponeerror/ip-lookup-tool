@@ -50,6 +50,9 @@ class UpdateManager:
         self._by_source: dict[str, str] = {}      # source_name -> active task_id
         self._batches: dict[str, Batch] = {}
         self._active_batch: Optional[str] = None
+        # Per-task download-progress throttle state: task_id -> (last_ts, last_pct).
+        # Reset whenever a task (re-)enters the downloading phase.
+        self._prog: dict[str, tuple[float, int]] = {}
 
         self._host_locks: dict[str, threading.Lock] = {}
         self._host_guard = threading.Lock()
@@ -155,6 +158,12 @@ class UpdateManager:
                 b.state = "done"
                 self._emit({"type": "batch", "batch": b.to_dict()})
                 self._emit({"type": "done", "batch": b.to_dict()})
+                # Release the active slot so a terminal batch stops being
+                # reported as active. Without this, _active_batch leaks and
+                # later single-source updates (enqueue_one) silently attach to
+                # the finished batch, accruing its done/total counter (e.g.
+                # 3/2 · 150%) and showing stale batch context.
+                self._active_batch = None
 
     # --- pause / resume / cancel (Task 5) ---
     def pause(self):
@@ -231,6 +240,19 @@ class UpdateManager:
         task.error = error
         self._emit({"type": "task", "task": task.to_dict()})
 
+    def _emit_progress(self, task: Task, received: int, total: int) -> None:
+        """Throttled byte-progress event for the downloading phase. Emits at
+        most every 0.15s or on a >=3 percentage-point change, plus the final
+        100% — so a large download yields a smooth bar without flooding SSE."""
+        now = time.time()
+        pct = int(received * 100 / total) if total > 0 else 0
+        last_ts, last_pct = self._prog.get(task.id, (0.0, -1))
+        finished = total > 0 and received >= total
+        if finished or (now - last_ts) >= 0.15 or abs(pct - last_pct) >= 3:
+            self._prog[task.id] = (now, pct)
+            self._emit({"type": "task_progress", "task_id": task.id,
+                        "received": received, "total": total})
+
     def _run_task(self, task: Task):
         source = self._resolve(task.source_name)
         if source is None:
@@ -242,12 +264,16 @@ class UpdateManager:
         src_lock.acquire()
         try:
             self._set_state(task, "downloading")
+            self._prog[task.id] = (0.0, -1)
+            task.token.on_progress = lambda r, t: self._emit_progress(task, r, t)
             try:
                 source.download(token=task.token)
             except CancelledError:
                 self._set_state(task, "cancelled"); return
             except Exception as e:
                 self._set_state(task, "failed", str(e)); return
+            finally:
+                task.token.on_progress = None
             if task.token.is_cancelled():
                 self._set_state(task, "cancelled"); return
             self._set_state(task, "loading")

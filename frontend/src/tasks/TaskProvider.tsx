@@ -31,6 +31,12 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     } else if (e.type === "task" && e.task) {
       tasksRef.current[e.task.id] = e.task;
       setTasks(Object.values(tasksRef.current));
+    } else if (e.type === "task_progress" && e.task_id) {
+      const ex = tasksRef.current[e.task_id];
+      if (ex) {
+        tasksRef.current[e.task_id] = { ...ex, received: e.received, total: e.total };
+        setTasks(Object.values(tasksRef.current));
+      }
     } else if (e.type === "batch" && e.batch) {
       setBatch(e.batch);
     } else if (e.type === "done") {

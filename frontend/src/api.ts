@@ -267,6 +267,8 @@ export interface TaskState {
   state: "queued" | "downloading" | "loading" | "done" | "failed" | "cancelled";
   error: string | null;
   batch_id: string | null;
+  received?: number;   // bytes downloaded (downloading phase only, via task_progress)
+  total?: number;      // Content-Length, 0/unknown when absent
 }
 
 export interface BatchState {

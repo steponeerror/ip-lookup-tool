@@ -11,6 +11,7 @@ class _FakeResp:
         self._chunks = list(chunks)
         self.status = status
         self.closed = False
+        self.headers = {}
     def read(self, n):
         if not self._chunks:
             return b""

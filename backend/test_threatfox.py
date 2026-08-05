@@ -74,6 +74,7 @@ class TestThreatFoxDownloadUnzips:
             def __init__(self, b):
                 self._b = b
                 self._pos = 0
+                self.headers = {}
 
             def read(self, n=-1):
                 if n is None or n < 0:
@@ -111,6 +112,7 @@ class TestThreatFoxDownloadUnzips:
             def __init__(self, b):
                 self._b = b
                 self._pos = 0
+                self.headers = {}
 
             def read(self, n=-1):
                 if n is None or n < 0:

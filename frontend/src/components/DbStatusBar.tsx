@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { getDbStatus, type DbStatus } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { getDbStatus, type DbStatus, type TaskState } from "../api";
 import { useTasks } from "../tasks/TaskProvider";
 import { useI18n } from "../i18n";
 
@@ -14,6 +14,20 @@ const BADGE: Record<string, string> = {
 
 const ACTIVE_TASK_STATES = ["queued", "downloading", "loading"];
 
+// Per-task progress fraction in [0,1], or null when indeterminate
+// (queued / loading / downloading without a known Content-Length).
+const taskFrac = (t: TaskState): number | null => {
+  if (t.state === "done") return 1;
+  if (t.state === "downloading" && t.total && t.total > 0) return (t.received ?? 0) / t.total;
+  return null;
+};
+
+const fmtBytes = (n: number): string => {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 export function DbStatusBar() {
   const { t } = useI18n();
   const { tasks, batch, enqueueBatch, cancelTask, cancelBatch, pause, resume } = useTasks();
@@ -24,6 +38,11 @@ export function DbStatusBar() {
   // Keep the active panel mounted for ~5s after the batch finishes so the
   // user sees the final state before the bar collapses back to idle.
   const [recentlyDone, setRecentlyDone] = useState(false);
+  // Last observed batch state this session. The backend keeps the finished
+  // batch referenced after it completes, so a cold snapshot can already report
+  // state "done" — that must not re-trigger the celebration on every page load.
+  // Only an in-session transition running/paused → done counts as "recent".
+  const prevBatchState = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     getDbStatus()
@@ -32,7 +51,10 @@ export function DbStatusBar() {
   }, [t, batch?.state]);
 
   useEffect(() => {
-    if (batch?.state === "done") {
+    const cur = batch?.state;
+    const prev = prevBatchState.current;
+    prevBatchState.current = cur;
+    if (cur === "done" && (prev === "running" || prev === "paused")) {
       setRecentlyDone(true);
       setExpanded(true);
       const id = setTimeout(() => {
@@ -70,14 +92,27 @@ export function DbStatusBar() {
     );
   }
 
-  const pct = batch && batch.total > 0 ? Math.round((batch.done / batch.total) * 100) : 0;
+  // Show only tasks relevant to the current view: when a batch is active
+  // (running/paused, or lingering done via recentlyDone), show that batch's
+  // tasks; when batchless (a single-source update), show only currently-active
+  // tasks so terminal tasks accumulated from prior batches don't clutter the panel.
+  const visibleTasks = batch
+    ? tasks.filter((t) => t.batch_id === batch.id)
+    : tasks.filter((t) => ACTIVE_TASK_STATES.includes(t.state));
+
+  // Overall progress across visible tasks: averages each task's byte/download
+  // fraction (done=1, downloading=received/total, else 0) so the top bar moves
+  // DURING downloads — not only when a whole source completes.
+  const overallPct = visibleTasks.length > 0
+    ? Math.round((visibleTasks.reduce((s, t) => s + (taskFrac(t) ?? 0), 0) / visibleTasks.length) * 100)
+    : 0;
   const headerLabel = batch?.state === "paused" ? t("dbStatus.paused") : t("dbStatus.updating");
   return (
     <div className="fixed bottom-0 inset-x-0 border-t border-emerald-500/30 bg-zinc-950/90 backdrop-blur-sm">
       <div className="mx-auto max-w-7xl px-4 py-2 text-xs font-mono">
         <div className="flex items-center justify-between text-emerald-400">
           <span>
-            {headerLabel}{batch != null && ` · ${batch.done}/${batch.total} · ${pct}%`}
+            {headerLabel}{batch != null && ` · ${batch.done}/${batch.total}`} · {overallPct}%
           </span>
           <span className="flex gap-2">
             {batch?.state === "paused" ? (
@@ -117,12 +152,12 @@ export function DbStatusBar() {
         <div className="mt-1 h-1 overflow-hidden rounded-full bg-zinc-800">
           <div
             className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-            style={{ width: `${pct}%` }}
+            style={{ width: `${overallPct}%` }}
           />
         </div>
         {expanded && (
           <div className="mt-1 max-h-40 overflow-y-auto">
-            {tasks.map((task) => (
+            {visibleTasks.map((task) => (
               <div key={task.id} className="flex items-center gap-2 py-0.5">
                 <span className="w-32 truncate font-mono text-zinc-300" title={task.source}>
                   {task.source}
@@ -133,14 +168,30 @@ export function DbStatusBar() {
                   {task.state}
                 </span>
                 <div className="h-1 flex-1 overflow-hidden rounded-full bg-zinc-800">
-                  {["downloading", "loading"].includes(task.state) ? (
-                    <div className="h-full w-1/3 rounded-full bg-emerald-500 animate-pulse" />
-                  ) : task.state === "done" ? (
-                    <div className="h-full w-full rounded-full bg-emerald-500" />
-                  ) : task.state === "failed" ? (
-                    <div className="h-full w-full rounded-full bg-red-500" />
-                  ) : null}
+                  {(() => {
+                    const f = taskFrac(task);
+                    if (f !== null) {
+                      return (
+                        <div
+                          className="h-full rounded-full bg-emerald-500 transition-all duration-150"
+                          style={{ width: `${Math.min(100, Math.round(f * 100))}%` }}
+                        />
+                      );
+                    }
+                    if (["downloading", "loading"].includes(task.state)) {
+                      return <div className="h-full w-1/3 rounded-full bg-emerald-500 animate-pulse" />;
+                    }
+                    if (task.state === "failed") {
+                      return <div className="h-full w-full rounded-full bg-red-500" />;
+                    }
+                    return null;
+                  })()}
                 </div>
+                {task.state === "downloading" && (task.received ?? 0) > 0 && (
+                  <span className="shrink-0 font-mono text-[10px] tabular-nums text-zinc-500">
+                    {fmtBytes(task.received!)}{task.total && task.total > 0 ? `/${fmtBytes(task.total)}` : ""}
+                  </span>
+                )}
                 {task.error && (
                   <span className="truncate text-red-400/80" title={task.error}>
                     {task.error}
