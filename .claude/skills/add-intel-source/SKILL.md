@@ -38,7 +38,7 @@ contract, and the merge maps — read them alongside this skill when implementin
    `harvest()` for a `Source` subclass).
 5. **Six conventions are non-negotiable** (see that section) — they exist because
    real bugs in this repo's history came from breaking each one. The load-time
-   validator (`_validate.py`) and `test_conventions.py` catch most of them
+   validator (`_validate.py`) and `tests/core/test_conventions.py` catch most of them
    automatically; the rest are on you.
 
 ## Phase 1 — Research the feed (do this before writing code)
@@ -169,7 +169,7 @@ set — discovery will pick it up automatically on next load.
 ## Phase 4 — Verify
 
 **Always write a test.** The contract is small and the existing tests show it
-exactly — mirror `backend/test_ipsum.py`:
+exactly — mirror `backend/tests/sources/test_ipsum.py`:
 
 - write a representative sample file to `tmp_path`
 - `s = YourSource(data_dir=tmp_path)`
@@ -182,7 +182,7 @@ exactly — mirror `backend/test_ipsum.py`:
 Then run, from `backend/`:
 
 ```bash
-python3 -m pytest test_<name>. -q                          # your source's test
+python3 -m pytest tests/sources/test_<name>.py -q          # your source's test
 python3 -m pytest test_source_decls.py test_registry_new.py \
                   test_registry_bugs.py test_source_query_shapes.py -q   # it registers + has the right shape
 python3 -m pytest -q                                        # full suite — expect the same pass/fail as before
@@ -226,7 +226,7 @@ Most are enforced automatically:
 
 - **`backend/ipdb/_validate.py`** runs at load time and flags: bad
   `classification_type`, unknown `field_map` targets, slot collisions (warn-only).
-- **`backend/test_conventions.py`** encodes the 6 rules below as tests — if a
+- **`backend/tests/core/test_conventions.py`** encodes the 6 rules below as tests — if a
   source violates one, CI fails. Mirror its checks when you write your own test.
 
 The remaining rules (routing, raw-type preservation, stable verdict) are on you.

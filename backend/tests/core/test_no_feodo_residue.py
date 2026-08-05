@@ -3,7 +3,7 @@ re-introducing references to it in the registry/merge maps."""
 import re
 from pathlib import Path
 
-BACKEND = Path(__file__).parent
+BACKEND = Path(__file__).resolve().parents[2]
 TARGETS = ["ipdb/_registry.py", "ipdb/_merge.py"]
 
 
