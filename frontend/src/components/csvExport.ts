@@ -66,7 +66,7 @@ export function buildCsvContent(results: LookupResult[]): string {
     "is_isp,verdict,verdict_confidence,threat_tags," +
     "reporter_total,verdict_conflict,corroborated,malware_names,top_reliability," +
     "ip_range,range_confidence,error," +
-    "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier\n";
+    "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier,service,service_provider\n";
 
   const rows = results
     .map((r) => {
@@ -98,6 +98,8 @@ export function buildCsvContent(results: LookupResult[]): string {
         csvEscape(assetVal(r, "is_tor")),
         csvEscape(assetVal(r, "is_vpn")),
         csvEscape(assetVal(r, "carrier")),
+        csvEscape(assetVal(r, "service")),
+        csvEscape(assetNative(r, "service")),
       ].join(",");
     })
     .join("\n");

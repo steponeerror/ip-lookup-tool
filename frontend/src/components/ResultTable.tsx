@@ -33,6 +33,7 @@ function assetBadges(r: LookupResult, t: TFn): { label: string; detail: string; 
       is_tor: "asset.is_tor",
       is_vpn: "asset.is_vpn",
       carrier: "asset.carrier",
+      service: "asset.service",
     }[key];
     if (!assetKey) continue;
     // De-dup: if classification already covers this, skip
@@ -45,6 +46,7 @@ function assetBadges(r: LookupResult, t: TFn): { label: string; detail: string; 
     let detail = first.source;
     if (first.native_type) detail += ` · ${first.native_type}`;
     if (key === "carrier") detail = String(first.value);
+    if (key === "service") detail = String(first.native_type ?? first.value);
     out.push({ label: t(assetKey), detail, key });
   }
   return out;
@@ -552,7 +554,7 @@ export function ResultTable({ results }: ResultTableProps) {
                       <span className="inline-flex flex-wrap items-center gap-1 ml-1">
                         {badges.map((a) => (
                           <span key={`asset-${a.key}`} className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] bg-sky-500/12 text-sky-400 ring-1 ring-sky-500/20" title={a.detail}>
-                            {a.label}{a.key !== "carrier" ? "" : `: ${a.detail}`}
+                            {a.label}{a.key !== "carrier" && a.key !== "service" ? "" : `: ${a.detail}`}
                           </span>
                         ))}
                       </span>

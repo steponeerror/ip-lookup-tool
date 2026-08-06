@@ -98,4 +98,18 @@ describe("buildCsvContent", () => {
     expect(row).toContain("Scanner"); // English label, never "扫描"
     expect(row).not.toContain("扫描");
   });
+  it("includes service + service_provider columns for an infra asset", () => {
+    const dnsRow: LookupResult = {
+      ...r,
+      classifications: {},
+      attributes: { service: [{ source: "infra_services", value: "dns", native_type: "Google Public DNS" }] },
+    };
+    const lines = buildCsvContent([dnsRow]).split("\n");
+    const header = lines[0].split(",");
+    expect(header).toContain("service");
+    expect(header).toContain("service_provider");
+    const row = lines[1].split(",");
+    expect(row[header.indexOf("service")]).toBe("dns");
+    expect(row[header.indexOf("service_provider")]).toBe("Google Public DNS");
+  });
 });

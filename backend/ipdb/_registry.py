@@ -156,6 +156,8 @@ SOURCE_CATEGORIES = {
     "tor_exits": "asset",
     "x4bnet_vpn": "asset",
     "proxyscrape": "asset",
+    "infra_services": "asset",
+    "cdn_edges": "asset",
 }
 
 

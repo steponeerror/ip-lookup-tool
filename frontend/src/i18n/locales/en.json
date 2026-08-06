@@ -52,6 +52,7 @@
   "asset.is_tor": "Tor",
   "asset.is_vpn": "VPN",
   "asset.carrier": "Carrier",
+  "asset.service": "Service",
 
   "column.country": "Country",
   "column.verdict": "Verdict",

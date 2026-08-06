@@ -52,6 +52,7 @@
   "asset.is_tor": "Tor",
   "asset.is_vpn": "VPN",
   "asset.carrier": "运营商",
+  "asset.service": "服务",
 
   "column.country": "国家",
   "column.verdict": "判定",
