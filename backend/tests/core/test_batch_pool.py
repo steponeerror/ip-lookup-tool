@@ -69,6 +69,27 @@ def test_resolve_layout_total_procs_env_resplits():
     assert (N, M) == _batch_pool._split_budget(8) == (2, 3)
 
 
+def test_resolve_layout_non_numeric_env_falls_back(caplog):
+    """M3: a non-numeric env override (typo) must not crash startup — it falls
+    back to the formula value and logs a warning so the typo is visible."""
+    # Formula on (16, 3900) -> (2, 6); typos must not change that.
+    env = {"IPRADAR_WORKERS": "foo", "IPRADAR_BATCH_POOL": "bar"}
+    with caplog.at_level("WARNING", logger="ipdb._batch_pool"):
+        N, M = _batch_pool.resolve_layout(16, 3900, env, None)
+    assert (N, M) == (2, 6)
+    # Both typos are surfaced (one warning per key).
+    msgs = " ".join(r.message for r in caplog.records)
+    assert "IPRADAR_WORKERS" in msgs and "IPRADAR_BATCH_POOL" in msgs
+
+
+def test_resolve_layout_non_numeric_total_procs_falls_back():
+    """M3: IPRADAR_TOTAL_PROCS=foo also falls back to the auto formula."""
+    env = {"IPRADAR_TOTAL_PROCS": "foo"}
+    N, M = _batch_pool.resolve_layout(16, 3900, env, None)
+    # auto formula on (16, 3900) -> (2, 6)
+    assert (N, M) == (2, 6)
+
+
 def test_work_chunk_returns_to_dict_dicts():
     """_work_chunk returns plain dicts (lookup().to_dict()), not LookupResult."""
     from ipdb import _registry
@@ -179,6 +200,10 @@ def test_predict_layout_oom_warning():
     # tiny RAM, forced large layout -> warning non-empty
     out = _batch_pool.predict_layout(2, 600, {"n_workers": 1, "m_pool": 6, "source": "env"})
     assert out["priv_rss_mb"] > 600
+    # Strengthen (M2): the predictor must actually flag this layout as unsafe,
+    # and a safe layout must produce no warning.
+    assert _batch_pool.predict_warnings(out["priv_rss_mb"], 600) != []
+    assert _batch_pool.predict_warnings(500, 4096) == []
 
 
 def test_n_workers_cli_prints_int(monkeypatch, capsys):

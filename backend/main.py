@@ -3,6 +3,7 @@ import json
 import logging
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
@@ -51,12 +52,18 @@ async def _enrich_results(
     when booleans were replaced by classification.type. Online enrichers will
     emit EvidenceObservation directly in a follow-up plan.
     """
+    # Plan 3 placeholder — online enrichment deferred; currently dead. Remove
+    # or wire in Plan 3. (_reserved.py / docstring above still reference Plan 3.)
     return None
 
 
 async def _stream_lookup(ips):
     """Stream lookup results with chunked progress as NDJSON. Fans out across the
-    batch pool when present; inline otherwise. Progress is emitted per chunk."""
+    batch pool when present; inline otherwise. Progress is emitted per chunk.
+
+    Never returns 5xx for a pool failure: if the pool breaks mid-batch, the
+    chunk-submit + asyncio.wait loop is aborted and the request falls back to a
+    single inline fan_out_lookup (results stay bit-identical to inline)."""
     total = len(ips)
     ips = [str(ip).strip() for ip in ips]
     yield json.dumps({"type": "start", "total": total}) + "\n"
@@ -69,21 +76,29 @@ async def _stream_lookup(ips):
 
     chunk_size = _batch_pool.CHUNK
     chunks = [ips[i:i + chunk_size] for i in range(0, total, chunk_size)]
-    loop = asyncio.get_event_loop()
-    futures = [loop.run_in_executor(pool, _batch_pool._work_chunk, c) for c in chunks]
-    ordered: list = [None] * len(chunks)
-    pending = set(futures)
-    done = 0
-    while pending:
-        finished, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-        for fut in finished:
-            ordered[futures.index(fut)] = fut.result()
-            done += 1
-            yield json.dumps({"type": "progress",
-                              "done": min(done * chunk_size, total),
-                              "total": total}) + "\n"
-        await asyncio.sleep(0)
-    dicts = [d for chunk in ordered for d in chunk]
+    loop = asyncio.get_running_loop()
+    try:
+        futures = [loop.run_in_executor(pool, _batch_pool._work_chunk, c) for c in chunks]
+        ordered: list = [None] * len(chunks)
+        pending = set(futures)
+        done = 0
+        while pending:
+            finished, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for fut in finished:
+                ordered[futures.index(fut)] = fut.result()
+                done += 1
+                yield json.dumps({"type": "progress",
+                                  "done": min(done * chunk_size, total),
+                                  "total": total}) + "\n"
+            await asyncio.sleep(0)
+        dicts = [d for chunk in ordered for d in chunk]
+    except BrokenProcessPool:
+        # Pool worker died mid-batch. Spec: never return 5xx for a pool failure —
+        # fall back to inline and emit a single complete. Progress events already
+        # emitted remain valid (monotonic, capped at total).
+        logging.getLogger(__name__).warning(
+            "stream batch pool broke mid-batch; falling back to inline")
+        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips)
     yield json.dumps({"type": "complete", "results": dicts, "enrich_error": None}) + "\n"
 
 
@@ -183,7 +198,7 @@ async def query_ips(body: dict, enrich: bool = Query(False)):
     if len(ips) > 100000:
         raise HTTPException(400, "Max 100,000 IPs per request")
     ips = [str(ip).strip() for ip in ips]
-    dicts = _batch_pool.fan_out_lookup(ips)
+    dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips)
     return {"results": dicts}
 
 
@@ -207,7 +222,7 @@ async def upload_file(
             parts = line.split(",")
             line = parts[0]
         ips.append(line.strip())
-    dicts = _batch_pool.fan_out_lookup(ips)
+    dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips)
     return {"results": dicts}
 
 
