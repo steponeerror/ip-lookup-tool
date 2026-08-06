@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -26,6 +28,7 @@ from ipdb import (
     list_sources, set_source_enabled,
     manager, stale_source_names,
 )
+from ipdb import _batch_pool
 
 import os
 from pathlib import Path
@@ -128,7 +131,37 @@ def _startup():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _startup()
-    yield
+    cpu, ram = _batch_pool.detect_host()
+    env = dict(os.environ)
+    cfg = _batch_pool.load_perf_config()
+    N, M = _batch_pool.resolve_layout(cpu, ram, env, cfg)
+    source = "env" if (env.get("IPRADAR_WORKERS") or env.get("IPRADAR_BATCH_POOL")
+                       or env.get("IPRADAR_TOTAL_PROCS")) else ("config" if cfg else "auto")
+    _ACTIVE_LAYOUT.update(n_workers=N, m_pool=M, source=source)
+    pool = None
+    if M > 1:
+        try:
+            ctx = multiprocessing.get_context("spawn")
+            pool = ProcessPoolExecutor(max_workers=M,
+                                       initializer=_batch_pool._init_worker,
+                                       mp_context=ctx)
+        except Exception as e:  # spawn failure -> inline mode, server still serves
+            logging.getLogger(__name__).warning(f"batch pool init failed: {e}; inline mode")
+            pool = None
+    _batch_pool.set_pool(pool)
+    try:
+        yield
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=False)
+        _batch_pool.set_pool(None)
+
+
+_ACTIVE_LAYOUT: dict = {"n_workers": 1, "m_pool": 1, "source": "auto"}
+
+
+def get_active_layout() -> dict:
+    return dict(_ACTIVE_LAYOUT)
 
 app = FastAPI(title="IP Lookup Tool", lifespan=lifespan)
 
