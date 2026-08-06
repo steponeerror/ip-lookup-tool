@@ -157,6 +157,7 @@ SOURCE_CATEGORIES = {
     "x4bnet_vpn": "asset",
     "proxyscrape": "asset",
     "infra_services": "asset",
+    "cdn_edges": "asset",
 }
 
 
