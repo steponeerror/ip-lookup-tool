@@ -1,6 +1,6 @@
 ---
 name: add-intel-source
-description: Use whenever the user wants to add, integrate, wire up, or plug in a new source/feed/dataset/provider for IPs, threats, reputation, ASN, geo, proxies, or blocklists in this repo — even if they only name the feed and don't say "source" (AbuseIPDB, Shodan, ThreatBook, GreyNoise, URLscan, a blocklist, a STIX/TAXII feed, any IP/CSV/API feed). Also use when the user asks "how do I add a source" or references the source registry. Use this when the user wants the source **implemented**. To discover, compare, or shortlist candidate sources before deciding which to add, use discover-intel-sources instead.
+description: Use when the user wants to **implement a specific, already-chosen intelligence source by name** — e.g. "add AbuseIPDB", "integrate Shodan", "wire up ThreatBook / GreyNoise / URLscan", "add this blocklist / STIX / CSV feed", "how do I add a source", or references the source registry. The source is identified. NOT for discovering/shortlisting candidates before deciding (use discover-intel-sources), nor for adding without a specific source in mind, optimizing the existing pool, or running the full discover→add→evaluate lifecycle (use manage-intel-source).
 ---
 
 # Adding an Intelligence Source to ip-lookup-tool

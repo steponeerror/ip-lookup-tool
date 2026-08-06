@@ -1,6 +1,6 @@
 ---
 name: discover-intel-sources
-description: Use when the user wants to discover, survey, shortlist, or evaluate candidate IP / threat / reputation / proxy / ASN intelligence sources or feeds BEFORE deciding which to integrate — e.g. "what sources should I add", "find me more feeds", "research candidate intel sources", "what's worth adding", "compare/evaluate these feeds", "which feeds are best". Also use when the user names several feeds and wants them ranked/compared. NOT for integrating a specific already-chosen source — that is add-intel-source.
+description: Use when the user wants to **discover, shortlist, compare, or evaluate candidate intelligence sources/feeds — WITHOUT a commitment to add any right now** — e.g. "what feeds are out there for X", "find me more candidates", "research candidate intel sources", "what's worth adding to the shortlist", "compare/evaluate these feeds", "rank X vs Y". Produces a scored shortlist only; does NOT implement anything. NOT for implementing a specific already-chosen source (use add-intel-source), nor for "find AND wire up new sources" / optimizing the pool / the full lifecycle (use manage-intel-source).
 ---
 
 # Discovering & Qualifying Intelligence Sources for ip-lookup-tool
