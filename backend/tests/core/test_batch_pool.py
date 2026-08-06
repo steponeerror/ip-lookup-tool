@@ -3,6 +3,7 @@ import pytest
 
 # Module under test (created in this task)
 from ipdb import _batch_pool
+from ipdb import _registry
 
 
 @pytest.mark.parametrize("cpu, ram_mb, expected", [
@@ -65,3 +66,27 @@ def test_resolve_layout_total_procs_env_resplits():
     env = {"IPRADAR_TOTAL_PROCS": "8"}
     N, M = _batch_pool.resolve_layout(2, 2048, env, None)  # tiny host, but forced P=8
     assert (N, M) == _batch_pool._split_budget(8) == (2, 3)
+
+
+def test_work_chunk_returns_to_dict_dicts():
+    """_work_chunk returns plain dicts (lookup().to_dict()), not LookupResult."""
+    from ipdb import _registry
+    _registry.load_db()
+    out = _batch_pool._work_chunk(["8.8.8.8", "1.1.1.1"])
+    assert len(out) == 2
+    assert all(isinstance(d, dict) for d in out)
+    assert out[0]["ip"] == "8.8.8.8"
+    # matches inline
+    assert out[0] == _registry.lookup("8.8.8.8").to_dict()
+
+
+def test_work_chunk_spawns_in_isolated_process():
+    """Regression for the spawn __main__ re-import trap: worker fns must run in a
+    spawned child. If they were under __main__, this would recurse/crash."""
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+    ctx = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=1, initializer=_batch_pool._init_worker, mp_context=ctx) as pool:
+        out = pool.map(_batch_pool._work_chunk, [["8.8.8.8"]])
+    results = list(out)
+    assert results == [[_registry.lookup("8.8.8.8").to_dict()]]

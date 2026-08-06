@@ -103,3 +103,18 @@ def resolve_layout(cpu: int, ram_avail_mb: int, env: dict, perf_config: dict | N
     if env.get("IPRADAR_BATCH_POOL"):
         M = int(env["IPRADAR_BATCH_POOL"])
     return max(1, N), max(1, M)
+
+
+# ── Process pool worker functions (spawn-safe: module-level, not under __main__) ──
+def _init_worker():
+    """ProcessPoolExecutor initializer: load the DB once per worker process.
+    Spawn-safe: this module is imported as ipdb._batch_pool in the child."""
+    from ipdb import _registry
+    _registry.load_db()
+
+
+def _work_chunk(ips: list[str]) -> list[dict]:
+    """Worker: lookup + to_dict for a chunk of IPs. Returns plain dicts (no
+    dataclass crosses the process boundary)."""
+    from ipdb import _registry
+    return [_registry.lookup(ip).to_dict() for ip in ips]
