@@ -93,10 +93,32 @@ class FireholBlocklistSource(IpListSource):
                         records.append((str(net), [insert_data]))
             n = write_mmdb(records, self._mmdb_path,
                            database_type="IP-Radar-firehol")
+            from ._mmdb import covered_ip_count
             count_path.write_text(str(n))
+            self._mmdb_path.with_suffix(".cov").write_text(
+                str(covered_ip_count(r[0] for r in records)))
 
         self._reader = open_reader(self._mmdb_path)
         self._count = int(count_path.read_text().strip())
+        from ._mmdb import covered_ips_cached
+        import ipaddress as _ipa
+
+        def _enum():
+            for list_name in self._lists:
+                p = self._path / f"{list_name}.netset"
+                if not p.exists():
+                    continue
+                for line in p.read_text().splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    try:
+                        yield str(_ipa.IPv4Network(line, strict=False))
+                    except (_ipa.AddressValueError, ValueError):
+                        continue
+
+        self._covered_ips = covered_ips_cached(
+            self._mmdb_path.with_suffix(".cov"), list(self._files), _enum)
         self._loaded_at = time.time()
         return self._count
 
@@ -119,4 +141,5 @@ class FireholBlocklistSource(IpListSource):
             record_count=self._count,
             last_updated=last_updated,
             is_stale=is_stale,
+            covered_ips=self._covered_ips,
         )

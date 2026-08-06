@@ -24,6 +24,7 @@ class IPinfoLiteSource:
         self._mmdb_path = data_dir / "ipinfo_lite.csv.mmdb"
         self._reader: Optional["maxminddb.Reader"] = None
         self._count: int = 0
+        self._covered_ips: int = 0
         self._loaded_at: float = 0.0
 
     @property
@@ -114,10 +115,35 @@ class IPinfoLiteSource:
                         }
             n = write_mmdb(_records(), self._mmdb_path,
                            database_type="IP-Radar-ipinfo-lite")
+            from ._mmdb import covered_ip_count
             count_path.write_text(str(n))
+
+            def _cidrs():
+                import csv as _csv2
+                with open(self._path, "r", encoding="utf-8") as f:
+                    reader = _csv2.reader(f)
+                    next(reader, None)
+                    for row in reader:
+                        if len(row) >= 1:
+                            yield row[0]
+            self._mmdb_path.with_suffix(".cov").write_text(
+                str(covered_ip_count(_cidrs())))
 
         self._reader = open_reader(self._mmdb_path)
         self._count = int(count_path.read_text().strip())
+        from ._mmdb import covered_ips_cached
+        import csv as _csv3
+
+        def _enum():
+            with open(self._path, "r", encoding="utf-8") as f:
+                reader = _csv3.reader(f)
+                next(reader, None)
+                for row in reader:
+                    if len(row) >= 1:
+                        yield row[0]
+
+        self._covered_ips = covered_ips_cached(
+            self._mmdb_path.with_suffix(".cov"), [self._path], _enum)
         self._loaded_at = time.time()
         return self._count
 
@@ -149,4 +175,5 @@ class IPinfoLiteSource:
             record_count=self._count,
             last_updated=last_updated,
             is_stale=is_stale,
+            covered_ips=self._covered_ips,
         )

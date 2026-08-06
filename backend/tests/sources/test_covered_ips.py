@@ -62,3 +62,33 @@ def test_csv_covered_ips_mixed_across_cidrs(tmp_path):
     s = _S(data_dir=tmp_path)
     s.load()
     assert s.health().covered_ips == 1 + 256
+
+
+def test_ipinfo_lite_covered_ips(tmp_path):
+    from ipdb._sources.ipinfo_lite import IPinfoLiteSource
+    csv = tmp_path / "ipinfo_lite.csv"
+    csv.write_text(
+        "network,country,country_code,continent,continent_code,asn,as_name,as_domain\n"
+        "8.8.8.0/24,Australia,AU,Oceania,OC,AS15169,Google LLC,google.com\n"     # /24
+        "10.0.0.0/16,US,US,NA,NA,AS2,Co,co.com\n")                               # /16
+    s = IPinfoLiteSource(data_dir=tmp_path)
+    s.load()
+    assert s.health().covered_ips == 256 + 65536
+
+
+def test_firehol_covered_ips(tmp_path):
+    from ipdb._sources.firehol import FireholBlocklistSource
+    src = FireholBlocklistSource(data_dir=tmp_path, selected_lists=["l1"])
+    src._path.mkdir(parents=True, exist_ok=True)
+    (src._path / "l1.netset").write_text("1.2.3.0/24\n8.8.8.8\n10.0.0.0/16\n")
+    src.load()
+    assert src.health().covered_ips == 256 + 1 + 65536
+
+
+def test_cn_isp_covered_ips(tmp_path):
+    from ipdb._sources.cn_isp import ChineseISPSource
+    src = ChineseISPSource(data_dir=tmp_path)
+    src._isp_dir.mkdir(parents=True, exist_ok=True)
+    (src._isp_dir / "chinatelecom.txt").write_text("1.2.3.0/24\n10.0.0.0/16\n")
+    src.load()
+    assert src.health().covered_ips == 256 + 65536

@@ -102,10 +102,28 @@ class ChineseISPSource(Source):
                         best[line] = {"country_code": country, "isp": label, "_net": line}
             write_mmdb(((k, v) for k, v in best.items()), self._mmdb_path,
                        database_type="IP-Radar-cn-isp")
+            from ._mmdb import covered_ip_count
             count_path.write_text(str(len(best)))
+            self._mmdb_path.with_suffix(".cov").write_text(
+                str(covered_ip_count(best.keys())))
 
         self._reader = open_reader(self._mmdb_path)
         self._count = int(count_path.read_text().strip())
+        from ._mmdb import covered_ips_cached
+
+        def _enum():
+            for isp_name in _ISP_FILES:
+                p = self._isp_dir / f"{isp_name}.txt"
+                if not p.exists():
+                    continue
+                for line in p.read_text().splitlines():
+                    line = line.strip()
+                    if line:
+                        yield line
+
+        raw_paths = [self._isp_dir / f"{n}.txt" for n in _ISP_FILES]
+        self._covered_ips = covered_ips_cached(
+            self._mmdb_path.with_suffix(".cov"), raw_paths, _enum)
         self._loaded_at = time.time()
         return self._count
 
@@ -143,4 +161,5 @@ class ChineseISPSource(Source):
             record_count=self._count,
             last_updated=last_updated,
             is_stale=is_stale,
+            covered_ips=self._covered_ips,
         )
