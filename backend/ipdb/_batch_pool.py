@@ -8,6 +8,8 @@ docs/superpowers/specs/2026-08-06-batch-process-pool-design.md.
 import json
 import os
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 # ── Measurement-calibrated constants (do NOT change without re-measuring) ──
 PER_PROC_MB = 90        # private RSS per process (Pss_Anon ~87 MB + headroom)
@@ -118,3 +120,38 @@ def _work_chunk(ips: list[str]) -> list[dict]:
     dataclass crosses the process boundary)."""
     from ipdb import _registry
     return [_registry.lookup(ip).to_dict() for ip in ips]
+
+
+# ── Module-level pool handle (managed by lifespan) ──
+_POOL: ProcessPoolExecutor | None = None
+
+
+def set_pool(pool: ProcessPoolExecutor | None) -> None:
+    global _POOL
+    _POOL = pool
+
+
+def get_pool() -> ProcessPoolExecutor | None:
+    return _POOL
+
+
+def _inline(ips: list[str]) -> list[dict]:
+    from ipdb import _registry
+    return [_registry.lookup(ip).to_dict() for ip in ips]
+
+
+def fan_out_lookup(ips: list[str]) -> list[dict]:
+    """Lookup+to_dict for a list of IPs. Inline for small batches or when no
+    pool / broken pool; otherwise fan out across the process pool. Output is in
+    input order, one dict per IP."""
+    if len(ips) <= INLINE_THRESHOLD or _POOL is None:
+        return _inline(ips)
+    chunks = [ips[i:i + CHUNK] for i in range(0, len(ips), CHUNK)]
+    try:
+        chunk_results = list(_POOL.map(_work_chunk, chunks))
+    except BrokenProcessPool:
+        import logging
+        logging.getLogger(__name__).warning(
+            "batch pool broken; falling back to inline")
+        return _inline(ips)
+    return [d for chunk in chunk_results for d in chunk]

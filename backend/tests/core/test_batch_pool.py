@@ -4,6 +4,7 @@ import pytest
 # Module under test (created in this task)
 from ipdb import _batch_pool
 from ipdb import _registry
+from concurrent.futures.process import BrokenProcessPool
 
 
 @pytest.mark.parametrize("cpu, ram_mb, expected", [
@@ -90,3 +91,49 @@ def test_work_chunk_spawns_in_isolated_process():
         out = pool.map(_batch_pool._work_chunk, [["8.8.8.8"]])
     results = list(out)
     assert results == [[_registry.lookup("8.8.8.8").to_dict()]]
+
+
+def test_fan_out_lookup_inline_below_threshold():
+    """<= INLINE_THRESHOLD IPs go inline (no pool)."""
+    _batch_pool.set_pool(None)  # ensure no pool
+    ips = ["8.8.8.8", "1.1.1.1"]
+    out = _batch_pool.fan_out_lookup(ips)
+    assert out == [_registry.lookup("8.8.8.8").to_dict(),
+                   _registry.lookup("1.1.1.1").to_dict()]
+
+
+def test_fan_out_lookup_falls_back_to_inline_on_broken_pool(monkeypatch):
+    """A broken pool triggers inline fallback (never raises to the caller)."""
+    class _Broken:
+        def map(self, fn, iterable):
+            raise BrokenProcessPool("simulated")
+    _batch_pool.set_pool(_Broken())
+    ips = ["8.8.8.8"] * 5  # >... but pool broken -> inline
+    try:
+        out = _batch_pool.fan_out_lookup(ips)
+        assert len(out) == 5
+        assert out[0] == _registry.lookup("8.8.8.8").to_dict()
+    finally:
+        _batch_pool.set_pool(None)
+
+
+def test_fan_out_lookup_preserves_order_and_count():
+    """Output is in input order, one dict per IP, bit-identical to inline."""
+    import hashlib, ipaddress
+    ips = []
+    i = 0
+    while len(ips) < 10:
+        b = int.from_bytes(hashlib.sha256(str(i).encode()).digest()[:4], "big")
+        ip = f"{(b>>24)&255}.{(b>>16)&255}.{(b>>8)&255}.{b&255}"
+        i += 1
+        try:
+            a = ipaddress.IPv4Address(ip)
+            if not a.is_global or a.is_multicast:
+                continue
+        except ValueError:
+            continue
+        ips.append(ip)
+    _batch_pool.set_pool(None)  # force inline path
+    out = _batch_pool.fan_out_lookup(ips)
+    expected = [_registry.lookup(ip).to_dict() for ip in ips]
+    assert out == expected
