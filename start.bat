@@ -62,5 +62,6 @@ echo  Ctrl+C to stop
 echo.
 
 cd backend
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
+for /f %%N in ('python -m ipdb._batch_pool n-workers') do set WORKERS=%%N
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --workers %WORKERS%
 pause

@@ -178,3 +178,22 @@ def predict_warnings(priv_rss_mb: int, ram_avail_mb: int) -> list[str]:
         return [f"predicted RSS {priv_rss_mb} MB exceeds headroom "
                 f"{ram_avail_mb - RESERVE_MB} MB; reduce N or M"]
     return []
+
+
+def _cli(argv: list[str]) -> None:
+    """CLI entry for start scripts: `python -m ipdb._batch_pool n-workers`."""
+    cpu, ram = detect_host()
+    env = dict(os.environ)
+    cfg = load_perf_config()
+    N, M = resolve_layout(cpu, ram, env, cfg)
+    if argv and argv[0] == "n-workers":
+        print(N)
+    elif argv and argv[0] == "m-pool":
+        print(M)
+    else:
+        print(f"n_workers={N} m_pool={M}")
+
+
+if __name__ == "__main__":
+    import sys
+    _cli(sys.argv[1:])

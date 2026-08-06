@@ -179,3 +179,12 @@ def test_predict_layout_oom_warning():
     # tiny RAM, forced large layout -> warning non-empty
     out = _batch_pool.predict_layout(2, 600, {"n_workers": 1, "m_pool": 6, "source": "env"})
     assert out["priv_rss_mb"] > 600
+
+
+def test_n_workers_cli_prints_int(monkeypatch, capsys):
+    """`python -m ipdb._batch_pool n-workers` resolves N from host+env+config."""
+    monkeypatch.setattr(_batch_pool, "detect_host", lambda: (8, 8192))  # -> N=2
+    monkeypatch.setattr(_batch_pool, "load_perf_config", lambda *a, **k: None)
+    _batch_pool._cli(["n-workers"])
+    out = capsys.readouterr().out.strip()
+    assert out == "2"

@@ -74,4 +74,5 @@ echo -e "    Ctrl+C 停止"
 echo ""
 
 cd "$PROJECT_ROOT/backend"
-exec "$VENV/bin/uvicorn" main:app --host 127.0.0.1 --port 8000
+WORKERS="$("$VENV/bin/python" -m ipdb._batch_pool n-workers)"
+exec "$VENV/bin/uvicorn" main:app --host 127.0.0.1 --port 8000 --workers "$WORKERS"
