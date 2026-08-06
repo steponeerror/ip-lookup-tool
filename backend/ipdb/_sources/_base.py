@@ -32,6 +32,7 @@ class IpListSource:
         self._mmdb_path = data_dir / f"{self.filename}.mmdb"
         self._reader: Optional["maxminddb.Reader"] = None
         self._count: int = 0
+        self._covered_ips: int = 0
         self._loaded_at: float = 0.0
 
     # ── Overridable hooks ──
@@ -122,11 +123,34 @@ class IpListSource:
                     except (_ipa.AddressValueError, ValueError):
                         continue
                     records.append((str(net), [insert_data]))
+            from ._mmdb import covered_ip_count
             write_mmdb(records, self._mmdb_path)
             count_path.write_text(str(len(records)))
+            self._mmdb_path.with_suffix(".cov").write_text(
+                str(covered_ip_count(r[0] for r in records)))
 
         self._reader = open_reader(self._mmdb_path)
         self._count = int(count_path.read_text()) if count_path.exists() else 0
+        from ._mmdb import covered_ips_cached
+        import ipaddress as _ipa
+
+        def _enum():
+            for line in self._path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                for sep in (";", "#"):
+                    if sep in line:
+                        line = line.split(sep, 1)[0].strip()
+                if not line:
+                    continue
+                try:
+                    yield str(_ipa.IPv4Network(line, strict=False))
+                except (_ipa.AddressValueError, ValueError):
+                    continue
+
+        self._covered_ips = covered_ips_cached(
+            self._mmdb_path.with_suffix(".cov"), [self._path], _enum)
         self._loaded_at = time.time()
         return self._count
 
@@ -153,6 +177,7 @@ class IpListSource:
             record_count=self._count,
             last_updated=last_updated,
             is_stale=is_stale,
+            covered_ips=self._covered_ips,
         )
 
 
@@ -221,11 +246,46 @@ class CsvSource(IpListSource):
                     if any(parsed == o for o in bucket):
                         continue
                     bucket.append(parsed)
+            from ._mmdb import covered_ip_count
             write_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path)
             count_path.write_text(str(sum(len(v) for v in acc.values())))
+            self._mmdb_path.with_suffix(".cov").write_text(
+                str(covered_ip_count(acc.keys())))
 
         self._reader = open_reader(self._mmdb_path)
         self._count = int(count_path.read_text()) if count_path.exists() else 0
+        import csv as _csv
+        import ipaddress as _ipa
+        from ._mmdb import covered_ips_cached
+
+        def _enum():                       # rare decouple path; dedup for D1
+            seen = set()
+            with open(self._path, "r", encoding="utf-8") as f:
+                for _ in range(self.skip_lines):
+                    next(f, None)
+                for row in _csv.reader(f, delimiter=self.delimiter):
+                    if not row:
+                        continue
+                    parsed = self.parse_row(row)
+                    if parsed is None:
+                        continue
+                    ip_str = parsed.pop("_ip", row[0].strip())
+                    cidr_str = parsed.pop("_cidr", None)
+                    try:
+                        if cidr_str:
+                            net = _ipa.IPv4Network(cidr_str, strict=False)
+                        elif "/" in ip_str:
+                            net = _ipa.IPv4Network(ip_str, strict=False)
+                        else:
+                            net = _ipa.IPv4Network(f"{ip_str}/32", strict=False)
+                    except (_ipa.AddressValueError, ValueError):
+                        continue
+                    if str(net) not in seen:
+                        seen.add(str(net))
+                        yield str(net)
+
+        self._covered_ips = covered_ips_cached(
+            self._mmdb_path.with_suffix(".cov"), [self._path], _enum)
         self._loaded_at = time.time()
         return self._count
 
@@ -261,6 +321,6 @@ class ApiSource:
 
     def health(self) -> SourceHealth:
         return SourceHealth(
-            name=self.name, loaded=True, record_count=0,
+            name=self.name, loaded=True, record_count=0, covered_ips=0,
             last_updated=None, is_stale=False,
         )
