@@ -5,7 +5,7 @@ one value per CIDR; the reader mmap's the file so RSS tracks the working
 set, not total data size.
 """
 import os
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 import maxminddb
@@ -77,7 +77,8 @@ def covered_ip_count(cidr_strs, *, ip_version: int = 4) -> int:
     return total
 
 
-def covered_ips_cached(cov_path: Path, raw_paths, enumerate_cidrs, *,
+def covered_ips_cached(cov_path: Path, raw_paths: list[Path],
+                        enumerate_cidrs: Callable[[], Iterable[str]], *,
                         ip_version: int = 4) -> int:
     """Return a source's covered_ips, backed by a ``.cov`` sidecar cache.
 
