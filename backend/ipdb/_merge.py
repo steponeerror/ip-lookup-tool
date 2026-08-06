@@ -75,6 +75,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "dataplane": 0.70,
     "f3csystems": 0.60,
     "proxyscrape": 0.45,
+    "infra_services": 0.95,   # curated authoritative (DNS/root/NTP)
 }
 
 AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
@@ -84,6 +85,7 @@ AUTHORITATIVE_SOURCES: dict[str, list[str]] = {
     "is_malicious": ["threatfox", "emerging_threats", "spamhaus"],
     "is_hosting":   ["ipinfo_lite"],
     "is_mobile":    ["ipinfo_lite"],
+    "service":      ["infra_services"],
 }
 
 

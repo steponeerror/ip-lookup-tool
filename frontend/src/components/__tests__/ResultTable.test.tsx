@@ -45,3 +45,16 @@ describe("Expand disagreements toggle", () => {
     expect(screen.getByRole("button", { name: /expand disagreements/i })).toBeInTheDocument();
   });
 });
+
+describe("ResultTable service badge", () => {
+  it("renders 'Service: <provider>' for an infra asset statement", () => {
+    const dns: LookupResult = {
+      ip: "8.8.8.8",
+      country: mf("US"), asn: mf(15169), as_name: mf("Google"),
+      ip_range: mf("8.8.8.0/24"), is_isp: true, classifications: {},
+      attributes: { service: [{ source: "infra_services", value: "dns", native_type: "Google Public DNS" }] },
+    };
+    renderWithI18n(<ResultTable results={[dns]} />);
+    expect(screen.getByText(/Service: Google Public DNS/)).toBeInTheDocument();
+  });
+});

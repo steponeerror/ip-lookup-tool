@@ -20,7 +20,8 @@ CORE_FIELDS = frozenset({
 
 SCALAR_SLOTS = frozenset({"country_code", "asn", "as_name", "ip_range", "isp"})
 RICH_SLOTS = frozenset({"native_type", "comment", "tags", "reporter_count", "last_seen"})
-ASSET_SLOTS = frozenset({"is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier"})
+ASSET_SLOTS = frozenset({"is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier",
+                         "service"})  # service: public-infra role (dns/ntp/...) — string, like carrier
 CANONICAL_SLOTS = SCALAR_SLOTS | RICH_SLOTS | ASSET_SLOTS
 ALL_KNOWN = CORE_FIELDS | CANONICAL_SLOTS
 
@@ -55,6 +56,7 @@ class Evidence:
     is_tor: Optional[bool] = None
     is_vpn: Optional[bool] = None
     carrier: Optional[str] = None
+    service: Optional[str] = None     # public-infra role (dns/ntp/...) — string asset slot
     # ── per-asset native labels (serialized as the internal _native_types key) ──
     native_types: dict = field(default_factory=dict)
     # ── open bag (long tail, lossless) ──
