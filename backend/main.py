@@ -378,6 +378,25 @@ async def events():
     )
 
 
+@app.get("/api/perf/layout")
+async def perf_layout():
+    cpu, ram = _batch_pool.detect_host()
+    layout = get_active_layout()
+    predicted = _batch_pool.predict_layout(cpu, ram, layout)
+    warnings = _batch_pool.predict_warnings(predicted["priv_rss_mb"], ram)
+    return {
+        "host": {"cores": cpu, "ram_avail_mb": ram},
+        "current": layout,
+        "predicted": predicted,
+        "tunables": {
+            "m_cap": _batch_pool.M_CAP,
+            "per_proc_mb": _batch_pool.PER_PROC_MB,
+            "inline_threshold": _batch_pool.INLINE_THRESHOLD,
+        },
+        "warnings": warnings,
+    }
+
+
 class SpaStaticFiles(StaticFiles):
     """StaticFiles with SPA fallback: paths that aren't real files (e.g.
     BrowserRouter deep links like /sources) serve index.html so the client

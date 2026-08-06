@@ -155,3 +155,26 @@ def fan_out_lookup(ips: list[str]) -> list[dict]:
             "batch pool broken; falling back to inline")
         return _inline(ips)
     return [d for chunk in chunk_results for d in chunk]
+
+
+# ── Predictor (GET /api/perf/layout) ──
+_SHARED_MMAP_MB = 205  # MMDB working set, shared across workers via page cache
+
+
+def predict_layout(cpu: int, ram_avail_mb: int, layout: dict) -> dict:
+    """Predict resource use and throughput for a candidate layout."""
+    N = layout["n_workers"]
+    M = layout["m_pool"]
+    priv_rss = (N + N * M) * PER_PROC_MB + _SHARED_MMAP_MB
+    return {
+        "priv_rss_mb": priv_rss,
+        "batch_10k_ms": round(270 * 6 / M) if M > 0 else None,
+        "single_ip_qps": N * 750,
+    }
+
+
+def predict_warnings(priv_rss_mb: int, ram_avail_mb: int) -> list[str]:
+    if priv_rss_mb > ram_avail_mb - RESERVE_MB:
+        return [f"predicted RSS {priv_rss_mb} MB exceeds headroom "
+                f"{ram_avail_mb - RESERVE_MB} MB; reduce N or M"]
+    return []

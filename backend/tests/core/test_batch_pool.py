@@ -162,3 +162,20 @@ def test_fan_out_lookup_preserves_order_and_count():
     out = _batch_pool.fan_out_lookup(ips)
     expected = [_registry.lookup(ip).to_dict() for ip in ips]
     assert out == expected
+
+
+def test_predict_layout_shapes_and_math():
+    out = _batch_pool.predict_layout(16, 3900, {"n_workers": 2, "m_pool": 6, "source": "auto"})
+    assert set(out) == {"priv_rss_mb", "batch_10k_ms", "single_ip_qps"}
+    # priv_rss = (N + N*M)*PER_PROC_MB + shared mmap 205
+    assert out["priv_rss_mb"] == (2 + 2 * 6) * 90 + 205
+    # batch_10k_ms = 270 * (6/M)
+    assert out["batch_10k_ms"] == round(270 * 6 / 6)
+    # single_ip_qps = N * 750
+    assert out["single_ip_qps"] == 2 * 750
+
+
+def test_predict_layout_oom_warning():
+    # tiny RAM, forced large layout -> warning non-empty
+    out = _batch_pool.predict_layout(2, 600, {"n_workers": 1, "m_pool": 6, "source": "env"})
+    assert out["priv_rss_mb"] > 600

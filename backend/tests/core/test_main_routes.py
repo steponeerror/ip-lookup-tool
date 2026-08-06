@@ -119,3 +119,15 @@ def test_query_uses_fan_out_lookup(monkeypatch):
     body = r.json()
     assert [x["ip"] for x in body["results"]] == ["8.8.8.8", "1.1.1.1"]
     assert seen.get("called") is True and seen.get("n") == 2
+
+
+def test_perf_layout_route():
+    from fastapi.testclient import TestClient
+    import main
+    with TestClient(main.app) as client:
+        r = client.get("/api/perf/layout")
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body) >= {"host", "current", "predicted", "tunables", "warnings"}
+    assert "cores" in body["host"] and "ram_avail_mb" in body["host"]
+    assert set(body["current"]) >= {"n_workers", "m_pool", "source"}
