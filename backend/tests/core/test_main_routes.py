@@ -96,3 +96,26 @@ class TestLookupResponseShape:
         assert body["batch_id"] == "batch-id-1"
         assert body["refreshed"] == 2
         assert seen["names"] == ["alpha", "beta"]
+
+
+def test_query_uses_fan_out_lookup(monkeypatch):
+    """POST /api/query routes through _batch_pool.fan_out_lookup (so the pool is
+    used when present), and returns the same dicts in order."""
+    from fastapi.testclient import TestClient
+    import main
+    import ipdb._batch_pool as bp
+
+    seen = {}
+    real = bp.fan_out_lookup
+
+    def spy(ips):
+        seen["called"] = True
+        seen["n"] = len(ips)
+        return real(ips)
+    monkeypatch.setattr(bp, "fan_out_lookup", spy)
+    with TestClient(main.app) as client:
+        r = client.post("/api/query", json={"ips": ["8.8.8.8", "1.1.1.1"]})
+    assert r.status_code == 200
+    body = r.json()
+    assert [x["ip"] for x in body["results"]] == ["8.8.8.8", "1.1.1.1"]
+    assert seen.get("called") is True and seen.get("n") == 2

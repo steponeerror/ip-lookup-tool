@@ -180,12 +180,9 @@ async def query_ips(body: dict, enrich: bool = Query(False)):
         raise HTTPException(400, "No IPs provided")
     if len(ips) > 100000:
         raise HTTPException(400, "Max 100,000 IPs per request")
-    results = [lookup(str(ip).strip()) for ip in ips]
-    enrich_error = await _enrich_results(results, enrich)
-    resp = {"results": [r.to_dict() for r in results]}
-    if enrich_error:
-        resp["enrich_error"] = enrich_error
-    return resp
+    ips = [str(ip).strip() for ip in ips]
+    dicts = _batch_pool.fan_out_lookup(ips)
+    return {"results": dicts}
 
 
 @app.post("/api/upload")
@@ -208,12 +205,8 @@ async def upload_file(
             parts = line.split(",")
             line = parts[0]
         ips.append(line.strip())
-    results = [lookup(ip) for ip in ips]
-    enrich_error = await _enrich_results(results, enrich)
-    resp = {"results": [r.to_dict() for r in results]}
-    if enrich_error:
-        resp["enrich_error"] = enrich_error
-    return resp
+    dicts = _batch_pool.fan_out_lookup(ips)
+    return {"results": dicts}
 
 
 @app.post("/api/query/stream")
