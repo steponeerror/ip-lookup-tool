@@ -93,24 +93,46 @@ def test_work_chunk_spawns_in_isolated_process():
     assert results == [[_registry.lookup("8.8.8.8").to_dict()]]
 
 
-def test_fan_out_lookup_inline_below_threshold():
-    """<= INLINE_THRESHOLD IPs go inline (no pool)."""
-    _batch_pool.set_pool(None)  # ensure no pool
-    ips = ["8.8.8.8", "1.1.1.1"]
+def test_fan_out_lookup_inline_below_threshold(monkeypatch):
+    """<= INLINE_THRESHOLD IPs go inline even when pool is available."""
+    # Ensure DB is loaded for lookups
+    _registry.load_db()
+
+    # Inject a poison pool that raises if its .map is called
+    class _Poison:
+        def map(self, fn, iterable):
+            raise AssertionError("pool must not be called for <=threshold batches")
+    _batch_pool.set_pool(_Poison())
+    ips = ["8.8.8.8", "1.1.1.1"]  # len=2 << INLINE_THRESHOLD=200
     out = _batch_pool.fan_out_lookup(ips)
+    # Assert we got inline results (and poison.map was never called)
     assert out == [_registry.lookup("8.8.8.8").to_dict(),
                    _registry.lookup("1.1.1.1").to_dict()]
+    _batch_pool.set_pool(None)  # cleanup
 
 
 def test_fan_out_lookup_falls_back_to_inline_on_broken_pool(monkeypatch):
     """A broken pool triggers inline fallback (never raises to the caller)."""
+    # Ensure DB is loaded for lookups
+    _registry.load_db()
+
+    # Force the pool path by reducing INLINE_THRESHOLD below our test size
+    monkeypatch.setattr(_batch_pool, "INLINE_THRESHOLD", 1)
+
+    # Track that the broken pool.map was actually called
+    call_count = {"count": 0}
     class _Broken:
         def map(self, fn, iterable):
+            call_count["count"] += 1
             raise BrokenProcessPool("simulated")
     _batch_pool.set_pool(_Broken())
-    ips = ["8.8.8.8"] * 5  # >... but pool broken -> inline
+
+    ips = ["8.8.8.8"] * 5  # len=5 > INLINE_THRESHOLD=1 → pool path taken
     try:
         out = _batch_pool.fan_out_lookup(ips)
+        # Prove the pool.map was actually called (coverage of the except clause)
+        assert call_count["count"] > 0, "Broken pool.map was never called"
+        # Verify inline fallback produced correct results
         assert len(out) == 5
         assert out[0] == _registry.lookup("8.8.8.8").to_dict()
     finally:
@@ -119,6 +141,9 @@ def test_fan_out_lookup_falls_back_to_inline_on_broken_pool(monkeypatch):
 
 def test_fan_out_lookup_preserves_order_and_count():
     """Output is in input order, one dict per IP, bit-identical to inline."""
+    # Ensure DB is loaded for lookups
+    _registry.load_db()
+
     import hashlib, ipaddress
     ips = []
     i = 0
