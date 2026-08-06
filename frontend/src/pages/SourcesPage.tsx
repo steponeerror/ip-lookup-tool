@@ -14,6 +14,7 @@ const CATEGORY_ORDER = ["geo_asn", "threat", "asset", "other"];
 
 function formatCount(n: number): string {
   if (n <= 0) return "-";
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
   if (n >= 1_000) return Math.round(n / 1_000) + "K";
   return String(n);
@@ -215,7 +216,7 @@ export default function SourcesPage() {
                     <span className="w-32 shrink-0 font-mono text-sm text-zinc-200">{s.name}</span>
                     <span className="w-16 shrink-0 text-xs text-zinc-500">{s.fields[0] ?? s.archetype}</span>
                     <span className="w-16 shrink-0 text-right font-mono text-sm tabular-nums text-zinc-300">
-                      {formatCount(s.health.record_count)}
+                      {formatCount(s.health.covered_ips)}
                     </span>
                     <span className="w-24 shrink-0 text-xs text-zinc-500">{fmtTime(s)}</span>
                     <span className={`w-24 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${st.className}`}>

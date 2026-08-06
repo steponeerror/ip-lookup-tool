@@ -207,6 +207,7 @@ export interface SourceHealth {
   name: string;
   loaded: boolean;
   record_count: number;
+  covered_ips: number;
   last_updated: string | null;
   is_stale: boolean;
   error: string | null;

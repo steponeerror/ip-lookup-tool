@@ -30,6 +30,7 @@ vi.mock("../../api", async () => {
           name: "feodo",
           loaded: true,
           record_count: 10,
+          covered_ips: 10,
           last_updated: null,
           is_stale: true,
           error: null,
@@ -50,6 +51,7 @@ vi.mock("../../api", async () => {
           name: "on_demand",
           loaded: true,
           record_count: 0,
+          covered_ips: 0,
           last_updated: null,
           is_stale: false,
           error: null,
@@ -97,6 +99,7 @@ describe("SourcesPage", () => {
           name: "abuseipdb",
           loaded: false,
           record_count: 0,
+          covered_ips: 0,
           last_updated: null,
           is_stale: true,
           error: null,
@@ -184,5 +187,33 @@ describe("SourcesPage", () => {
       });
     });
     expect(await screen.findByRole("button", { name: /Downloading/i })).toBeInTheDocument();
+  });
+
+  it("renders covered_ips with a B tier for geo-scale sources", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([
+      {
+        name: "ipinfo_lite",
+        enabled: true,
+        category: "geo_asn",
+        archetype: "offline",
+        fields: ["country_code"],
+        reliability: 0.9,
+        authoritative_for: [],
+        classification_type: null,
+        url: null,
+        stale_days: null,
+        health: {
+          name: "ipinfo_lite",
+          loaded: true,
+          record_count: 3600000,
+          covered_ips: 3_700_000_000,
+          last_updated: null,
+          is_stale: false,
+          error: null,
+        },
+      },
+    ]);
+    render(<SourcesPage />);
+    expect(await screen.findByText("3.7B")).toBeInTheDocument();
   });
 });
