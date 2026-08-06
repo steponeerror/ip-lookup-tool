@@ -49,6 +49,7 @@ class Source:
         self._mmdb_path = data_dir / f"{self.filename}.mmdb"
         self._reader: Optional[maxminddb.Reader] = None
         self._count = 0
+        self._covered_ips = 0
         self._loaded_at = 0.0
 
     # ── hooks ──
@@ -77,22 +78,24 @@ class Source:
 
     # ── shared lifecycle ──
     def load(self) -> int:
-        from ._sources._mmdb import write_mmdb, open_reader, needs_convert
+        from ._sources._mmdb import (
+            write_mmdb, open_reader, needs_convert, covered_ip_count, covered_ips_cached)
         if not self._path.exists():
             self._reader = None
             return 0
         count_path = self._mmdb_path.with_suffix(".count")
+        cov_path = self._mmdb_path.with_suffix(".cov")
         if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
             if self._reader is not None:
                 self._reader.close()
                 self._reader = None
             if self.single_evidence:
-                # Stream lazily — no full acc dict (saves ~1GB for million-row
-                # geo sources). Each CIDR yielded once → one-evidence list.
+                # CIDRs distinct-by-contract; harvest again for the sum (cheap parse).
                 def _records():
                     for cidr, ev in self.harvest():
                         yield cidr, [self.normalize(ev).to_dict()]
                 records = _records()
+                covered_cidrs = (c for c, _ in self.harvest())
             else:
                 acc: dict[str, list[dict]] = {}
                 for cidr, ev in self.harvest():
@@ -102,11 +105,16 @@ class Source:
                     if d not in bucket:                 # full-evidence dedup
                         bucket.append(d)
                 records = ((k, v) for k, v in acc.items())
+                covered_cidrs = acc.keys()             # exact-distinct (D1)
             n = write_mmdb(records, self._mmdb_path,
                            database_type=f"IP-Radar-{self.name}")
             count_path.write_text(str(n))
+            cov_path.write_text(str(covered_ip_count(covered_cidrs)))
         self._reader = open_reader(self._mmdb_path)
         self._count = int(count_path.read_text().strip())
+        self._covered_ips = covered_ips_cached(
+            cov_path, [self._path],
+            lambda: (c for c, _ in self.harvest()))
         self._loaded_at = time.time()
         return self._count
 
@@ -125,7 +133,8 @@ class Source:
             time.time() - file_mtime > self.stale_days * 86400)
         return SourceHealth(
             name=self.name, loaded=self._reader is not None,
-            record_count=self._count, last_updated=last_updated, is_stale=is_stale)
+            record_count=self._count, last_updated=last_updated, is_stale=is_stale,
+            covered_ips=self._covered_ips)
 
     # ── HTTP helper for subclasses ──
     @staticmethod

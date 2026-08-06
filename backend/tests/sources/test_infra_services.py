@@ -24,4 +24,5 @@ def test_infra_services_health_loaded_not_stale(tmp_path):
     h = s.health()
     assert h.loaded is True
     assert h.record_count == 35
+    assert h.covered_ips == 35      # 35 /32 entries → 35 covered IPs
     assert h.is_stale is False      # stale_days=36500 (curated static)

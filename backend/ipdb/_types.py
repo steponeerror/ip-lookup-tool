@@ -9,6 +9,7 @@ class SourceHealth:
     record_count: int
     last_updated: Optional[str]
     is_stale: bool
+    covered_ips: int = 0
     error: Optional[str] = None
 
 
