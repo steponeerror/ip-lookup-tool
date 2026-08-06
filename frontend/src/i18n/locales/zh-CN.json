@@ -142,6 +142,7 @@
   "sources.update": "更新",
   "sources.toggleAria": "切换 {name}",
   "sources.timeAgo.onDemand": "按需",
+  "sources.timeAgo.noData": "无数据",
   "sources.timeAgo.unknown": "未知",
   "sources.timeAgo.justNow": "刚刚",
   "sources.timeAgo.minutes": "{n}分钟前",

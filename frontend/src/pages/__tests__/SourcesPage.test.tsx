@@ -80,6 +80,37 @@ describe("SourcesPage", () => {
     expect(screen.getByText("on_demand")).toBeInTheDocument();
   });
 
+  it("timeAgo shows 'no data' (not 'on-demand') for an offline source missing its raw file", async () => {
+    vi.mocked(getSources).mockResolvedValueOnce([
+      {
+        name: "abuseipdb",
+        enabled: true,
+        category: "threat",
+        archetype: "offline",
+        fields: ["is_malicious"],
+        reliability: 0.75,
+        authoritative_for: ["is_malicious"],
+        classification_type: null,
+        url: null,
+        stale_days: null,
+        health: {
+          name: "abuseipdb",
+          loaded: false,
+          record_count: 0,
+          last_updated: null,
+          is_stale: true,
+          error: null,
+        },
+      },
+    ]);
+    render(<SourcesPage />);
+    await screen.findByText("abuseipdb");
+    // Regression: offline + no last_updated used to show the misleading
+    // "on-demand" timeAgo. An offline source with a missing raw file is NOT
+    // on-demand (on-demand = ApiSource only); it must show "no data".
+    expect(screen.getByText("no data")).toBeInTheDocument();
+  });
+
   it("Update button enqueues single-source task", async () => {
     render(<SourcesPage />);
     const btn = await screen.findByRole("button", { name: /Update/i });

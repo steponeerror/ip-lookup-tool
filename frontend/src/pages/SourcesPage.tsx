@@ -19,8 +19,8 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-function timeAgo(iso: string | null): { key: string; vars?: Record<string, string | number> } {
-  if (!iso) return { key: "sources.timeAgo.onDemand" };
+function timeAgo(iso: string | null, archetype: "offline" | "online"): { key: string; vars?: Record<string, string | number> } {
+  if (!iso) return { key: archetype === "online" ? "sources.timeAgo.onDemand" : "sources.timeAgo.noData" };
   const ms = Date.now() - Date.parse(iso);
   if (Number.isNaN(ms)) return { key: "sources.timeAgo.unknown" };
   const min = Math.floor(ms / 60000);
@@ -71,8 +71,8 @@ export default function SourcesPage() {
   const [info, setInfo] = useState<string | null>(null);
   const reduce = useReducedMotion();
 
-  const fmtTime = (iso: string | null) => {
-    const ta = timeAgo(iso);
+  const fmtTime = (s: SourceInfo) => {
+    const ta = timeAgo(s.health.last_updated, s.archetype);
     return t(ta.key, ta.vars);
   };
 
@@ -217,7 +217,7 @@ export default function SourcesPage() {
                     <span className="w-16 shrink-0 text-right font-mono text-sm tabular-nums text-zinc-300">
                       {formatCount(s.health.record_count)}
                     </span>
-                    <span className="w-24 shrink-0 text-xs text-zinc-500">{fmtTime(s.health.last_updated)}</span>
+                    <span className="w-24 shrink-0 text-xs text-zinc-500">{fmtTime(s)}</span>
                     <span className={`w-24 shrink-0 rounded-md border px-2 py-0.5 text-center text-xs ${st.className}`}>
                       {t(st.key)}
                     </span>

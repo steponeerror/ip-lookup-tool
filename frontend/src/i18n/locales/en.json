@@ -142,6 +142,7 @@
   "sources.update": "Update",
   "sources.toggleAria": "Toggle {name}",
   "sources.timeAgo.onDemand": "on-demand",
+  "sources.timeAgo.noData": "no data",
   "sources.timeAgo.unknown": "unknown",
   "sources.timeAgo.justNow": "just now",
   "sources.timeAgo.minutes": "{n}m ago",
