@@ -4,7 +4,6 @@ import logging
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,7 +35,6 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO)
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
-LOOKUP_CHUNK = 200
 ENRICH_CHUNK = 100
 
 
@@ -56,33 +54,37 @@ async def _enrich_results(
     return None
 
 
-async def _stream_lookup(
-    ips: list[str], enrich: bool = True
-) -> AsyncIterator:
-    """Stream lookup results with chunked progress as NDJSON."""
+async def _stream_lookup(ips):
+    """Stream lookup results with chunked progress as NDJSON. Fans out across the
+    batch pool when present; inline otherwise. Progress is emitted per chunk."""
     total = len(ips)
+    ips = [str(ip).strip() for ip in ips]
     yield json.dumps({"type": "start", "total": total}) + "\n"
 
-    results = []
-    for i in range(0, total, LOOKUP_CHUNK):
-        chunk = [str(ip).strip() for ip in ips[i : i + LOOKUP_CHUNK]]
-        chunk_results = await asyncio.to_thread(
-            lambda cs=chunk: [lookup(ip) for ip in cs])
-        results.extend(chunk_results)
-        done = min(i + LOOKUP_CHUNK, total)
-        yield json.dumps({
-            "type": "progress", "done": done, "total": total,
-        }) + "\n"
+    pool = _batch_pool.get_pool()
+    if total <= _batch_pool.INLINE_THRESHOLD or pool is None:
+        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips)
+        yield json.dumps({"type": "complete", "results": dicts, "enrich_error": None}) + "\n"
+        return
+
+    chunk_size = _batch_pool.CHUNK
+    chunks = [ips[i:i + chunk_size] for i in range(0, total, chunk_size)]
+    loop = asyncio.get_event_loop()
+    futures = [loop.run_in_executor(pool, _batch_pool._work_chunk, c) for c in chunks]
+    ordered: list = [None] * len(chunks)
+    pending = set(futures)
+    done = 0
+    while pending:
+        finished, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for fut in finished:
+            ordered[futures.index(fut)] = fut.result()
+            done += 1
+            yield json.dumps({"type": "progress",
+                              "done": min(done * chunk_size, total),
+                              "total": total}) + "\n"
         await asyncio.sleep(0)
-
-    # Online enrichment deferred (Plan 3); classifications come from offline
-    # sources' EvidenceObservation via lookup().
-
-    yield json.dumps({
-        "type": "complete",
-        "results": [r.to_dict() for r in results],
-        "enrich_error": None,
-    }) + "\n"
+    dicts = [d for chunk in ordered for d in chunk]
+    yield json.dumps({"type": "complete", "results": dicts, "enrich_error": None}) + "\n"
 
 
 def _is_cold_start() -> bool:
