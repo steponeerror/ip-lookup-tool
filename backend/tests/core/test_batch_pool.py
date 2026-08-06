@@ -33,3 +33,35 @@ def test_detect_host_returns_positive_ints():
     cpu, ram = _batch_pool.detect_host()
     assert isinstance(cpu, int) and cpu >= 1
     assert isinstance(ram, int) and ram > 0
+
+
+def test_perf_config_roundtrip(tmp_path):
+    p = tmp_path / "perf.json"
+    _batch_pool.save_perf_config({"n_workers": 4, "m_pool": 2}, p)
+    assert _batch_pool.load_perf_config(p) == {"n_workers": 4, "m_pool": 2}
+
+
+def test_load_perf_config_missing_returns_none(tmp_path):
+    assert _batch_pool.load_perf_config(tmp_path / "nope.json") is None
+
+
+def test_resolve_layout_formula_when_no_overrides():
+    assert _batch_pool.resolve_layout(16, 3900, {}, None) == (2, 6)
+
+
+def test_resolve_layout_config_overrides_formula():
+    cfg = {"n_workers": 1, "m_pool": 1}
+    assert _batch_pool.resolve_layout(16, 3900, {}, cfg) == (1, 1)
+
+
+def test_resolve_layout_env_overrides_config():
+    cfg = {"n_workers": 1, "m_pool": 1}
+    env = {"IPRADAR_WORKERS": "4", "IPRADAR_BATCH_POOL": "3"}
+    assert _batch_pool.resolve_layout(16, 3900, env, cfg) == (4, 3)
+
+
+def test_resolve_layout_total_procs_env_resplits():
+    # IPRADAR_TOTAL_PROCS overrides the budget P, then split
+    env = {"IPRADAR_TOTAL_PROCS": "8"}
+    N, M = _batch_pool.resolve_layout(2, 2048, env, None)  # tiny host, but forced P=8
+    assert (N, M) == _batch_pool._split_budget(8) == (2, 3)

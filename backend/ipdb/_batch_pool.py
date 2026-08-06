@@ -5,7 +5,9 @@ compute_layout() apportions a total process budget P between N uvicorn workers
 (parallelism within one big batch). Constants are measurement-calibrated; see
 docs/superpowers/specs/2026-08-06-batch-process-pool-design.md.
 """
+import json
 import os
+from pathlib import Path
 
 # ── Measurement-calibrated constants (do NOT change without re-measuring) ──
 PER_PROC_MB = 90        # private RSS per process (Pss_Anon ~87 MB + headroom)
@@ -52,3 +54,52 @@ def detect_host() -> tuple[int, int]:
     except OSError:
         pass
     return cpu, 4096  # conservative default when detection impossible
+
+
+# ── Path to persisted perf override (mirrors source_state.json pattern) ──
+_APP_DIR = Path(__file__).parent.parent
+_DATA_DIR = Path(os.environ.get("IP_RADAR_DATA_DIR", str(_APP_DIR / "data")))
+PERF_CONFIG_PATH = Path(os.environ.get(
+    "PERF_CONFIG_PATH", str(_DATA_DIR / "perf_config.json")))
+
+
+def load_perf_config(path: Path = PERF_CONFIG_PATH) -> dict | None:
+    """Load persisted performance config from JSON file. Returns None if file missing or invalid."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def save_perf_config(data: dict, path: Path = PERF_CONFIG_PATH) -> None:
+    """Persist performance config to JSON file. Creates parent dirs if needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data))
+
+
+def resolve_layout(cpu: int, ram_avail_mb: int, env: dict, perf_config: dict | None) -> tuple[int, int]:
+    """Compute (N, M) layout with precedence: env var > perf_config > auto formula.
+
+    Precedence order:
+    1. IPRADAR_TOTAL_PROCS env var (re-splits budget via _split_budget)
+    2. Otherwise compute_layout(cpu, ram_avail_mb) formula
+    3. perf_config n_workers/m_pool overrides (if present)
+    4. IPRADAR_WORKERS/IPRADAR_BATCH_POOL env overrides (if present)
+    5. Final values floored at 1 (minimum 1 worker, 1 pool per worker)
+    """
+    if "IPRADAR_TOTAL_PROCS" in env:
+        try:
+            P = max(2, int(env["IPRADAR_TOTAL_PROCS"]))
+            N, M = _split_budget(P)
+        except ValueError:
+            N, M = compute_layout(cpu, ram_avail_mb)
+    else:
+        N, M = compute_layout(cpu, ram_avail_mb)
+    if perf_config:
+        N = int(perf_config.get("n_workers", N))
+        M = int(perf_config.get("m_pool", M))
+    if env.get("IPRADAR_WORKERS"):
+        N = int(env["IPRADAR_WORKERS"])
+    if env.get("IPRADAR_BATCH_POOL"):
+        M = int(env["IPRADAR_BATCH_POOL"])
+    return max(1, N), max(1, M)
