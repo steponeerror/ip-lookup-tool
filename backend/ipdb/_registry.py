@@ -332,7 +332,7 @@ def lookup(ip: str) -> LookupResult:
                                for s in attributes[akey]):
                         attributes[akey].append(stmt)
 
-    context = {"ip": ip, "country": field_values.get("country_code", {})}
+    context = {"ip": ip, "addr": addr, "country": field_values.get("country_code", {})}
 
     country = _strategies["country_code"].merge(
         field_values.get("country_code", {}), context)

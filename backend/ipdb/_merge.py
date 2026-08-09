@@ -4,6 +4,16 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
+import ipaddress
+from functools import lru_cache
+
+
+@lru_cache(maxsize=200_000)
+def _parse_net(cidr: str) -> ipaddress.IPv4Network:
+    """Cached IPv4Network parse. Range strings (e.g. '10.0.0.0/24') repeat
+    heavily across queries, so parse each distinct string once."""
+    return ipaddress.IPv4Network(cidr, strict=False)
+
 from ._types import (
     SourceAttribution, MergedField, LookupResult,
     EvidenceObservation, ClassificationAssessment,
@@ -202,26 +212,28 @@ class RangeSpecificity:
         self.field = "ip_range"
 
     def merge(self, source_values: dict[str, Any], context: dict) -> MergedField:
-        import ipaddress as _ipa
-
         attributions = _to_attributions(source_values, self.field)
-        try:
-            ip_addr = _ipa.IPv4Address(context.get("ip", ""))
-        except (_ipa.AddressValueError, ValueError):
-            ip_addr = None
 
-        # (net, attribution) pairs — parse each value once, reuse for both the
-        # containment test and the prefixlen comparison below.
-        valid: list[tuple[_ipa.IPv4Network, SourceAttribution]] = []
+        # Prefer the addr parsed once in lookup(); fall back to parsing the
+        # raw ip string (standalone/test calls without a pre-parsed addr).
+        ip_addr = context.get("addr")
+        if ip_addr is None and context.get("ip"):
+            try:
+                ip_addr = ipaddress.IPv4Address(context["ip"])
+            except (ipaddress.AddressValueError, ValueError):
+                ip_addr = None
+
+        valid: list[tuple[ipaddress.IPv4Network, SourceAttribution]] = []
         for a in attributions:
             if not a.value or a.value == "N/A":
                 continue
             try:
-                net = _ipa.IPv4Network(a.value, strict=False)
-            except (_ipa.AddressValueError, ValueError):
+                net = _parse_net(a.value)
+            except (ipaddress.AddressValueError, ValueError):
                 continue
-            if ip_addr is not None and ip_addr in net:
-                valid.append((net, a))
+            if ip_addr is not None and ip_addr not in net:
+                continue
+            valid.append((net, a))
 
         if not valid:
             return MergedField("N/A", 0, "specificity", attributions)
