@@ -94,6 +94,24 @@ class TestLookupResponseShape:
                 return
         assert False, "no complete event received"
 
+    def test_stream_orjson_output_parses_as_ndjson(self):
+        """orjson (bytes) NDJSON must still parse to the expected event shape."""
+        resp = self.client.post(
+            "/api/query/stream", json={"ips": ["8.8.8.8", "1.1.1.1"]})
+        assert resp.status_code == 200
+        events = []
+        for line in resp.iter_lines():
+            line = line.strip()
+            if line:
+                events.append(json.loads(line))
+        types = [e["type"] for e in events]
+        assert types[0] == "start"
+        assert "complete" in types
+        complete = next(e for e in events if e["type"] == "complete")
+        assert len(complete["results"]) == 2
+        assert {r["ip"] for r in complete["results"]} == {"8.8.8.8", "1.1.1.1"}
+        assert complete["enrich_error"] is None
+
 
 def test_perf_layout_route():
     from fastapi.testclient import TestClient

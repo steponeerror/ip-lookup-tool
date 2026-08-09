@@ -5,6 +5,7 @@ import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
+import orjson
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,12 +52,12 @@ async def _stream_lookup(ips):
     single inline fan_out_lookup (results stay bit-identical to inline)."""
     total = len(ips)
     ips = [str(ip).strip() for ip in ips]
-    yield json.dumps({"type": "start", "total": total}) + "\n"
+    yield orjson.dumps({"type": "start", "total": total}) + b"\n"
 
     pool = _batch_pool.get_pool()
     if total <= _batch_pool.INLINE_THRESHOLD or pool is None:
         dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips)
-        yield json.dumps({"type": "complete", "results": dicts, "enrich_error": None}) + "\n"
+        yield orjson.dumps({"type": "complete", "results": dicts, "enrich_error": None}) + b"\n"
         return
 
     chunk_size = _batch_pool.CHUNK
@@ -72,9 +73,9 @@ async def _stream_lookup(ips):
             for fut in finished:
                 ordered[futures.index(fut)] = fut.result()
                 done += 1
-                yield json.dumps({"type": "progress",
+                yield orjson.dumps({"type": "progress",
                                   "done": min(done * chunk_size, total),
-                                  "total": total}) + "\n"
+                                  "total": total}) + b"\n"
             await asyncio.sleep(0)
         dicts = [d for chunk in ordered for d in chunk]
     except BrokenProcessPool:
@@ -84,7 +85,7 @@ async def _stream_lookup(ips):
         logging.getLogger(__name__).warning(
             "stream batch pool broke mid-batch; falling back to inline")
         dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips)
-    yield json.dumps({"type": "complete", "results": dicts, "enrich_error": None}) + "\n"
+    yield orjson.dumps({"type": "complete", "results": dicts, "enrich_error": None}) + b"\n"
 
 
 def _is_cold_start() -> bool:
