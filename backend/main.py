@@ -24,7 +24,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ipdb import (
     load_db, lookup, get_status,
-    enrich_with_ipapi, enrich_with_ipapi_is,
     list_sources, set_source_enabled,
     manager, stale_source_names,
 )
@@ -41,20 +40,6 @@ ENRICH_CHUNK = 100
 
 class SourceEnabledPatch(BaseModel):
     enabled: bool
-
-
-async def _enrich_results(
-    results: list, enrich: bool
-) -> str | None:
-    """Online enrichment is deferred to the fusion corroboration path (Plan 3).
-
-    The old boolean-enrichment (apply_enrichment over threat bools) was removed
-    when booleans were replaced by classification.type. Online enrichers will
-    emit EvidenceObservation directly in a follow-up plan.
-    """
-    # Plan 3 placeholder — online enrichment deferred; currently dead. Remove
-    # or wire in Plan 3. (_reserved.py / docstring above still reference Plan 3.)
-    return None
 
 
 async def _stream_lookup(ips):
@@ -188,42 +173,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.post("/api/query")
-async def query_ips(body: dict, enrich: bool = Query(False)):
-    ips = body.get("ips", [])
-    if not ips:
-        raise HTTPException(400, "No IPs provided")
-    if len(ips) > 100000:
-        raise HTTPException(400, "Max 100,000 IPs per request")
-    ips = [str(ip).strip() for ip in ips]
-    dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips)
-    return {"results": dicts}
-
-
-@app.post("/api/upload")
-async def upload_file(
-    file: UploadFile = File(...), enrich: bool = Query(False)
-):
-    content = await file.read()
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(400, "File exceeds 50MB limit")
-    content = content.decode("utf-8", errors="ignore")
-    lines = content.strip().splitlines()
-    if len(lines) > 100000:
-        raise HTTPException(400, "File exceeds 100,000 lines")
-    ips = []
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        if file.filename and file.filename.endswith(".csv"):
-            parts = line.split(",")
-            line = parts[0]
-        ips.append(line.strip())
-    dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips)
-    return {"results": dicts}
 
 
 @app.post("/api/query/stream")

@@ -1,6 +1,11 @@
 """Tests for main.py routes returning new response shape."""
 import json
+import sys
+import os
 from unittest.mock import patch
+
+# Add backend directory to sys.path so 'import main' works
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from fastapi.testclient import TestClient
 
@@ -15,32 +20,6 @@ class TestLookupResponseShape:
         from ipdb import load_db
         load_db()
         cls.client = TestClient(main.app)
-
-    def test_query_returns_new_shape(self):
-        """POST /api/query?enrich=false returns country.confidence as int."""
-        resp = self.client.post(
-            "/api/query?enrich=false",
-            json={"ips": ["8.8.8.8"]},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        results = data["results"]
-        assert len(results) == 1
-        r = results[0]
-        assert "ip" in r
-        assert isinstance(r["country"]["confidence"], int)
-        assert isinstance(r["asn"]["confidence"], int)
-        assert "classifications" in r
-        assert isinstance(r["classifications"], dict)
-
-    def test_invalid_ip_has_error(self):
-        resp = self.client.post(
-            "/api/query?enrich=false",
-            json={"ips": ["not-an-ip"]},
-        )
-        assert resp.status_code == 200
-        r = resp.json()["results"][0]
-        assert "invalid" in r["error"]
 
     def test_stix_reserved_ip_returns_400(self):
         resp = self.client.get("/api/lookup/10.0.0.1/stix")
@@ -97,28 +76,23 @@ class TestLookupResponseShape:
         assert body["refreshed"] == 2
         assert seen["names"] == ["alpha", "beta"]
 
-
-def test_query_uses_fan_out_lookup(monkeypatch):
-    """POST /api/query routes through _batch_pool.fan_out_lookup (so the pool is
-    used when present), and returns the same dicts in order."""
-    from fastapi.testclient import TestClient
-    import main
-    import ipdb._batch_pool as bp
-
-    seen = {}
-    real = bp.fan_out_lookup
-
-    def spy(ips):
-        seen["called"] = True
-        seen["n"] = len(ips)
-        return real(ips)
-    monkeypatch.setattr(bp, "fan_out_lookup", spy)
-    with TestClient(main.app) as client:
-        r = client.post("/api/query", json={"ips": ["8.8.8.8", "1.1.1.1"]})
-    assert r.status_code == 200
-    body = r.json()
-    assert [x["ip"] for x in body["results"]] == ["8.8.8.8", "1.1.1.1"]
-    assert seen.get("called") is True and seen.get("n") == 2
+    def test_stream_invalid_ip_has_error(self):
+        """Invalid IP via stream surfaces the error field (ported from the
+        deleted non-stream test_invalid_ip_has_error)."""
+        resp = self.client.post(
+            "/api/query/stream",
+            json={"ips": ["not-an-ip"]},
+        )
+        assert resp.status_code == 200
+        for line in resp.iter_lines():
+            line = line.strip()
+            if not line:
+                continue
+            evt = json.loads(line)
+            if evt.get("type") == "complete":
+                assert "invalid" in evt["results"][0]["error"]
+                return
+        assert False, "no complete event received"
 
 
 def test_perf_layout_route():
