@@ -3,7 +3,7 @@
 The expansion is lazy: ``total`` is computed by summing ``num_addresses``
 (O(num_lines), never materialized), and iteration yields ``(idx, ip_str)``
 pairs on demand. This keeps backend memory constant regardless of how large
-a CIDR the user queries — a /13 (524,288 addresses) costs the same as a /24.
+a CIDR the user queries — a /14 (262,144 addresses) costs the same as a /24.
 
 CIDR iteration uses ``for ip in network:`` (ALL num_addresses, including the
 network and broadcast addresses), NOT ``.hosts()`` which silently drops them.

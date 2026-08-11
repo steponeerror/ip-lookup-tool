@@ -18,6 +18,7 @@ export default function LookupView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [skipped, setSkipped] = useState<{ invalid: number; ipv6: number } | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [csvModal, setCsvModal] = useState<{
     open: boolean;
@@ -31,9 +32,13 @@ export default function LookupView() {
     setLoading(true);
     setError(null);
     setEnrichError(null);
+    setSkipped(null);
     setProgress(null);
     try {
       const r = await queryIpsStream(ips, setProgress);
+      if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
+        setSkipped({ invalid: r.invalidLines, ipv6: r.ipv6Unsupported });
+      }
       if (r.csvDownloaded) {
         setResults([]);
         setCsvModal({
@@ -62,9 +67,13 @@ export default function LookupView() {
     setLoading(true);
     setError(null);
     setEnrichError(null);
+    setSkipped(null);
     setProgress(null);
     try {
       const r = await uploadFileStream(file, setProgress);
+      if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
+        setSkipped({ invalid: r.invalidLines, ipv6: r.ipv6Unsupported });
+      }
       if (r.csvDownloaded) {
         setResults([]);
         setCsvModal({
@@ -192,6 +201,13 @@ export default function LookupView() {
         {enrichError && (
           <div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-400">
             {enrichError}
+          </div>
+        )}
+
+        {skipped && (skipped.invalid > 0 || skipped.ipv6 > 0) && (
+          <div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-400">
+            {skipped.invalid > 0 && <div>{t("csvExport.invalidLines", { n: skipped.invalid })}</div>}
+            {skipped.ipv6 > 0 && <div>{t("csvExport.ipv6Unsupported", { n: skipped.ipv6 })}</div>}
           </div>
         )}
 

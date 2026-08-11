@@ -100,7 +100,7 @@ class TestLookupResponseShape:
         assert {r["result"]["ip"] for r in rows} == {"8.8.8.8", "1.1.1.1"}
 
     def test_stream_cap_rejects_over_500k(self):
-        """cap = 500,000 expanded IPs (≈ /13). Over → 400."""
+        """cap = 500,000 expanded IPs (max single CIDR /14 = 262,144). Over → 400."""
         resp = self.client.post(
             "/api/query/stream",
             json={"ips": ["10.0.0.0/12"]},  # 1,048,576 > 500,000
