@@ -2,6 +2,13 @@ import type { LookupResult } from "../api";
 import { threatSummary, classLabel, familyShort } from "./threatDisplay";
 import { translate } from "../i18n/translate";
 
+export const CSV_HEADER =
+  "ip,asn,asn_confidence,country,country_confidence,as_name,as_name_confidence," +
+  "is_isp,verdict,verdict_confidence,threat_tags," +
+  "reporter_total,verdict_conflict,corroborated,malware_names,top_reliability," +
+  "ip_range,range_confidence,error," +
+  "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier,service,service_provider\n";
+
 export function aggregateThreatDepth(r: LookupResult) {
   const cas = Object.values(r.classifications);
   const reporter_total = cas.reduce((s, c) => s + (c.reporter_total || 0), 0);
@@ -57,52 +64,56 @@ function assetNative(r: LookupResult, key: string): string {
   return stmts && stmts.length ? stmts[0].native_type ?? "" : "";
 }
 
+export function buildCsvRow(r: LookupResult): string {
+  const summary = threatSummary(r);
+  const depth = aggregateThreatDepth(r);
+  return [
+    csvEscape(r.ip),
+    csvEscape(String(r.asn.value)),
+    String(r.asn.confidence),
+    csvEscape(r.country.value),
+    String(r.country.confidence),
+    csvEscape(r.as_name.value),
+    String(r.as_name.confidence),
+    String(r.is_isp),
+    csvEscape(summary.verdict),
+    String(summary.confidence),
+    csvEscape(threatTags(r)),
+    String(depth.reporter_total),
+    String(depth.verdict_conflict),
+    String(depth.corroborated),
+    csvEscape(depth.malware_names.join("|")),
+    String(depth.top_reliability),
+    csvEscape(r.ip_range.value),
+    String(r.ip_range.confidence),
+    csvEscape(r.error ?? ""),
+    csvEscape(assetVal(r, "is_proxy")),
+    csvEscape(assetNative(r, "is_proxy")),
+    csvEscape(assetVal(r, "is_hosting")),
+    csvEscape(assetVal(r, "is_tor")),
+    csvEscape(assetVal(r, "is_vpn")),
+    csvEscape(assetVal(r, "carrier")),
+    csvEscape(assetVal(r, "service")),
+    csvEscape(assetNative(r, "service")),
+  ].join(",");
+}
+
 // Build the full CSV document for a result set. A leading UTF-8 BOM (U+FEFF) is
 // prepended so Excel detects UTF-8 instead of falling back to the system ANSI
 // code page (e.g. GBK on Chinese Windows) and garbling CJK text.
 export function buildCsvContent(results: LookupResult[]): string {
-  const header =
-    "ip,asn,asn_confidence,country,country_confidence,as_name,as_name_confidence," +
-    "is_isp,verdict,verdict_confidence,threat_tags," +
-    "reporter_total,verdict_conflict,corroborated,malware_names,top_reliability," +
-    "ip_range,range_confidence,error," +
-    "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier,service,service_provider\n";
+  return String.fromCharCode(0xfeff) + CSV_HEADER + results.map(buildCsvRow).join("\n");
+}
 
-  const rows = results
-    .map((r) => {
-      const summary = threatSummary(r);
-      const depth = aggregateThreatDepth(r);
-      return [
-        csvEscape(r.ip),
-        csvEscape(String(r.asn.value)),
-        String(r.asn.confidence),
-        csvEscape(r.country.value),
-        String(r.country.confidence),
-        csvEscape(r.as_name.value),
-        String(r.as_name.confidence),
-        String(r.is_isp),
-        csvEscape(summary.verdict),
-        String(summary.confidence),
-        csvEscape(threatTags(r)),
-        String(depth.reporter_total),
-        String(depth.verdict_conflict),
-        String(depth.corroborated),
-        csvEscape(depth.malware_names.join("|")),
-        String(depth.top_reliability),
-        csvEscape(r.ip_range.value),
-        String(r.ip_range.confidence),
-        csvEscape(r.error ?? ""),
-        csvEscape(assetVal(r, "is_proxy")),
-        csvEscape(assetNative(r, "is_proxy")),
-        csvEscape(assetVal(r, "is_hosting")),
-        csvEscape(assetVal(r, "is_tor")),
-        csvEscape(assetVal(r, "is_vpn")),
-        csvEscape(assetVal(r, "carrier")),
-        csvEscape(assetVal(r, "service")),
-        csvEscape(assetNative(r, "service")),
-      ].join(",");
-    })
-    .join("\n");
-
-  return String.fromCharCode(0xfeff) + header + rows;
+export function downloadCsv(parts: string[]): void {
+  const blob = new Blob(
+    [String.fromCharCode(0xfeff), ...parts],
+    { type: "text/csv;charset=utf-8" },
+  );
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `ip-lookup-${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

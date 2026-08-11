@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { aggregateThreatDepth, buildCsvContent } from "../csvExport";
+import { aggregateThreatDepth, buildCsvContent, buildCsvRow } from "../csvExport";
 import type { LookupResult } from "../../api";
 
 const mf = (value: string) => ({
@@ -111,5 +111,21 @@ describe("buildCsvContent", () => {
     const row = lines[1].split(",");
     expect(row[header.indexOf("service")]).toBe("dns");
     expect(row[header.indexOf("service_provider")]).toBe("Google Public DNS");
+  });
+});
+
+describe("buildCsvRow", () => {
+  it("produces the same row as buildCsvContent for a single result", () => {
+    const fromContent = buildCsvContent([r]).split("\n")[1];
+    const fromRow = buildCsvRow(r);
+    expect(fromRow).toBe(fromContent);
+  });
+
+  it("is pure: same input → same output, no neighbor dependency", () => {
+    const other: LookupResult = { ...r, ip: "9.9.9.9" };
+    // buildCsvRow(r) must not change when a neighbor exists
+    expect(buildCsvRow(r)).toBe(buildCsvRow(r));
+    buildCsvRow(other); // call with different input in between
+    expect(buildCsvRow(r)).toBe(buildCsvContent([r]).split("\n")[1]);
   });
 });
