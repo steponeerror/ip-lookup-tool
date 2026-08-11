@@ -140,7 +140,7 @@ def test_harvest_yields_evidence_with_severity_driven_reliability(tmp_path):
     assert e1.reliability == 0.60                       # severity-driven (MISP_THREAT_LEVEL["2"])
     assert e1.classification_type == "other"            # Network activity + benign title
     assert e1.comment == "benign-looking event"
-    assert e1.extra["native_type"] == "Network activity"
+    assert e1.native_categories == ["Network activity"]
     assert e1.extra["threat_level"] == "2"
     assert e1.extra["to_ids"] is True
     assert e1.extra["tlp"] == "white"                   # Tag → TLP extracted
@@ -163,18 +163,17 @@ def test_harvest_title_beats_category_and_extracts_malware_name(tmp_path):
     assert e.verdict == "malicious"
     assert e.reliability == 0.60                        # tl=2
     assert e.malware_name == "cobaltstrike"             # extract_malware_family(info)
-    assert e.extra["native_type"] == "Payload delivery"  # raw MISP category preserved
+    assert e.native_categories == ["Payload delivery"]  # raw MISP category preserved
 
 
-def test_harvest_extra_carries_native_type_and_severity_fields(tmp_path):
-    """The four fields the read path expects ride in extra — not in canonical
-    slots — matching the threatfox/ip2proxy pattern."""
+def test_harvest_carries_native_categories_and_severity_fields(tmp_path):
+    """The native category rides in native_categories; severity fields
+    (threat_level/to_ids) ride in extra — both survive end-to-end."""
     pairs = _harvest_all(tmp_path)
     e = _by_ip(pairs, "1.2.3.4")
-    # native_type lives in extra only — the Evidence.native_type slot was removed
-    # (replaced by native_categories); assert the field is gone, value is in extra.
+    # native_type Evidence slot was removed (Phase 1); category now in native_categories.
     assert not hasattr(e, "native_type")
-    assert e.extra["native_type"] == "Network activity"
-    # threat_level + to_ids survive end-to-end.
+    assert e.native_categories == ["Network activity"]
+    # threat_level + to_ids survive end-to-end in extra.
     assert e.extra["threat_level"] == "2"
     assert e.extra["to_ids"] is True
