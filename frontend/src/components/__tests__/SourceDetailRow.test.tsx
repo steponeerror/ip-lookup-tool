@@ -60,4 +60,22 @@ describe("SourceDetailRow", () => {
     fireEvent.click(toggle);
     expect(screen.getByText(/"foo"/)).toBeInTheDocument();
   });
+
+  it("renders native_categories as chips", () => {
+    const d: ClassificationDetail = { ...base, native_categories: ["15", "16"] };
+    renderWithI18n(<SourceDetailRow detail={d} />);
+    expect(screen.getByText(/\[15\]/)).toBeInTheDocument();
+    expect(screen.getByText(/\[16\]/)).toBeInTheDocument();
+  });
+
+  it("does not duplicate native when both native_categories and extra.native_type exist", () => {
+    const d: ClassificationDetail = {
+      ...base,
+      native_categories: ["15"],
+      extra: { native_type: "PUB" },
+    };
+    renderWithI18n(<SourceDetailRow detail={d} />);
+    expect(screen.getByText(/\[15\]/)).toBeInTheDocument();   // native_categories wins
+    expect(screen.queryByText(/\[PUB\]/)).not.toBeInTheDocument();  // fallback suppressed
+  });
 });

@@ -28,6 +28,7 @@ export interface ClassificationDetail {
   first_seen?: string;
   comment?: string;
   tags?: string[];
+  native_categories?: string[];
   reporter_count?: number;
   extra?: Record<string, unknown>;
 }

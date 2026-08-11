@@ -13,7 +13,9 @@ function fmtDate(iso: string): string {
 export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail }) {
   const { t } = useI18n();
   const [showExtra, setShowExtra] = useState(false);
-  const nativeType = d.extra?.native_type;
+  const nativeChips: string[] = d.native_categories?.length
+    ? d.native_categories
+    : (d.extra?.native_type != null ? [String(d.extra.native_type)] : []);
   const extraKeys = d.extra ? Object.keys(d.extra) : [];
   const hasExtra = extraKeys.length > 0;
   const hasTags = !!(d.tags && d.tags.length > 0);
@@ -23,9 +25,9 @@ export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail })
       <div>
         <span className="text-zinc-600">{d.source}</span>
         <span className="text-zinc-700"> · rel {fmtRel(d.reliability)}</span>
-        {nativeType != null && (
-          <span className="text-zinc-500 ml-1" title={t("sourceDetail.nativeTypeTitle")}>[{String(nativeType)}]</span>
-        )}
+        {nativeChips.map((c, i) => (
+          <span key={`nc-${i}`} className="rounded bg-sky-800/40 px-1 py-px mr-0.5 ml-1 text-sky-300" title={t("sourceDetail.nativeTypeTitle")}>[{c}]</span>
+        ))}
         {d.native_confidence != null && (
           <span className="text-zinc-500 ml-1">native {d.native_confidence}</span>
         )}
