@@ -337,6 +337,8 @@ def _assess_classification(group: list) -> ClassificationAssessment:
             d["reporter_count"] = o.reporter_count
         if o.extra:
             d["extra"] = dict(o.extra)      # FULL extra, not just native_type
+        if o.native_categories:
+            d["native_categories"] = list(o.native_categories)
         details.append(d)
 
     return ClassificationAssessment(
