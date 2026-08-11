@@ -171,8 +171,9 @@ def test_harvest_extra_carries_native_type_and_severity_fields(tmp_path):
     slots — matching the threatfox/ip2proxy pattern."""
     pairs = _harvest_all(tmp_path)
     e = _by_ip(pairs, "1.2.3.4")
-    # native_type in extra, NOT the canonical Evidence.native_type slot.
-    assert e.native_type is None
+    # native_type lives in extra only — the Evidence.native_type slot was removed
+    # (replaced by native_categories); assert the field is gone, value is in extra.
+    assert not hasattr(e, "native_type")
     assert e.extra["native_type"] == "Network activity"
     # threat_level + to_ids survive end-to-end.
     assert e.extra["threat_level"] == "2"
