@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import { Modal } from "../Modal";
@@ -70,29 +71,32 @@ describe("Modal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("restores focus to trigger on close", () => {
-    // Create a trigger button that opens the modal
-    const onClose = vi.fn();
-    const { container } = renderWithI18n(
-      <div>
-        <button type="button" id="trigger">
-          Trigger
-        </button>
-        <Modal open={true} title="Done" onClose={onClose}>
-          <p>body</p>
-        </Modal>
-      </div>,
-    );
+  it("restores focus to the trigger element on close", async () => {
+    const user = userEvent.setup();
 
-    // Simulate trigger having focus before modal opens
-    const trigger = container.querySelector("#trigger") as HTMLElement;
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>open modal</button>
+          <Modal open={open} onClose={() => setOpen(false)}>
+            <p>body</p>
+          </Modal>
+        </>
+      );
+    }
+    renderWithI18n(<Harness />);
+
+    const trigger = screen.getByRole("button", { name: "open modal" });
+    // focus the trigger, THEN open — so the Modal's effect captures it as triggerRef
     trigger.focus();
     expect(document.activeElement).toBe(trigger);
 
-    // Close the modal
-    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    await user.click(trigger); // opens modal; effect runs, captures trigger
+    // focus has moved into the dialog (to the first focusable / panel)
+    expect(document.activeElement).not.toBe(trigger);
 
-    // Focus should be restored to the trigger
+    await user.keyboard("{Escape}"); // closes modal; cleanup runs, restores focus
     expect(document.activeElement).toBe(trigger);
   });
 
