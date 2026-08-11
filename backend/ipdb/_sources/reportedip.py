@@ -7,14 +7,15 @@ and community reports. Only IPs with confidence >= 75% are listed; known-legit
 CDN/search IPs are whitelisted; a 48-hour publication delay reduces false positives.
 
 CSV columns: ``ip, confidence, categories, last_reported`` where ``categories``
-is a ``;``-separated list of numeric codes. Codes 1-30 are documented (the repo's
-9 thematic lists); 31-58 are unpublished sub-codes. Each code maps via
-``REPORTEDIP_MAP`` to an IntelMQ ``classification.type`` (undocumented codes fall
-to ``other``). Codes are GROUPED by derived canonical type: one ``Evidence`` per
-distinct type, each carrying ``native_categories`` — documented codes (1–30)
-resolve to thematic-list LABELS (via ``REPORTEDIP_CODE_THEMATIC``, e.g. code 18
-→ ``["brute-force","cms-login"]``), while undocumented/orphan codes (13, 31–58)
-fall through as their raw numeric strings. The canonical type is a derived tag. IPv6 rows are dropped (the system is IPv4-only).
+is a ``;``-separated list of numeric codes. All 58 codes are officially
+documented (per reportedip.com v2/categories API): 1-30 general attacks,
+31-58 WordPress attack sub-categories. Each code maps via ``REPORTEDIP_MAP`` to
+an IntelMQ ``classification.type``; ``REPORTEDIP_CODE_THEMATIC`` carries the
+official per-code NAME for display. Codes are GROUPED by derived canonical type:
+one ``Evidence`` per distinct type, each carrying ``native_categories`` = the
+official names of its codes (deduped). Future codes absent from the tables
+(59+) fall back to their raw numeric string. The canonical type is a derived
+tag. IPv6 rows are dropped (the system is IPv4-only).
 
 License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution
 to ReportedIP (reportedip.com) is required.
@@ -24,23 +25,22 @@ import logging
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import normalize, REPORTEDIP_MAP, REPORTEDIP_CODE_THEMATIC, _REPORTEDIP_LIST_ORDER
+from .._classification import normalize, REPORTEDIP_MAP, REPORTEDIP_CODE_THEMATIC
 
 
 def _resolve_thematic(codes: list[str]) -> list[str]:
-    """Resolve a canonical group's codes to thematic-list labels: set-union
-    dedup, README precedence for thematic labels, raw-code fallback (undoc /
-    orphan / future codes) appended in insertion order."""
+    """Resolve a canonical group's codes to their official reportedip category
+    names (per REPORTEDIP_CODE_THEMATIC), deduped, preserving first-seen order.
+    Codes absent from the table (future 59+) fall back to their raw string."""
     seen: set[str] = set()
-    raw: list[str] = []
+    out: list[str] = []
     for c in codes:
-        for label in REPORTEDIP_CODE_THEMATIC.get(c, [c]):
-            if label not in seen:
-                seen.add(label)
-                if label not in _REPORTEDIP_LIST_ORDER:
-                    raw.append(label)
-    thematic = [lbl for lbl in _REPORTEDIP_LIST_ORDER if lbl in seen]
-    return thematic + raw
+        label = REPORTEDIP_CODE_THEMATIC.get(c, c)
+        if label not in seen:
+            seen.add(label)
+            out.append(label)
+    return out
+
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +58,12 @@ class ReportedIPSource(Source):
 
     def harvest(self):
         """Yield (ip, Evidence) per IPv4 row, one Evidence per distinct canonical
-        type. Codes are grouped by ``normalize(c, REPORTEDIP_MAP)``; undocumented
-        codes (31-58) map to ``other`` and are preserved (not dropped) as their
-        own group's ``native_categories``. ``confidence`` → ``Evidence.confidence``
-        (kept as ``native_confidence`` by fusion); ``last_reported`` → ``first_seen``
-        (drives decay). IPv6 rows are dropped (system is IPv4-only).
+        type. Codes are grouped by ``normalize(c, REPORTEDIP_MAP)``; codes absent
+        from REPORTEDIP_MAP (future 59+) map to ``other`` and are preserved as
+        their own group's ``native_categories``. ``confidence`` →
+        ``Evidence.confidence`` (kept as ``native_confidence`` by fusion);
+        ``last_reported`` → ``first_seen`` (drives decay). IPv6 rows are dropped
+        (system is IPv4-only).
         """
         with open(self._path, "r", encoding="utf-8") as f:
             for row in csv.DictReader(f):
@@ -75,7 +76,7 @@ class ReportedIPSource(Source):
                     c = c.strip()
                     if not c:
                         continue
-                    t = normalize(c, REPORTEDIP_MAP)   # documented → canonical; undoc → "other"
+                    t = normalize(c, REPORTEDIP_MAP)   # known → canonical; absent → "other"
                     groups.setdefault(t, []).append(c)
                 if not groups:                         # empty categories → preserve IP signal as "other"
                     groups = {"other": []}
