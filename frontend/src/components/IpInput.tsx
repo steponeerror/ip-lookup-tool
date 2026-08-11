@@ -25,11 +25,12 @@ export function IpInput({ onQuery, loading, progress }: IpInputProps) {
       <label htmlFor="ips" className="text-sm font-medium text-zinc-400">
         {t("ipInput.label")}
       </label>
+      <span className="text-xs text-zinc-500">{t("cidrHint.label")}</span>
       <textarea
         id="ips"
         name="ips"
         rows={4}
-        placeholder={"1.1.1.1\n8.8.8.8\n114.114.114.114"}
+        placeholder={"1.1.1.1\n8.8.8.8\n1.2.3.0/24"}
         className="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-3 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-y"
         disabled={loading}
       />

@@ -4,6 +4,7 @@ import { IpInput } from "./components/IpInput";
 import { FileUpload } from "./components/FileUpload";
 import { ResultTable } from "./components/ResultTable";
 import { ExportCsv } from "./components/ExportCsv";
+import { Modal } from "./components/Modal";
 import { queryIpsStream, uploadFileStream } from "./api";
 import type { LookupResult, Progress } from "./api";
 import { useI18n } from "./i18n";
@@ -18,6 +19,12 @@ export default function LookupView() {
   const [error, setError] = useState<string | null>(null);
   const [enrichError, setEnrichError] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [csvModal, setCsvModal] = useState<{
+    open: boolean;
+    count: number;
+    invalid: number;
+    ipv6: number;
+  } | null>(null);
   const reduce = useReducedMotion();
 
   const handleQuery = async (ips: string[]) => {
@@ -27,10 +34,24 @@ export default function LookupView() {
     setProgress(null);
     try {
       const r = await queryIpsStream(ips, setProgress);
-      setResults(r.results);
-      if (r.enrich_error) setEnrichError(r.enrich_error);
+      if (r.csvDownloaded) {
+        setResults([]);
+        setCsvModal({
+          open: true,
+          count: r.total,
+          invalid: r.invalidLines,
+          ipv6: r.ipv6Unsupported,
+        });
+      } else {
+        setResults(r.results);
+        if (r.enrichError) setEnrichError(r.enrichError);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("lookup.queryFailed"));
+      if (e instanceof Error && e.name === "AbortError") {
+        setError(t("lookup.cancelled"));
+      } else {
+        setError(e instanceof Error ? e.message : t("lookup.queryFailed"));
+      }
     } finally {
       setLoading(false);
       setProgress(null);
@@ -44,10 +65,24 @@ export default function LookupView() {
     setProgress(null);
     try {
       const r = await uploadFileStream(file, setProgress);
-      setResults(r.results);
-      if (r.enrich_error) setEnrichError(r.enrich_error);
+      if (r.csvDownloaded) {
+        setResults([]);
+        setCsvModal({
+          open: true,
+          count: r.total,
+          invalid: r.invalidLines,
+          ipv6: r.ipv6Unsupported,
+        });
+      } else {
+        setResults(r.results);
+        if (r.enrichError) setEnrichError(r.enrichError);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("lookup.uploadFailed"));
+      if (e instanceof Error && e.name === "AbortError") {
+        setError(t("lookup.cancelled"));
+      } else {
+        setError(e instanceof Error ? e.message : t("lookup.uploadFailed"));
+      }
     } finally {
       setLoading(false);
       setProgress(null);
@@ -173,6 +208,24 @@ export default function LookupView() {
           </div>
         )}
       </section>
+
+      <Modal
+        open={csvModal?.open ?? false}
+        title={t("csvExport.modalTitle")}
+        onClose={() => setCsvModal(null)}
+      >
+        <p>{t("csvExport.modalBody", { n: csvModal?.count ?? 0 })}</p>
+        {csvModal && csvModal.invalid > 0 && (
+          <p className="mt-2 text-xs text-amber-400">
+            {t("csvExport.invalidLines", { n: csvModal.invalid })}
+          </p>
+        )}
+        {csvModal && csvModal.ipv6 > 0 && (
+          <p className="mt-1 text-xs text-amber-400">
+            {t("csvExport.ipv6Unsupported", { n: csvModal.ipv6 })}
+          </p>
+        )}
+      </Modal>
     </div>
   );
 }
