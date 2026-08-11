@@ -8,13 +8,12 @@ CDN/search IPs are whitelisted; a 48-hour publication delay reduces false positi
 
 CSV columns: ``ip, confidence, categories, last_reported`` where ``categories``
 is a ``;``-separated list of numeric codes. Codes 1-30 are documented (the repo's
-9 thematic lists); 31-58 are unpublished sub-codes too fine for the IntelMQ
-16-type vocabulary. Each code maps via ``REPORTEDIP_MAP`` to an IntelMQ
-``classification.type``. One IP carrying N distinct mapped types yields N evidence
-(unpublished codes don't yield but the full raw ``categories`` string survives in
-``extra.native_type``). An IP whose codes are ALL unpublished (~2.1% of the feed)
-yields a single ``other`` evidence so its signal isn't lost — same pattern as
-TweetFeed's empty-tag rows.
+9 thematic lists); 31-58 are unpublished sub-codes. Each code maps via
+``REPORTEDIP_MAP`` to an IntelMQ ``classification.type`` (undocumented codes fall
+to ``other``). Codes are GROUPED by derived canonical type: one ``Evidence`` per
+distinct type, each carrying ``native_categories=[codes-in-that-group]`` — so
+every native code (documented AND undocumented) is preserved first-class; the
+canonical type is a derived tag. IPv6 rows are dropped (the system is IPv4-only).
 
 License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution
 to ReportedIP (reportedip.com) is required.
@@ -41,15 +40,12 @@ class ReportedIPSource(Source):
     authoritative_for = []
 
     def harvest(self):
-        """Yield (ip, Evidence) per IPv4 row. Each numeric category code maps via
-        REPORTEDIP_MAP to an IntelMQ type; N distinct mapped types → N evidence
-        (multi-evidence per IP, default ``single_evidence=False``). Undocumented
-        codes (31-58) don't yield evidence but the full raw ``categories`` string
-        is preserved in ``extra.native_type``. An all-undoc IP yields one
-        ``other`` evidence to preserve its signal. IPv6 rows are dropped (the
-        system is IPv4-only). ``confidence`` → ``Evidence.confidence`` (kept as
-        ``native_confidence`` by fusion; the source-level ``reliability`` drives
-        the merged confidence); ``last_reported`` → ``first_seen`` (drives decay).
+        """Yield (ip, Evidence) per IPv4 row, one Evidence per distinct canonical
+        type. Codes are grouped by ``normalize(c, REPORTEDIP_MAP)``; undocumented
+        codes (31-58) map to ``other`` and are preserved (not dropped) as their
+        own group's ``native_categories``. ``confidence`` → ``Evidence.confidence``
+        (kept as ``native_confidence`` by fusion); ``last_reported`` → ``first_seen``
+        (drives decay). IPv6 rows are dropped (system is IPv4-only).
         """
         with open(self._path, "r", encoding="utf-8") as f:
             for row in csv.DictReader(f):
@@ -57,25 +53,24 @@ class ReportedIPSource(Source):
                 if not ip or ":" in ip:            # IPv6 drop — system is IPv4-only
                     continue
                 raw_cats = (row.get("categories") or "").strip()
-                types = []
+                groups: dict[str, list[str]] = {}
                 for c in raw_cats.split(";"):
                     c = c.strip()
                     if not c:
                         continue
-                    t = normalize(c, REPORTEDIP_MAP)
-                    if t != "other" and t not in types:
-                        types.append(t)
-                if not types:
-                    types = ["other"]              # all-undoc IP → preserve signal
+                    t = normalize(c, REPORTEDIP_MAP)   # documented → canonical; undoc → "other"
+                    groups.setdefault(t, []).append(c)
+                if not groups:                         # empty categories → preserve IP signal as "other"
+                    groups = {"other": []}
                 conf_raw = (row.get("confidence") or "").strip()
                 confidence = int(conf_raw) if conf_raw.isdigit() else None
                 last_rep = (row.get("last_reported") or "").strip()
                 first_seen = last_rep.replace(" ", "T") if last_rep else None
-                for t in types:
+                for t, codes in groups.items():
                     yield ip, Evidence(
                         classification_type=t,
                         verdict="malicious",
                         confidence=confidence,
                         first_seen=first_seen,
-                        extra={"native_type": raw_cats},
+                        native_categories=codes,
                     )
