@@ -74,6 +74,7 @@
   "common.sourcesHit": "Sources hit",
   "common.sourceCount": "{n}src",
 
+  "modal.close": "OK",
   "classification.reporters": "{n} reporters",
 
   "summary.allHigh": "All {n} high conf",

@@ -74,6 +74,7 @@
   "common.sourcesHit": "命中情报源数",
   "common.sourceCount": "{n}源",
 
+  "modal.close": "确定",
   "classification.reporters": "{n}上报",
 
   "summary.allHigh": "全部 {n} 条 高置信",
