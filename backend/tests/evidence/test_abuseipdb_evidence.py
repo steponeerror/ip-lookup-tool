@@ -11,7 +11,7 @@ from pathlib import Path
 from ipdb._sources.abuseipdb import AbuseIPDBSource
 
 
-def test_abuseipdb_preserves_native_type(tmp_path: Path, monkeypatch):
+def test_abuseipdb_record_is_evidence_shaped(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ABUSEIPDB_API_KEY", "dummy-test-key")
     f = tmp_path / "abuseipdb.txt"
     f.write_text("1.2.3.4\n5.6.7.8\n")
@@ -19,4 +19,4 @@ def test_abuseipdb_preserves_native_type(tmp_path: Path, monkeypatch):
     s.load()
     rec = s.query("1.2.3.4")[0]   # query() returns a list
     assert rec["classification_type"] == "abuse-reports"
-    assert rec["extra"]["native_type"] == "abuse-reports"
+    assert "native_type" not in (rec.get("extra") or {})  # retired (Plan B Task 1)
