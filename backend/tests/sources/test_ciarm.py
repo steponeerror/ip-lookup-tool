@@ -10,5 +10,5 @@ def test_ciarm_record_is_evidence_shaped(tmp_path: Path):
     rec = s.query("5.6.7.8")[0]
     assert rec["classification_type"] == "blacklist"
     assert rec["verdict"] == "malicious"
-    assert rec["extra"]["native_type"] == "blacklist"
+    assert "native_type" not in (rec.get("extra") or {})
     assert s.query("9.9.9.9") == {}   # miss → empty dict

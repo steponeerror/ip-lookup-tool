@@ -27,7 +27,7 @@ def test_binarydefense_loads_filters_comments_and_queries(tmp_path: Path):
     assert recs, "query must return a record"
     rec = recs[0]
     assert rec["classification_type"] == "blacklist"
-    assert rec["extra"]["native_type"] == "blacklist"    # Convention 1: raw preserved
+    assert "native_type" not in (rec.get("extra") or {})
     assert rec["verdict"] == "malicious"
     assert rec["reliability"] == 0.65
 
@@ -40,7 +40,6 @@ def test_binarydefense_record_is_evidence_contract(tmp_path: Path):
     rec = s.query("9.9.9.9")[0]
     assert rec == Evidence(
         classification_type="blacklist", verdict="malicious", reliability=0.65,
-        extra={"native_type": "blacklist"},
     ).to_dict()
 
 

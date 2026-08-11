@@ -17,8 +17,8 @@ def test_abuseipdb_loads_plaintext_blacklist(tmp_path):
     assert hit, "expected a hit for a listed IP"
     assert hit[0]["classification_type"] == "abuse-reports"
     assert hit[0]["verdict"] == "malicious"
-    # convention: raw native type preserved in extra
-    assert hit[0]["extra"] == {"native_type": "abuse-reports"}
+    # extra.native_type retired: default no longer includes it
+    assert "native_type" not in (hit[0].get("extra") or {})
 
     assert s.query("191.96.249.183")[0]["classification_type"] == "abuse-reports"
     assert s.query("8.8.8.8") == {}             # not on the list

@@ -58,7 +58,6 @@ class IpListSource:
                 classification_type=self.classification_type,
                 verdict=getattr(self, "verdict", "malicious"),
                 reliability=getattr(self, "reliability", 0.5),
-                extra={"native_type": self.classification_type},
             ).to_dict()
         return {self.fields[0]: True}   # legacy non-threat list shape
 
