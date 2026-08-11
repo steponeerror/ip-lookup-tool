@@ -71,7 +71,11 @@ export interface DbStatus {
   warnings?: string[];
 }
 
-export const TABLE_THRESHOLD = 1000;
+// Above this expanded-IP count the UI switches from table to CSV download.
+// ResultTable paginates (renders only the current page slice), so DOM cost is
+// constant regardless of total — the real ceiling is React state memory
+// (results[] held in LookupView state, ~2KB/result → ~100MB at 50k).
+export const TABLE_THRESHOLD = 50000;
 
 export interface StreamOutcome {
   results: LookupResult[];   // table mode: populated; csv mode: []
