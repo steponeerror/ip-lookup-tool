@@ -121,7 +121,7 @@
   "dbStatus.statusUnavailable": "状态不可用",
   "dbStatus.updateFailed": "数据库更新失败",
 
-  "sourceDetail.nativeTypeTitle": "源原生类型",
+  "sourceDetail.nativeTypeTitle": "源原生分类",
   "sourceDetail.comment": "评论",
   "sourceDetail.extraKeys": "额外 {n} 键",
 

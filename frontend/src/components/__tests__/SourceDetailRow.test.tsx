@@ -22,7 +22,7 @@ describe("SourceDetailRow", () => {
       reporter_count: 4,
       native_confidence: 85,
       first_seen: "2026-07-01T00:00:00+00:00",
-      extra: { native_type: "PUB" },
+      native_categories: ["PUB"],
     };
     renderWithI18n(<SourceDetailRow detail={d} />);
     expect(screen.getByText(/malware: remcos/)).toBeInTheDocument();
@@ -68,14 +68,9 @@ describe("SourceDetailRow", () => {
     expect(screen.getByText(/\[16\]/)).toBeInTheDocument();
   });
 
-  it("does not duplicate native when both native_categories and extra.native_type exist", () => {
-    const d: ClassificationDetail = {
-      ...base,
-      native_categories: ["15"],
-      extra: { native_type: "PUB" },
-    };
+  it("ignores retired extra.native_type (fallback removed)", () => {
+    const d: ClassificationDetail = { ...base, extra: { native_type: "PUB" } };
     renderWithI18n(<SourceDetailRow detail={d} />);
-    expect(screen.getByText(/\[15\]/)).toBeInTheDocument();   // native_categories wins
-    expect(screen.queryByText(/\[PUB\]/)).not.toBeInTheDocument();  // fallback suppressed
+    expect(screen.queryByText(/\[PUB\]/)).not.toBeInTheDocument();  // fallback gone
   });
 });

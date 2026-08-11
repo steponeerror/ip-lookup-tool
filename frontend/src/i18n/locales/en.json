@@ -121,7 +121,7 @@
   "dbStatus.statusUnavailable": "Status unavailable",
   "dbStatus.updateFailed": "Database update failed",
 
-  "sourceDetail.nativeTypeTitle": "Source native type",
+  "sourceDetail.nativeTypeTitle": "Source native category",
   "sourceDetail.comment": "comment",
   "sourceDetail.extraKeys": "extra {n} keys",
 

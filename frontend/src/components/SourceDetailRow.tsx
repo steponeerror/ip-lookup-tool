@@ -13,9 +13,7 @@ function fmtDate(iso: string): string {
 export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail }) {
   const { t } = useI18n();
   const [showExtra, setShowExtra] = useState(false);
-  const nativeChips: string[] = d.native_categories?.length
-    ? d.native_categories
-    : (d.extra?.native_type != null ? [String(d.extra.native_type)] : []);
+  const nativeChips: string[] = d.native_categories ?? [];
   const extraKeys = d.extra ? Object.keys(d.extra) : [];
   const hasExtra = extraKeys.length > 0;
   const hasTags = !!(d.tags && d.tags.length > 0);
