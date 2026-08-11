@@ -23,7 +23,23 @@ import logging
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import normalize, REPORTEDIP_MAP
+from .._classification import normalize, REPORTEDIP_MAP, REPORTEDIP_CODE_THEMATIC, _REPORTEDIP_LIST_ORDER
+
+
+def _resolve_thematic(codes: list[str]) -> list[str]:
+    """Resolve a canonical group's codes to thematic-list labels: set-union
+    dedup, README precedence for thematic labels, raw-code fallback (undoc /
+    orphan / future codes) appended in insertion order."""
+    seen: set[str] = set()
+    raw: list[str] = []
+    for c in codes:
+        for label in REPORTEDIP_CODE_THEMATIC.get(c, [c]):
+            if label not in seen:
+                seen.add(label)
+                if label not in _REPORTEDIP_LIST_ORDER:
+                    raw.append(label)
+    thematic = [lbl for lbl in _REPORTEDIP_LIST_ORDER if lbl in seen]
+    return thematic + raw
 
 logger = logging.getLogger(__name__)
 
@@ -72,5 +88,5 @@ class ReportedIPSource(Source):
                         verdict="malicious",
                         confidence=confidence,
                         first_seen=first_seen,
-                        native_categories=codes,
+                        native_categories=_resolve_thematic(codes),
                     )

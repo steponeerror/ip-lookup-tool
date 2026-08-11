@@ -149,6 +149,28 @@ REPORTEDIP_MAP = {
     "28": "other", "29": "exploit", "30": "c2-server",
 }
 
+# reportedip code → upstream thematic-list name(s). Curated from the
+# reportedip-blacklist README's 9 thematic lists (codes 1-30 documented;
+# 13 absent — orphan; 31-58 unpublished → raw fallback in harvest).
+# `_REPORTEDIP_LIST_ORDER` is the README table order; it sets label precedence
+# within a multi-list code and across codes in one canonical group.
+_REPORTEDIP_LIST_ORDER = [
+    "spam", "brute-force", "cms-login", "web-attacks", "malware",
+    "ddos", "fraud", "infrastructure", "apt",
+]
+REPORTEDIP_CODE_THEMATIC = {
+    "1": ["infrastructure"], "2": ["infrastructure"], "3": ["fraud"],
+    "4": ["ddos"], "5": ["brute-force", "cms-login"], "6": ["ddos"],
+    "7": ["fraud"], "8": ["fraud"], "9": ["infrastructure"],
+    "10": ["spam"], "11": ["spam"], "12": ["spam"],
+    "14": ["infrastructure"], "15": ["cms-login", "web-attacks"],
+    "16": ["web-attacks"], "17": ["fraud"], "18": ["brute-force", "cms-login"],
+    "19": ["cms-login", "web-attacks"], "20": ["malware"],
+    "21": ["cms-login", "web-attacks"], "22": ["brute-force"],
+    "23": ["apt"], "24": ["malware"], "25": ["malware"], "26": ["malware"],
+    "27": ["malware"], "28": ["apt"], "29": ["apt"], "30": ["apt"],
+}
+
 
 def normalize(raw_type, mapping: dict) -> str:
     """Map a source-native category to a CONTROLLED IntelMQ classification.type

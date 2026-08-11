@@ -25,26 +25,26 @@ def test_reportedip_grouped_by_canonical_with_undoc_preserved(tmp_path: Path):
     s = ReportedIPSource(data_dir=tmp_path)
     assert s.load() == 4                        # 4 IPv4 IPs (IPv6 row dropped); CIDR count unchanged
 
-    # 1.4.221.22: 18→brute-force, 31/55→other → 2 evidence, each carrying its native codes
+    # 1.4.221.22: 18→brute-force, 31/55→other (undoc)
     one = s.query("1.4.221.22")
     assert len(one) == 2
     by_type = {e["classification_type"]: e for e in one}
     assert set(by_type) == {"brute-force", "other"}
-    assert by_type["brute-force"]["native_categories"] == ["18"]
-    assert by_type["other"]["native_categories"] == ["31", "55"]
+    assert by_type["brute-force"]["native_categories"] == ["brute-force", "cms-login"]
+    assert by_type["other"]["native_categories"] == ["31", "55"]            # undoc raw, unchanged
     for e in one:                                            # shared per-row fields on every evidence
         assert e["confidence"] == 100
         assert e["first_seen"] == "2026-07-02T11:18:40"
         assert e["verdict"] == "malicious"
         assert "native_type" not in (e.get("extra") or {})  # stopped using extra.native_type
 
-    # 1.12.55.42: 15→exploit, 18→brute-force, 31/55→other → 3 evidence
+    # 1.12.55.42: 15→exploit, 18→brute-force, 31/55→other
     two = s.query("1.12.55.42")
     assert len(two) == 3
     by_type2 = {e["classification_type"]: e for e in two}
     assert set(by_type2) == {"exploit", "brute-force", "other"}
-    assert by_type2["exploit"]["native_categories"] == ["15"]
-    assert by_type2["brute-force"]["native_categories"] == ["18"]
+    assert by_type2["exploit"]["native_categories"] == ["cms-login", "web-attacks"]
+    assert by_type2["brute-force"]["native_categories"] == ["brute-force", "cms-login"]
     assert by_type2["other"]["native_categories"] == ["31", "55"]
 
 
@@ -66,7 +66,7 @@ def test_reportedip_same_type_codes_collected(tmp_path: Path):
     ddos = s.query("9.10.11.12")
     assert len(ddos) == 1                                    # codes 4,6 both ddos → 1 evidence
     assert ddos[0]["classification_type"] == "ddos"
-    assert ddos[0]["native_categories"] == ["4", "6"]       # both codes preserved in one group
+    assert ddos[0]["native_categories"] == ["ddos"]      # was ["4", "6"]; both → ddos list, deduped
 
 
 def test_reportedip_ipv6_dropped(tmp_path: Path):
