@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useId } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useI18n } from "../i18n";
 
@@ -18,6 +18,7 @@ export function Modal({ open, title, onClose, children, closeLabel }: ModalProps
   const reduce = useReducedMotion();
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -30,8 +31,9 @@ export function Modal({ open, title, onClose, children, closeLabel }: ModalProps
     const panel = panelRef.current;
     const focusables = () =>
       Array.from(panel?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
-    // move focus into the dialog
-    focusables()[0]?.focus();
+    // move focus into the dialog; prioritize first focusable child, fall back to panel itself
+    const focusTarget = focusables()[0] ?? panel;
+    focusTarget?.focus();
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -76,7 +78,8 @@ export function Modal({ open, title, onClose, children, closeLabel }: ModalProps
             ref={panelRef}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="modal-title"
+            aria-labelledby={titleId}
+            tabIndex={-1}
             className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-900 p-6"
             initial={reduce ? false : { opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -84,7 +87,7 @@ export function Modal({ open, title, onClose, children, closeLabel }: ModalProps
             transition={{ duration: 0.15 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="modal-title" className="mb-2 text-base font-semibold text-zinc-100">
+            <h2 id={titleId} className="mb-2 text-base font-semibold text-zinc-100">
               {title}
             </h2>
             <div className="mb-4 text-sm text-zinc-400">{children}</div>
