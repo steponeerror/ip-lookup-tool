@@ -70,6 +70,7 @@ class EvidenceObservation:
     comment: Optional[str] = None
     reporter_count: Optional[int] = None     # intra-source reporters (abuseipdb)
     tags: list = field(default_factory=list)
+    native_categories: list = field(default_factory=list)
     source_refs: dict = field(default_factory=dict)   # scalar refs only
     extra: dict = field(default_factory=dict)         # arbitrary structured -> STIX x_*
 

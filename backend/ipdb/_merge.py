@@ -48,6 +48,7 @@ def to_observation(
         comment=_opt("comment"),
         reporter_count=_opt("reporter_count"),
         tags=list(_opt("tags") or []),
+        native_categories=list(_opt("native_categories") or []),
         source_refs=dict(_opt("source_refs") or {}),
         extra=dict(_opt("extra") or {}),
     )

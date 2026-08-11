@@ -31,3 +31,17 @@ def test_extra_tags_refs_pass_through():
     assert o.tags == ["6379"]
     assert o.extra == {"vulns": {"CVE-1": 9.8}}
     assert o.source_refs == {"port": "6379"}
+
+
+def test_native_categories_pass_through():
+    o = to_observation(
+        "reportedip", {"native_categories": ["15", "16"]},
+        classification_type="exploit", verdict="malicious", reliability=0.65)
+    assert o.native_categories == ["15", "16"]
+
+
+def test_native_categories_defaults_empty():
+    o = to_observation(
+        "x", {},
+        classification_type="other", verdict="malicious", reliability=0.5)
+    assert o.native_categories == []
