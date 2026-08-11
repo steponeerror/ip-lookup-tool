@@ -84,7 +84,7 @@ async def _stream_lookup(expansion):
     # Pooled path: chunk the lazy generator, submit all, emit rows as they finish.
     loop = asyncio.get_running_loop()
     it = iter(expansion)
-    fut_to_start: dict = {}
+    fut_to_chunk: dict = {}  # {future: (start_idx, ips)}
     try:
         while True:
             batch = list(itertools.islice(it, chunk_size))
@@ -93,7 +93,7 @@ async def _stream_lookup(expansion):
             start_idx = batch[0][0]
             ips = [ip for _, ip in batch]
             fut = loop.run_in_executor(pool, _batch_pool._work_chunk, ips)
-            fut_to_start[fut] = start_idx
+            fut_to_chunk[fut] = (start_idx, ips)
     except BrokenProcessPool:
         logging.getLogger(__name__).warning(
             "stream batch pool broke during submit; falling back to inline")
@@ -107,18 +107,20 @@ async def _stream_lookup(expansion):
         }) + b"\n"
         return
 
-    pending = set(fut_to_start)
+    emitted: set = set()
+    pending = set(fut_to_chunk)
     done_count = 0
     try:
         while pending:
             finished, pending = await asyncio.wait(
                 pending, return_when=asyncio.FIRST_COMPLETED)
             for fut in finished:
-                start_idx = fut_to_start[fut]
+                start_idx, _ = fut_to_chunk[fut]
                 dicts = fut.result()
                 for i, d in enumerate(dicts):
                     yield orjson.dumps({
                         "type": "row", "idx": start_idx + i, "result": d}) + b"\n"
+                emitted.add(fut)
                 done_count += len(dicts)
                 yield orjson.dumps({
                     "type": "progress",
@@ -126,11 +128,29 @@ async def _stream_lookup(expansion):
             await asyncio.sleep(0)
     except BrokenProcessPool:
         logging.getLogger(__name__).warning(
-            "stream batch pool broke mid-batch; falling back to inline")
-        ips_all = [ip for _, ip in expansion]
-        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips_all)
-        for i, d in enumerate(dicts):
-            yield orjson.dumps({"type": "row", "idx": i, "result": d}) + b"\n"
+            "stream batch pool broke mid-wait; re-querying un-emitted chunks inline")
+        # The broken future "completed" with an exception → it's in `finished`,
+        # NOT `pending`. Use the `emitted` set to find ALL chunks that never had
+        # their rows yielded: pending futures, the broken future, and any good
+        # futures in the same `finished` batch iterated after the broken one.
+        # LazyExpansion.__iter__ returns a fresh generator on each iter() call,
+        # so re-iterating `expansion` would re-query from idx 0 — would
+        # duplicate already-emitted rows. We track per-future instead.
+        un_emitted = [(start_idx, ips)
+                      for fut, (start_idx, ips) in fut_to_chunk.items()
+                      if fut not in emitted]
+        if un_emitted:
+            all_ips = [ip for _, ips in un_emitted for ip in ips]
+            dicts = await asyncio.to_thread(
+                _batch_pool.fan_out_lookup, all_ips)
+            offset = 0
+            for start_idx, ips in un_emitted:
+                chunk_dicts = dicts[offset:offset + len(ips)]
+                offset += len(ips)
+                for i, d in enumerate(chunk_dicts):
+                    yield orjson.dumps({
+                        "type": "row", "idx": start_idx + i,
+                        "result": d}) + b"\n"
 
     yield orjson.dumps({
         "type": "done", "invalid_lines": expansion.invalid,

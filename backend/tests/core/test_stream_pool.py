@@ -40,45 +40,61 @@ def test_stream_progress_done_is_monotonic_and_ends_at_total():
     assert progress[-1] == 250
 
 
-def test_stream_pool_broken_mid_batch_falls_back_inline(monkeypatch):
-    """I2: if the pool breaks during chunk submit (>INLINE_THRESHOLD IPs) the
-    stream must NOT 5xx. It falls back to inline for the unqueried remainder
-    and emits row/done events (protocol v2). The expansion is lazy and partially
-    consumed by chunk submission, so only the unqueried tail is re-queried
-    inline — accepted trade-off for the degraded path (brief note)."""
+def test_stream_pool_broken_mid_wait_no_duplicate_idx(monkeypatch):
+    """Wait-time BrokenProcessPool: chunks already emitted must NOT be re-emitted
+    by the inline fallback. Uses distinct IPs so duplicate-idx would be visible
+    (the old buggy full-requery emitted 450 rows with duplicate idx 0–199).
+
+    The fake pool completes chunk 0 synchronously (its 200 rows emit during the
+    first asyncio.wait), then chunk 1's future resolves to BrokenProcessPool via
+    a daemon thread — breaking mid-WAIT, after chunk 0's rows are already out.
+    This exercises the wait-time fallback path (not the submit-time one)."""
+    import time
+    import threading
+    from concurrent.futures import Future
     from ipdb import _registry
     _registry.load_db()
 
-    ips = ["8.8.8.8"] * 250  # > INLINE_THRESHOLD -> pool branch taken
+    # Distinct IPs — 250 > INLINE_THRESHOLD(200) → pooled path, 2 chunks.
+    ips = ["10.0.0.%d" % i for i in range(250)]
 
-    # A fake pool whose submit raises BrokenProcessPool, simulating worker death
-    # on the first chunk submit. main._stream_lookup must catch, fall back to
-    # inline fan_out_lookup for the remainder, and emit row + done events.
-    class _DeadPool:
+    # Fake pool: chunk 0 runs synchronously and returns a completed future
+    # (emitted during the first asyncio.wait). Chunk 1 returns a pending future
+    # that a daemon thread later sets to BrokenProcessPool — simulating worker
+    # death after chunk 0 was already emitted.
+    class _BreakAfterFirstChunk:
+        def __init__(self):
+            self.count = 0
+
         def submit(self, fn, *a, **kw):
-            raise BrokenProcessPool("simulated worker death")
+            self.count += 1
+            if self.count == 1:
+                fut = Future()
+                fut.set_result(fn(*a, **kw))
+                return fut
+            fut = Future()
 
-    dead = _DeadPool()
+            def _break_after_delay():
+                time.sleep(0.05)  # let chunk 0 emit during first asyncio.wait
+                fut.set_exception(
+                    BrokenProcessPool("simulated worker death"))
 
-    # Capture the inline fallback's output to assert bit-identical results.
-    expected = None
+            threading.Thread(target=_break_after_delay, daemon=True).start()
+            return fut
 
-    def fake_inline(ips_arg):
-        nonlocal expected
-        expected = bp._inline(ips_arg)
-        return expected
-
-    monkeypatch.setattr(bp, "get_pool", lambda: dead)
-    monkeypatch.setattr(bp, "fan_out_lookup", fake_inline)
+    monkeypatch.setattr(bp, "get_pool", lambda: _BreakAfterFirstChunk())
+    # Force inline lookup in the fallback (no real pool interference).
+    monkeypatch.setattr(bp, "fan_out_lookup", lambda ips_arg: bp._inline(ips_arg))
 
     with TestClient(main.app) as client:
         events = _drain_stream(client, ips)
 
     types = [e["type"] for e in events]
-    # No 5xx (drain asserts 200). No complete event (protocol v2).
     assert "complete" not in types
     assert types[-1] == "done"
-    # Fallback re-queried the unconsumed remainder inline; rows match bit-identically.
     rows = [e for e in events if e["type"] == "row"]
-    assert [r["result"] for r in rows] == expected
-    assert all(r["result"]["ip"] == "8.8.8.8" for r in rows)
+    # Exactly 250 rows — NOT 450 (which the old buggy full-requery produced).
+    assert len(rows) == 250
+    idx_values = [r["idx"] for r in rows]
+    assert len(set(idx_values)) == 250  # no duplicates
+    assert set(idx_values) == set(range(250))  # full coverage
