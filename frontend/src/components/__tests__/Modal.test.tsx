@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import { Modal } from "../Modal";
 
@@ -95,7 +96,9 @@ describe("Modal", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("wraps Tab focus within the dialog", () => {
+  it("wraps Tab focus within the dialog", async () => {
+    const user = userEvent.setup();
+
     renderWithI18n(
       <Modal open={true} title="Done" onClose={() => {}}>
         <button type="button">First button</button>
@@ -104,29 +107,29 @@ describe("Modal", () => {
     );
 
     const buttons = screen.getAllByRole("button");
-    // buttons[0] and buttons[1] are the children buttons, buttons[2] is the close button
+    // DOM order: child buttons first, then close button
+    // buttons[0] = first child button, buttons[1] = last child button, buttons[2] = close button
     const firstChildButton = buttons[0];
     const lastChildButton = buttons[1];
     const closeButton = buttons[2];
 
-    // Focus the close button (last focusable)
-    closeButton.focus();
-    expect(document.activeElement).toBe(closeButton);
-
-    // Press Tab (forward) - should wrap to first
-    fireEvent.keyDown(document, { key: "Tab" });
+    // Modal's open-effect focuses the first focusable (first child button, not close button)
     expect(document.activeElement).toBe(firstChildButton);
 
-    // Press Tab again to get to the last focusable
-    fireEvent.keyDown(document, { key: "Tab" });
+    // Tab forward: first child button → last child button
+    await user.tab();
     expect(document.activeElement).toBe(lastChildButton);
 
-    // Press Tab again to get to the close button
-    fireEvent.keyDown(document, { key: "Tab" });
+    // Tab forward: last child button → close button
+    await user.tab();
     expect(document.activeElement).toBe(closeButton);
 
-    // Press Shift+Tab (backward) from close button - should wrap to last child
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(lastChildButton);
+    // Tab forward: at last focusable (close button), trap wraps to first
+    await user.tab();
+    expect(document.activeElement).toBe(firstChildButton);
+
+    // Tab backward (Shift+Tab): at first focusable, trap wraps to last
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(closeButton);
   });
 });
