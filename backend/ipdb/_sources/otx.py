@@ -223,7 +223,7 @@ class OtxSource(Source):
         """Yield (ip_or_cidr, Evidence) per CSV row written by download().
 
         Each row is ``[indicator, classification_type, protocol]``. The
-        protocol is carried in ``extra.native_type`` (matches the read path).
+        protocol is carried in ``native_categories`` (matches the read path).
         ``reliability`` is left as None so lookup falls back to the source's
         class-level 0.75.
         """
@@ -236,9 +236,9 @@ class OtxSource(Source):
                 protocol = row[2].strip() if len(row) > 2 else ""
                 if not ip_or_cidr or not ctype:
                     continue
-                extra = {"native_type": protocol} if protocol else {}
+                native_categories = [protocol] if protocol else []
                 yield ip_or_cidr, Evidence(
                     classification_type=ctype,
                     verdict="malicious",
-                    extra=extra,
+                    native_categories=native_categories,
                 )

@@ -35,7 +35,8 @@ class TestThreatFoxParseRow:
         assert parsed["verdict"] == "malicious"
         assert parsed["malware_name"] == "win.vidar"
         assert parsed["confidence"] == 75
-        assert parsed["extra"] == {"native_type": "payload_delivery"}
+        assert parsed["native_categories"] == ["payload_delivery"]
+        assert parsed["extra"] == {}                     # native_type → native_categories
 
     def test_parse_row_preserves_native_type(self, tmp_path):
         src = _make_source(tmp_path)
@@ -44,7 +45,8 @@ class TestThreatFoxParseRow:
                "", "", "", "90"]
         parsed = src.parse_row(row)
         assert parsed["classification_type"] == "c2-server"
-        assert parsed["extra"] == {"native_type": "botnet_cc"}
+        assert parsed["native_categories"] == ["botnet_cc"]
+        assert "native_type" not in parsed["extra"]
 
     def test_skips_non_ip_rows(self, tmp_path):
         src = _make_source(tmp_path)
@@ -173,4 +175,5 @@ def test_threatfox_harvest_per_row_classification(tmp_path):
     assert rec[0]["classification_type"] == "c2-server"   # botnet_cc → c2-server
     assert rec[0]["malware_name"] == "win.vidar"
     assert rec[0]["confidence"] == 85
-    assert rec[0]["extra"]["native_type"] == "botnet_cc"
+    assert rec[0]["native_categories"] == ["botnet_cc"]
+    assert "native_type" not in rec[0].get("extra", {})

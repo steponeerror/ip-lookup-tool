@@ -22,7 +22,7 @@ def _classify_tag(raw_tag: str) -> str:
     """First mappable hashtag wins; empty / all-unmappable → ``other``.
 
     Convention 2 (don't force-fit): an unmappable tag (#ransomware, #APT…) falls
-    to ``other`` with the raw tag preserved in ``extra.native_type``. An *empty*
+    to ``other`` with the raw tag preserved in ``native_categories``. An *empty*
     tag is an uncategorized-but-flagged IP → also ``other`` (the IP's signal is
     preserved; it is not dropped).
     """
@@ -62,8 +62,8 @@ class TweetFeedSource(Source):
                     classification_type=_classify_tag(raw_tag),
                     verdict="malicious",
                     first_seen=first_seen,
+                    native_categories=[raw_tag],   # whole raw tag as ONE element
                     extra={
-                        "native_type": raw_tag,
                         "reporter": row[1].strip(),
                         "tweet_url": tweet_url,       # provenance back to the source report
                     },

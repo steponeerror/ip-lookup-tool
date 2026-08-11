@@ -4,7 +4,7 @@ Pulls IP-type attributes (ip-src / ip-dst / ip-src|port / ip-dst|port) from a
 MISP instance via `POST /attributes/restSearch`, stores the JSON response, and
 loads the IPv4s into an MMDB database with per-attribute evidence. Classification
 is derived from the MISP attribute `category` (normalized to IntelMQ; raw
-category preserved in `extra.native_type`).
+category preserved in `native_categories`).
 
 MISP is a server YOU connect to — your own instance or a community one (CIRCL,
 FIRST, etc.; see https://www.misp-project.org/communities/) — so this source
@@ -134,8 +134,8 @@ class MispSource(Source):
         _IP_TYPES filter, IPv4Network parse, threat_level 1..2 keep filter,
         severity-driven verdict/reliability from MISP_THREAT_LEVEL, to_ids=False
         demote, TLP extraction from Tag[], malware-family extraction from title.
-        native_type (raw MISP category) rides in extra — same pattern as
-        threatfox/ip2proxy and what the read path expects."""
+        native_categories (raw MISP category) is a top-level Evidence slot — same
+        pattern as threatfox/ip2proxy and what the read path expects."""
         with open(self._path, "r", encoding="utf-8") as f:
             doc = json.load(f)
         for a in doc.get("response", {}).get("Attribute", []):
@@ -172,7 +172,7 @@ class MispSource(Source):
                 if nm.lower().startswith("tlp:"):
                     tlp = nm[4:]
                     break
-            extra = {"native_type": category, "threat_level": tl,
+            extra = {"threat_level": tl,
                      "to_ids": bool(a.get("to_ids"))}
             if tlp:
                 extra["tlp"] = tlp
@@ -183,5 +183,6 @@ class MispSource(Source):
                 reliability=rel,                     # severity-driven (MISP_THREAT_LEVEL); to_ids=False demoted
                 comment=info[:200],
                 malware_name=family or None,         # extract_malware_family(info); None drops cleanly
+                native_categories=[category],       # raw MISP category promoted
                 extra=extra,
             )

@@ -86,6 +86,7 @@ class ThreatFoxSource(Source):
                     malware_name=parsed["malware_name"],
                     confidence=parsed["confidence"],
                     first_seen=parsed["first_seen"],
+                    native_categories=parsed.get("native_categories", []),
                     extra=parsed["extra"],
                 )
 
@@ -108,5 +109,6 @@ class ThreatFoxSource(Source):
             "malware_name": _clean(row[5]),       # fk_malware, e.g. win.vidar
             "confidence": confidence_pct,
             "first_seen": _clean(row[0]),         # first_seen_utc
-            "extra": {"native_type": _clean(row[4])},
+            "native_categories": [_clean(row[4])],   # raw threat_type promoted
+            "extra": {},
         }

@@ -95,5 +95,5 @@ class DataplaneSource(Source):
                     last_seen=last_seen,
                     asn=asn,
                     as_name=as_name or None,
-                    extra={"native_type": category},
+                    native_categories=[category],
                 )

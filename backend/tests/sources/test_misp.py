@@ -37,7 +37,8 @@ def test_misp_loads_attributes(tmp_path):
     assert e["classification_type"] == "other"
     assert e["verdict"] == "malicious"               # threat_level 2
     assert e["reliability"] == 0.60
-    assert e["extra"]["native_type"] == "Network activity"
+    assert e["native_categories"] == ["Network activity"]
+    assert "native_type" not in e.get("extra", {})
     assert e["extra"]["threat_level"] == "2"
     assert e["extra"]["tlp"] == "white"              # Tag → TLP extracted
 

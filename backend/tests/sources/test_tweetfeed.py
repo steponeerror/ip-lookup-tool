@@ -24,21 +24,24 @@ def test_tweetfeed_filters_nonip_and_classifies_per_row(tmp_path: Path):
 
     phish = s.query("172.67.166.60")[0]
     assert phish["classification_type"] == "phishing"
-    assert phish["extra"]["native_type"] == "#phishing"     # Convention 1
+    assert phish["native_categories"] == ["#phishing"]          # native value promoted
+    assert "native_type" not in phish.get("extra", {})
     assert phish["extra"]["reporter"] == "catnap707"        # preserve-signal
     assert phish["extra"]["tweet_url"] == "https://x.com/2" # enriched: provenance
     assert phish["verdict"] == "malicious"
 
     c2 = s.query("1.2.3.4")[0]
     assert c2["classification_type"] == "c2-server"         # multi-hashtag, first mapped wins
-    assert c2["extra"]["native_type"] == "#C2 #CobaltStrike"  # full raw tag preserved
+    assert c2["native_categories"] == ["#C2 #CobaltStrike"]   # whole raw tag as ONE element
+    assert "native_type" not in c2.get("extra", {})
 
     empty = s.query("5.6.7.8")[0]
     assert empty["classification_type"] == "other"          # empty tag → other
 
     unmap = s.query("9.10.11.12")[0]
     assert unmap["classification_type"] == "other"          # unmappable → other
-    assert unmap["extra"]["native_type"] == "#ransomware"   # raw still preserved
+    assert unmap["native_categories"] == ["#ransomware"]   # raw still preserved (whole tag)
+    assert "native_type" not in unmap.get("extra", {})
 
 
 def test_tweetfeed_nonip_rows_filtered(tmp_path: Path):

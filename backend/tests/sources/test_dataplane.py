@@ -24,17 +24,20 @@ def test_dataplane_loads_three_signals_with_per_row_classification(tmp_path):
 
     ssh = s.query("149.13.96.133")[0]
     assert ssh["classification_type"] == "brute-force"
-    assert ssh["extra"]["native_type"] == "sshpwauth"
+    assert ssh["native_categories"] == ["sshpwauth"]
+    assert "native_type" not in ssh.get("extra", {})
     assert ssh["asn"] == 174
     assert ssh["as_name"] == "COGENT-174 - Cogent Communicat"
     assert ssh["last_seen"] == "2026-08-04 10:13:29"
 
     telnet = s.query("201.216.86.55")[0]
     assert telnet["classification_type"] == "brute-force"
-    assert telnet["extra"]["native_type"] == "telnetlogin"
+    assert telnet["native_categories"] == ["telnetlogin"]
+    assert "native_type" not in telnet.get("extra", {})
 
     dns = s.query("170.75.162.201")[0]
     assert dns["classification_type"] == "scanner"
-    assert dns["extra"]["native_type"] == "dnsrd"
+    assert dns["native_categories"] == ["dnsrd"]
+    assert "native_type" not in dns.get("extra", {})
 
     assert s.query("203.0.113.42") == {}   # not in feed

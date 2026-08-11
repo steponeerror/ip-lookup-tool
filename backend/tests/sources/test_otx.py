@@ -99,7 +99,8 @@ class TestOtxHarvest:
         assert ip0 == "1.2.3.4"
         assert ev0.classification_type == "scanner"
         assert ev0.verdict == "malicious"
-        assert ev0.extra == {"native_type": "smtp"}
+        assert ev0.native_categories == ["smtp"]
+        assert ev0.extra == {}                # native_type moved to native_categories
         # reliability is left None so lookup falls back to the source's 0.75.
         assert ev0.reliability is None
 
@@ -107,7 +108,8 @@ class TestOtxHarvest:
         ip1, ev1 = rows[1]
         assert ip1 == "5.6.7.0/24"
         assert ev1.classification_type == "brute-force"
-        assert ev1.extra == {"native_type": "ssh"}
+        assert ev1.native_categories == ["ssh"]
+        assert ev1.extra == {}
 
     def test_harvest_load_and_query_round_trip(self, tmp_path):
         """Write fixture → load() → query() returns a list of evidence dicts."""
@@ -123,7 +125,8 @@ class TestOtxHarvest:
         rec = recs[0]
         assert rec["classification_type"] == "scanner"
         assert rec["verdict"] == "malicious"
-        assert rec["extra"] == {"native_type": "smtp"}
+        assert rec["native_categories"] == ["smtp"]
+        assert "extra" not in rec            # empty extra dropped by to_dict()
 
     def test_harvest_skips_short_and_blank_rows(self, tmp_path):
         self._write_fixture(
