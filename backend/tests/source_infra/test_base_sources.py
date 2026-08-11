@@ -53,7 +53,7 @@ class TestIpListSource:
         assert src.query("9.9.9.9") == {}
 
 
-def test_get_insert_data_with_classification_type_adds_native_type(tmp_path):
+def test_get_insert_data_with_classification_type(tmp_path):
     class TypedSource(IpListSource):
         name = "typed"
         url = "https://example.com/list.txt"
@@ -66,7 +66,7 @@ def test_get_insert_data_with_classification_type_adds_native_type(tmp_path):
     data = src.get_insert_data()
     assert data["classification_type"] == "blacklist"
     assert data["verdict"] == "malicious"
-    assert data["extra"] == {"native_type": "blacklist"}
+    assert "native_type" not in (data.get("extra") or {})  # retired (Plan B Task 1)
 
 
 def test_get_insert_data_without_classification_type_unchanged():
