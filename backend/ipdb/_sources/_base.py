@@ -239,8 +239,8 @@ class CsvSource(IpListSource):
                     key = str(net)
                     bucket = acc.setdefault(key, [])
                     # Dedup on the FULL evidence (not just 4-tuple): two rows
-                    # with same classification/verdict/malware/native_type but
-                    # different confidence/first_seen/comment are distinct
+                    # with same classification/verdict/malware but different
+                    # native_categories/confidence/first_seen/comment are distinct
                     # evidence and must both survive (field-loss fix #6).
                     if any(parsed == o for o in bucket):
                         continue
