@@ -84,6 +84,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "greensnow": 0.60,
     "dataplane": 0.70,
     "f3csystems": 0.60,
+    "reportedip": 0.65,
     "proxyscrape": 0.45,
     "infra_services": 0.95,   # curated authoritative (DNS/root/NTP)
     "cdn_edges": 0.95,        # publisher-self-published CDN edge ranges

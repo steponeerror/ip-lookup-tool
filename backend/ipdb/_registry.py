@@ -152,6 +152,7 @@ SOURCE_CATEGORIES = {
     "greensnow": "threat",
     "dataplane": "threat",
     "f3csystems": "threat",
+    "reportedip": "threat",
     "ip2proxy": "asset",
     "tor_exits": "asset",
     "x4bnet_vpn": "asset",

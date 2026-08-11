@@ -131,6 +131,24 @@ DATAPLANE_MAP = {
     "dnsrd": "scanner",
 }
 
+# reportedip (reportedip.de) — CSV `categories` 字段是 ;-分隔数字码。1-30 文档化
+# (README 9 thematic lists),31-58 是未公开细分码(IntelMQ 16-type vocab 容纳不下,
+# 保留在 extra.native_type 完整 raw 串)。一个 IP 多码 → N evidence 展开;undoc 码
+# 不产 evidence;全-undoc IP(2.1%)落 other 保 IP 信号(同 tweetfeed empty-tag)。
+# code 9 open-proxy→proxy、code 29 zero-day→exploit 为语义修正(映射语义要对,非数据驱动)。
+REPORTEDIP_MAP = {
+    "4": "ddos", "6": "ddos",
+    "15": "exploit", "16": "exploit", "19": "exploit", "21": "exploit",
+    "5": "brute-force", "18": "brute-force", "22": "brute-force",
+    "20": "malware", "24": "malware", "25": "malware", "26": "malware", "27": "malware",
+    "3": "phishing", "7": "phishing", "8": "phishing", "17": "phishing",
+    "1": "scanner", "2": "scanner", "14": "scanner",
+    "9": "proxy",
+    "10": "spam", "11": "spam", "12": "spam",
+    "23": "botnet",
+    "28": "other", "29": "exploit", "30": "c2-server",
+}
+
 
 def normalize(raw_type, mapping: dict) -> str:
     """Map a source-native category to a CONTROLLED IntelMQ classification.type
