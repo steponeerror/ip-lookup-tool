@@ -10,14 +10,15 @@ from pathlib import Path
 from ipdb._sources.tor_exits import TorExitSource
 
 
-def test_tor_exits_preserves_native_type(tmp_path: Path):
+def test_tor_exits_retires_native_type(tmp_path: Path):
     f = tmp_path / "tor-exit-addresses.txt"
     f.write_text("1.2.3.4\n5.6.7.8\n")
     s = TorExitSource(data_dir=tmp_path)
     s.load()
     rec = s.query("1.2.3.4")[0]   # query() returns a list
     assert rec["classification_type"] == "tor"
-    assert rec["extra"]["native_type"] == "tor"
+    # extra.native_type retired (Plan B Task 3): identity is in _native_types
+    assert "native_type" not in (rec.get("extra") or {})
 
 
 def test_tor_exits_get_insert_data_is_evidence_contract(tmp_path: Path):
@@ -29,5 +30,4 @@ def test_tor_exits_get_insert_data_is_evidence_contract(tmp_path: Path):
     assert s.get_insert_data() == Evidence(
         classification_type="tor", verdict="suspicious", reliability=0.95,
         is_tor=True, native_types={"is_tor": "TOR"},
-        extra={"native_type": "tor"},
     ).to_dict()

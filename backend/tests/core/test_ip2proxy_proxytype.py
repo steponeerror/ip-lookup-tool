@@ -5,7 +5,8 @@ def test_proxy_evidence_vpn():
     e = _proxy_evidence("VPN").to_dict()
     assert e["classification_type"] == "proxy"
     assert e["verdict"] == "suspicious"
-    assert e["extra"]["native_type"] == "VPN"
+    # extra.native_type retired (Plan B Task 3): identity is in _native_types
+    assert "native_type" not in (e.get("extra") or {})
     assert e["is_proxy"] is True
     assert "_native_types" in e
     assert e["_native_types"]["is_proxy"] == "VPN"
@@ -21,15 +22,16 @@ def test_proxy_evidence_tor_maps_to_tor_type():
 def test_proxy_evidence_dch_is_hosting():
     e = _proxy_evidence("DCH").to_dict()
     assert e["classification_type"] == "other"
-    assert e["extra"]["native_type"] == "DCH"
+    # extra.native_type retired (Plan B Task 3)
+    assert "native_type" not in (e.get("extra") or {})
     assert e["is_hosting"] is True
     assert e["_native_types"]["is_hosting"] == "DCH"
 
 
-def test_proxy_evidence_all_types_carry_native_type():
+def test_proxy_evidence_no_native_type():
     for pt, expected_native in [("VPN", "VPN"), ("PUB", "PUB"), ("DCH", "DCH")]:
         e = _proxy_evidence(pt).to_dict()
-        assert e["extra"]["native_type"] == expected_native, f"{pt=}"
+        assert "native_type" not in (e.get("extra") or {}), f"{pt=}"
 
 
 def test_proxy_evidence_drops_uninteresting_types():

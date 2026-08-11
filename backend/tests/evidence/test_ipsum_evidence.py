@@ -8,7 +8,7 @@ from pathlib import Path
 from ipdb._sources.ipsum import IPsumSource
 
 
-def test_ipsum_preserves_native_type(tmp_path: Path):
+def test_ipsum_retires_native_type(tmp_path: Path):
     # IPsum format: "<ip>\t<count>" with a header of comments. min_count defaults
     # to 3, so the count column must be >= 3 for the row to be retained.
     f = tmp_path / "ipsum.txt"
@@ -22,4 +22,5 @@ def test_ipsum_preserves_native_type(tmp_path: Path):
     s.load()
     rec = s.query("41.63.63.211")[0]   # query() returns a list
     assert rec["classification_type"] == "blacklist"
-    assert rec["extra"]["native_type"] == "blacklist"
+    # extra.native_type retired (Plan B Task 3): redundant canonical echo
+    assert "native_type" not in (rec.get("extra") or {})

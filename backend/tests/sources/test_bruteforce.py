@@ -17,7 +17,8 @@ def test_bruteforce_parses_ip_and_signals(tmp_path: Path):
     rec = s.query("195.178.110.137")[0]
     assert rec["classification_type"] == "brute-force"
     assert rec["verdict"] == "malicious"
-    assert rec["extra"]["native_type"] == "brute-force"
+    # extra.native_type retired (Plan B Task 3): redundant canonical echo
+    assert "native_type" not in rec.get("extra", {})
     assert rec["extra"]["report_count"] == 30
     assert str(rec.get("first_seen", "")).startswith("2026-07-22")
     assert s.query("9.9.9.9") == {}

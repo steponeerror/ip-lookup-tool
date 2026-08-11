@@ -122,7 +122,7 @@ def _proxy_evidence(proxy_type: str) -> Evidence | None:
     """Map an IP2Proxy proxy_type to Evidence (or None to drop).
 
     Keeps VPN/PUB (proxy), TOR (tor), DCH (hosting). Drops SES/WEB/etc.
-    native_type rides in extra; per-asset labels in native_types (→ _native_types).
+    Per-asset labels ride in native_types (→ _native_types).
     """
     from .._classification import normalize, PROXY_MAP
     pt = proxy_type.strip().upper()
@@ -145,5 +145,4 @@ def _proxy_evidence(proxy_type: str) -> Evidence | None:
         is_hosting=is_hosting or None,
         is_tor=is_tor or None,
         native_types=native,
-        extra={"native_type": pt},
     )

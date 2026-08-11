@@ -4,7 +4,7 @@ Free, auth-less CSV of open proxy IPs, refreshed every ~5 min.
 https://github.com/proxyscrape/free-proxy-list
 
 Each row is one proxy IP with a protocol (http/socks4/socks5). The protocol is
-preserved verbatim in extra.native_type (convention 1); classification is the
+preserved verbatim in _native_types.is_proxy; classification is the
 controlled-vocab "proxy" for every row. Metadata beyond country_code is dropped
 intentionally — add canonical-slot routing (asn/isp/port/...) later if needed.
 """
@@ -38,7 +38,6 @@ class ProxyScrapeSource(CsvSource):
             "verdict": self.verdict,
             "is_proxy": True,
             "_native_types": {"is_proxy": protocol.upper() or "PROXY"},
-            "extra": {"native_type": protocol},  # convention 1
         }
         if len(row) > 4:
             country_code = row[4].strip().upper()

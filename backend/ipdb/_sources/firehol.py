@@ -75,7 +75,6 @@ class FireholBlocklistSource(IpListSource):
                 classification_type=self.classification_type,
                 verdict=self.verdict,
                 reliability=self.reliability,
-                extra={"native_type": self.classification_type},
             ).to_dict()
             for list_name in self._lists:
                 p = self._path / f"{list_name}.netset"

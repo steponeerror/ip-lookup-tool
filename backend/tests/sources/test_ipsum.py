@@ -13,6 +13,7 @@ def test_ipsum_loads_tab_separated(tmp_path):
     s = IPsumSource(data_dir=tmp_path)
     assert s.load() == 2
     assert s.query("41.63.63.211")[0]["classification_type"] == "blacklist"
-    assert s.query("41.63.63.211")[0]["extra"] == {"native_type": "blacklist"}
+    # extra.native_type retired (Plan B Task 3): redundant canonical echo
+    assert "native_type" not in (s.query("41.63.63.211")[0].get("extra") or {})
     assert s.query("5.6.7.8")[0]["classification_type"] == "blacklist"
     assert s.query("1.2.3.4") == {}   # below min_count

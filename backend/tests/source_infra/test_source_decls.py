@@ -42,7 +42,8 @@ def test_ip2proxy_proxy_evidence_vpn_emits_asset_keys():
     e = _proxy_evidence("VPN").to_dict()
     assert e["is_proxy"] is True
     assert e["_native_types"] == {"is_proxy": "VPN"}
-    assert e["extra"]["native_type"] == "VPN"
+    # extra.native_type retired (Plan B Task 3): identity is in _native_types
+    assert "native_type" not in (e.get("extra") or {})
 
 
 def test_ip2proxy_proxy_evidence_pub_emits_asset_keys():

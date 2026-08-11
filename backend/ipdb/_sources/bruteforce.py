@@ -44,7 +44,7 @@ class BruteforceSource(Source):
                     continue
                 toks = rest.split()
                 first_seen = (toks[0] + "T" + toks[1]) if len(toks) >= 2 else None
-                extra: dict[str, Any] = {"native_type": self.classification_type}
+                extra: dict[str, Any] = {}
                 if len(toks) >= 3 and toks[2].isdigit():
                     extra["report_count"] = int(toks[2])
                 yield ip, Evidence(

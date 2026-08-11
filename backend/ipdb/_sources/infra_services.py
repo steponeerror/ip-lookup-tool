@@ -90,6 +90,5 @@ class InfraServicesSource(Source):
             yield ip, Evidence(
                 service=svc,
                 native_types={"service": provider},
-                extra={"native_type": svc},
                 verdict="",  # asset-only source; suppress the "malicious" default
             )

@@ -21,5 +21,4 @@ class X4BNetVPNSource(IpListSource):
             reliability=self.reliability,
             is_vpn=True,
             native_types={"is_vpn": "VPN"},
-            extra={"native_type": self.classification_type},
         ).to_dict()

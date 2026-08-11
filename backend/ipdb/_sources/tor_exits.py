@@ -38,5 +38,4 @@ class TorExitSource(IpListSource):
             reliability=self.reliability,
             is_tor=True,
             native_types={"is_tor": "TOR"},
-            extra={"native_type": self.classification_type},
         ).to_dict()

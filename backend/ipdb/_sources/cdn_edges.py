@@ -20,7 +20,7 @@ from .._evidence import Evidence
 
 _V4_CIDR_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$")
 
-# (provider, url, format) — provider becomes native_type.
+# (provider, url, format) — provider rides native_types.service.
 _FEEDS = (
     ("CloudFront", "https://ip-ranges.amazonaws.com/ip-ranges.json", "aws"),
     ("Cloudflare", "https://www.cloudflare.com/ips-v4", "cloudflare"),
@@ -52,7 +52,6 @@ class CdnEdgesSource(Source):
             yield cidr, Evidence(
                 service="cdn",
                 native_types={"service": provider},
-                extra={"native_type": "cdn"},
                 verdict="",  # asset-only source; suppress the "malicious" default
             )
 

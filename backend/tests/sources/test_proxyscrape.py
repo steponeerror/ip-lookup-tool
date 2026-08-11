@@ -15,9 +15,10 @@ def test_proxyscrape_loads_csv_and_queries_proxy(tmp_path):
     assert rec["verdict"] == "suspicious"
     assert rec["is_proxy"] is True
     assert rec["_native_types"] == {"is_proxy": "SOCKS5"}
-    assert rec["extra"] == {"native_type": "socks5"}
+    # extra.native_type retired (Plan B Task 3): identity is in _native_types
+    assert "native_type" not in (rec.get("extra") or {})
     assert rec["country_code"] == "NL"
     http_rec = s.query("135.87.39.23")[0]
-    assert http_rec["extra"] == {"native_type": "http"}
+    assert "native_type" not in (http_rec.get("extra") or {})
     assert http_rec["_native_types"] == {"is_proxy": "HTTP"}
     assert s.query("1.2.3.4") == {}  # not in the list
