@@ -8,6 +8,8 @@ import {
   pauseBatch,
   resumeBatch,
   subscribeTasks,
+  queryIpsStream,
+  TABLE_THRESHOLD,
 } from "../api";
 
 describe("api task functions", () => {
@@ -164,5 +166,95 @@ describe("subscribeTasks", () => {
     }) as any;
     const unsub = subscribeTasks(() => {});
     expect(() => unsub()).not.toThrow();
+  });
+});
+
+describe("queryIpsStream (row protocol v2)", () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as any;
+    (globalThis.EventSource as any) = vi.fn(() => ({ close: () => {} })) as any;
+  });
+
+  it("table mode: total ≤ threshold → results sorted by idx", async () => {
+    const ndjson = [
+      `{"type":"start","total":2}`,
+      `{"type":"row","idx":1,"result":{"ip":"1.1.1.1"}}`,
+      `{"type":"row","idx":0,"result":{"ip":"8.8.8.8"}}`,
+      `{"type":"progress","done":2,"total":2}`,
+      `{"type":"done","invalid_lines":0,"ipv6_unsupported":0,"enrich_error":null}`,
+    ].join("\n");
+    const reader = (async function* () {
+      for (const line of ndjson.split("\n")) yield new TextEncoder().encode(line + "\n");
+    })();
+    (globalThis.fetch as any).mockResolvedValue({
+      ok: true,
+      body: { getReader: () => ({ read: () => reader.next() }) },
+    });
+
+    const out = await queryIpsStream(["8.8.8.8", "1.1.1.1"], () => {});
+    expect(out.csvDownloaded).toBe(false);
+    expect(out.results.map((r: any) => r.ip)).toEqual(["8.8.8.8", "1.1.1.1"]); // idx order
+  });
+
+  it("csv mode: total > threshold → csvDownloaded=true, results empty", async () => {
+    // build N=threshold+1 fake rows; minimal valid LookupResult (buildCsvRow traverses
+    // classifications/merged fields, so the fixture must satisfy that shape)
+    const n = TABLE_THRESHOLD + 1;
+    const fakeRow = (i: number) => {
+      const r: any = {
+        ip: `10.0.0.${i}`,
+        country: { value: "", confidence: 0, algorithm: "", sources: [] },
+        asn: { value: 0, confidence: 0, algorithm: "", sources: [] },
+        as_name: { value: "", confidence: 0, algorithm: "", sources: [] },
+        ip_range: { value: "", confidence: 0, algorithm: "", sources: [] },
+        is_isp: false,
+        classifications: {},
+      };
+      return `{"type":"row","idx":${i},"result":${JSON.stringify(r)}}`;
+    };
+    const lines = [`{"type":"start","total":${n}}`];
+    for (let i = 0; i < n; i++) lines.push(fakeRow(i));
+    lines.push(`{"type":"done","invalid_lines":0,"ipv6_unsupported":0,"enrich_error":null}`);
+    const ndjson = lines.join("\n");
+    const reader = (async function* () {
+      yield new TextEncoder().encode(ndjson + "\n");
+    })();
+    (globalThis.fetch as any).mockResolvedValue({
+      ok: true,
+      body: { getReader: () => ({ read: () => reader.next() }) },
+    });
+
+    const URL_CREATE = globalThis.URL.createObjectURL;
+    const REVOKE = globalThis.URL.revokeObjectURL;
+    globalThis.URL.createObjectURL = ((b: Blob) => "blob:x") as any;
+    globalThis.URL.revokeObjectURL = (() => {}) as any;
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    const out = await queryIpsStream(["10.0.0.0/20"], () => {});
+    expect(out.csvDownloaded).toBe(true);
+    expect(out.results).toEqual([]);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    globalThis.URL.createObjectURL = URL_CREATE;
+    globalThis.URL.revokeObjectURL = REVOKE;
+    clickSpy.mockRestore();
+  });
+
+  it("done surfaces invalid_lines and ipv6_unsupported counts", async () => {
+    const ndjson = [
+      `{"type":"start","total":1}`,
+      `{"type":"row","idx":0,"result":{"ip":"8.8.8.8"}}`,
+      `{"type":"done","invalid_lines":2,"ipv6_unsupported":1,"enrich_error":null}`,
+    ].join("\n");
+    const reader = (async function* () {
+      yield new TextEncoder().encode(ndjson + "\n");
+    })();
+    (globalThis.fetch as any).mockResolvedValue({
+      ok: true,
+      body: { getReader: () => ({ read: () => reader.next() }) },
+    });
+    const out = await queryIpsStream(["8.8.8.8"], () => {});
+    expect(out.invalidLines).toBe(2);
+    expect(out.ipv6Unsupported).toBe(1);
   });
 });

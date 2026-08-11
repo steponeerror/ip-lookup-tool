@@ -1,3 +1,5 @@
+import { buildCsvRow, CSV_HEADER, downloadCsv } from "./components/csvExport";
+
 export interface SourceAttribution {
   source: string;
   value: any;
@@ -69,9 +71,15 @@ export interface DbStatus {
   warnings?: string[];
 }
 
-export interface QueryResponse {
-  results: LookupResult[];
-  enrich_error?: string;
+export const TABLE_THRESHOLD = 1000;
+
+export interface StreamOutcome {
+  results: LookupResult[];   // table mode: populated; csv mode: []
+  csvDownloaded: boolean;
+  invalidLines: number;
+  ipv6Unsupported: number;
+  enrichError?: string | null;
+  total: number;
 }
 
 export async function getDbStatus(): Promise<DbStatus> {
@@ -94,12 +102,26 @@ async function readStream(
   res: Response,
   onProgress: (p: Progress) => void,
   keepAlive?: () => void,
-): Promise<QueryResponse> {
+): Promise<StreamOutcome> {
   if (!res.body) throw new Error("Streaming not supported");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let finalResult: QueryResponse | null = null;
+  let total = 0;
+  let mode: "table" | "csv" | null = null;
+  const resultsByIdx = new Map<number, LookupResult>();
+  const csvParts: string[] = [CSV_HEADER];
+  let rowBuffer: string[] = [];
+  let invalidLines = 0;
+  let ipv6Unsupported = 0;
+  let enrichError: string | null = null;
+
+  const flushRows = () => {
+    if (rowBuffer.length) {
+      csvParts.push(rowBuffer.join("\n") + "\n");
+      rowBuffer = [];
+    }
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -113,20 +135,40 @@ async function readStream(
       let evt: any;
       try { evt = JSON.parse(line); } catch { continue; }
       if (evt.type === "start") {
-        onProgress({ done: 0, total: evt.total, phase: "lookup" });
+        total = evt.total;
+        mode = total <= TABLE_THRESHOLD ? "table" : "csv";
+      } else if (evt.type === "row") {
+        const r = evt.result as LookupResult;
+        if (mode === "table") {
+          resultsByIdx.set(evt.idx, r);
+        } else {
+          rowBuffer.push(buildCsvRow(r));
+          if (rowBuffer.length >= 1000) flushRows();
+        }
       } else if (evt.type === "progress") {
         onProgress({ done: evt.done, total: evt.total, phase: "lookup" });
-      } else if (evt.type === "enriching") {
-        onProgress({ done: evt.done, total: evt.total, phase: "enrich" });
-      } else if (evt.type === "complete") {
-        const result: QueryResponse = { results: evt.results };
-        if (evt.enrich_error) result.enrich_error = evt.enrich_error;
-        finalResult = result;
+      } else if (evt.type === "done") {
+        invalidLines = evt.invalid_lines ?? 0;
+        ipv6Unsupported = evt.ipv6_unsupported ?? 0;
+        enrichError = evt.enrich_error ?? null;
       }
     }
   }
-  if (!finalResult) throw new Error("No results received");
-  return finalResult;
+
+  if (mode === "csv") {
+    flushRows();
+    if (csvParts.length > 1) {  // more than just the header → has rows
+      downloadCsv(csvParts);
+      return { results: [], csvDownloaded: true, invalidLines, ipv6Unsupported, enrichError, total };
+    }
+    return { results: [], csvDownloaded: false, invalidLines, ipv6Unsupported, enrichError, total };
+  }
+
+  // table mode — reassemble in idx order
+  const results = Array.from({ length: total }, (_, i) => resultsByIdx.get(i)).filter(
+    (x): x is LookupResult => x !== undefined,
+  );
+  return { results, csvDownloaded: false, invalidLines, ipv6Unsupported, enrichError, total };
 }
 
 function streamFetchTimeout(controller: AbortController, connectMs = 30_000, idleMs = 120_000) {
@@ -145,7 +187,7 @@ function streamFetchTimeout(controller: AbortController, connectMs = 30_000, idl
 export async function queryIpsStream(
   ips: string[],
   onProgress: (p: Progress) => void,
-): Promise<QueryResponse> {
+): Promise<StreamOutcome> {
   const controller = new AbortController();
   const { resetIdle, clear } = streamFetchTimeout(controller);
   try {
@@ -175,7 +217,7 @@ export async function queryIpsStream(
 export async function uploadFileStream(
   file: File,
   onProgress: (p: Progress) => void,
-): Promise<QueryResponse> {
+): Promise<StreamOutcome> {
   const form = new FormData();
   form.append("file", file);
   const controller = new AbortController();
