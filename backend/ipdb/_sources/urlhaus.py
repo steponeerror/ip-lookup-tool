@@ -25,6 +25,13 @@ from .._classification import normalize, URLHAUS_MAP
 
 logger = logging.getLogger(__name__)
 
+# File/arch tokens that appear in nearly every IoT-malware sample — structural
+# noise, not signal. Tunable; see spec "Per-source open calls".
+URLHAUS_ARCH_NOISE = {
+    "32-bit", "64-bit", "x86", "x64", "elf", "pe", "mips", "arm",
+    "mips64", "arm64", "exe", "dll",
+}
+
 
 def _host_ip(url: str) -> str | None:
     """Return the URL's host iff it is an IPv4 literal; else None (domain)."""
@@ -71,7 +78,9 @@ class URLhausSource(Source):
     def harvest(self):
         """Yield (ip, Evidence) per IP-host row. Domain-host rows are dropped
         (noise for an IP tool). Tags → classification via ``_classify``; raw
-        tags + reporter + url_status preserved in ``extra``."""
+        tags + reporter + url_status preserved in ``extra``. Native categories
+        are extracted from tags, filtered for arch noise, and exclude the
+        matched malware family (already in ``malware_name``)."""
         with open(self._path, "r", encoding="utf-8") as f:
             for row in csv.reader(f):
                 if not row or row[0].startswith("#"):     # comment / header block
@@ -83,14 +92,20 @@ class URLhausSource(Source):
                     continue                               # domain host → filter
                 tags_raw = row[6].strip().strip('"')
                 ctype, malware_name = _classify(tags_raw)
+                # Split tags, filter noise, exclude matched family
+                tags = [t.strip() for t in (tags_raw or "").split(",")
+                        if t.strip() and t.strip().lower() != "none"]
+                meaningful = [t for t in tags if t.lower() not in URLHAUS_ARCH_NOISE]
+                native_categories = [t for t in meaningful if t != (malware_name or "")]  # matched family → malware_name
                 yield ip, Evidence(
                     classification_type=ctype,
                     verdict="malicious",
                     first_seen=row[1].strip().strip('"').replace(" ", "T"),
                     last_seen=row[4].strip().strip('"').replace(" ", "T"),  # recency
                     malware_name=malware_name,            # mirai/Mozi/hajime
+                    native_categories=native_categories,
                     extra={
-                        "native_type": tags_raw,
+                        "tags_raw": tags_raw,
                         "reporter": row[8].strip().strip('"'),
                         "url_status": row[3].strip().strip('"'),
                     },
