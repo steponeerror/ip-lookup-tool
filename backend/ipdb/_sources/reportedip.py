@@ -11,9 +11,10 @@ is a ``;``-separated list of numeric codes. Codes 1-30 are documented (the repo'
 9 thematic lists); 31-58 are unpublished sub-codes. Each code maps via
 ``REPORTEDIP_MAP`` to an IntelMQ ``classification.type`` (undocumented codes fall
 to ``other``). Codes are GROUPED by derived canonical type: one ``Evidence`` per
-distinct type, each carrying ``native_categories=[codes-in-that-group]`` — so
-every native code (documented AND undocumented) is preserved first-class; the
-canonical type is a derived tag. IPv6 rows are dropped (the system is IPv4-only).
+distinct type, each carrying ``native_categories`` — documented codes (1–30)
+resolve to thematic-list LABELS (via ``REPORTEDIP_CODE_THEMATIC``, e.g. code 18
+→ ``["brute-force","cms-login"]``), while undocumented/orphan codes (13, 31–58)
+fall through as their raw numeric strings. The canonical type is a derived tag. IPv6 rows are dropped (the system is IPv4-only).
 
 License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution
 to ReportedIP (reportedip.com) is required.

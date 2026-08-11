@@ -6,8 +6,10 @@ first/last-seen, a scan count, country, and — the feed's distinctive metadata 
 a `scanner_types` list naming the scanner (PaloAlto / Censys / ssh / email …).
 
 All rows are aggressive scanners → a single ``scanner`` classification. The
-scanner_types / scan_count / country columns are feed-specific, so they ride in
-``extra`` (country is left to the authoritative geo axis, ipinfo_lite). Timestamps
+``scanner_types`` column becomes ``native_categories`` (top-level — CsvSource
+stores the parse_row dict verbatim), while ``scan_count`` and ``country`` are
+feed-specific and ride in ``extra`` (country is left to the authoritative geo
+axis, ipinfo_lite). Timestamps
 match the threatfox/abuse.ch space-separated shape, so confidence decay parses.
 """
 from ._base import CsvSource
