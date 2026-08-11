@@ -79,7 +79,7 @@ describe("Modal", () => {
       return (
         <>
           <button onClick={() => setOpen(true)}>open modal</button>
-          <Modal open={open} onClose={() => setOpen(false)}>
+          <Modal open={open} title="Test" onClose={() => setOpen(false)}>
             <p>body</p>
           </Modal>
         </>

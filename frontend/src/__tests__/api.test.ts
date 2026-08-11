@@ -226,7 +226,7 @@ describe("queryIpsStream (row protocol v2)", () => {
 
     const URL_CREATE = globalThis.URL.createObjectURL;
     const REVOKE = globalThis.URL.revokeObjectURL;
-    globalThis.URL.createObjectURL = ((b: Blob) => "blob:x") as any;
+    globalThis.URL.createObjectURL = (() => "blob:x") as any;
     globalThis.URL.revokeObjectURL = (() => {}) as any;
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
