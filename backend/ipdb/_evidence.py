@@ -19,7 +19,7 @@ CORE_FIELDS = frozenset({
 })
 
 SCALAR_SLOTS = frozenset({"country_code", "asn", "as_name", "ip_range", "isp"})
-RICH_SLOTS = frozenset({"native_type", "comment", "tags", "reporter_count", "last_seen"})
+RICH_SLOTS = frozenset({"native_categories", "comment", "tags", "reporter_count", "last_seen"})
 ASSET_SLOTS = frozenset({"is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier",
                          "service"})  # service: public-infra role (dns/ntp/...) — string, like carrier
 CANONICAL_SLOTS = SCALAR_SLOTS | RICH_SLOTS | ASSET_SLOTS
@@ -45,7 +45,7 @@ class Evidence:
     ip_range: Optional[str] = None
     isp: Optional[str] = None
     # ── canonical rich slots ──
-    native_type: Optional[str] = None
+    native_categories: list = field(default_factory=list)
     comment: Optional[str] = None
     tags: list = field(default_factory=list)
     reporter_count: Optional[int] = None

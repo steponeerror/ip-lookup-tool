@@ -35,7 +35,7 @@ def test_route_record_keeps_known_folds_unknown_into_extra():
 def test_schema_tiers_disjoint_and_complete():
     assert CORE_FIELDS.isdisjoint(CANONICAL_SLOTS)
     assert CANONICAL_SLOTS == (frozenset({"country_code","asn","as_name","ip_range","isp",
-        "native_type","comment","tags","reporter_count","last_seen",
+        "native_categories","comment","tags","reporter_count","last_seen",
         "is_proxy","is_hosting","is_tor","is_vpn","carrier","service"}))
     assert ALL_KNOWN == CORE_FIELDS | CANONICAL_SLOTS
 
@@ -64,3 +64,22 @@ def test_route_record_keeps_is_isp_at_top_level():
     out = route_record(raw)
     assert out["is_isp"] is True                       # kept at top level
     assert "is_isp" not in (out.get("extra") or {})    # NOT folded into extra
+
+
+def test_evidence_native_categories_serialized():
+    e = Evidence(classification_type="exploit", native_categories=["15", "16"])
+    d = e.to_dict()
+    assert d["native_categories"] == ["15", "16"]
+
+
+def test_evidence_native_categories_empty_not_serialized():
+    e = Evidence(classification_type="exploit")   # no native_categories set
+    d = e.to_dict()
+    assert "native_categories" not in d           # empty list → omitted
+
+
+def test_route_record_keeps_native_categories_top_level():
+    raw = {"classification_type": "other", "native_categories": ["31", "55"]}
+    out = route_record(raw)
+    assert out["native_categories"] == ["31", "55"]          # stays top level
+    assert "native_categories" not in (out.get("extra") or {})  # NOT folded into extra
