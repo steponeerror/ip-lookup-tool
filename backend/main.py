@@ -29,6 +29,7 @@ from ipdb import (
     manager, stale_source_names,
 )
 from ipdb import _batch_pool
+from ipdb._cidr import expand_inputs
 
 import os
 from pathlib import Path
@@ -43,49 +44,98 @@ class SourceEnabledPatch(BaseModel):
     enabled: bool
 
 
-async def _stream_lookup(ips):
-    """Stream lookup results with chunked progress as NDJSON. Fans out across the
-    batch pool when present; inline otherwise. Progress is emitted per chunk.
+async def _stream_lookup(expansion):
+    """Stream lookup results row-by-row as NDJSON (protocol v2).
 
-    Never returns 5xx for a pool failure: if the pool breaks mid-batch, the
-    chunk-submit + asyncio.wait loop is aborted and the request falls back to a
-    single inline fan_out_lookup (results stay bit-identical to inline)."""
-    total = len(ips)
-    ips = [str(ip).strip() for ip in ips]
+    Emits: start{total} → row{idx,result} × N → progress{done,total} → done{...}.
+    Rows are emitted in chunk-completion order (not input order); each row
+    carries its input ``idx`` so the frontend can re-sort. The expansion is
+    lazy — IPs are never fully materialized; peak backend memory is bounded
+    by the chunk list (≈30MB at 500k IPs).
+    """
+    import itertools
+    total = expansion.total
     yield orjson.dumps({"type": "start", "total": total}) + b"\n"
 
-    pool = _batch_pool.get_pool()
-    if total <= _batch_pool.INLINE_THRESHOLD or pool is None:
-        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips)
-        yield orjson.dumps({"type": "complete", "results": dicts, "enrich_error": None}) + b"\n"
+    if total == 0:
+        yield orjson.dumps({
+            "type": "done", "invalid_lines": expansion.invalid,
+            "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
+        }) + b"\n"
         return
 
+    pool = _batch_pool.get_pool()
     chunk_size = _batch_pool.CHUNK
-    chunks = [ips[i:i + chunk_size] for i in range(0, total, chunk_size)]
+
+    # Inline path: small batches or no pool — run in a thread, emit rows.
+    if total <= _batch_pool.INLINE_THRESHOLD or pool is None:
+        ips_inline = [ip for _, ip in expansion]
+        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips_inline)
+        for i, d in enumerate(dicts):
+            yield orjson.dumps({"type": "row", "idx": i, "result": d}) + b"\n"
+        yield orjson.dumps({
+            "type": "progress", "done": len(dicts), "total": total}) + b"\n"
+        yield orjson.dumps({
+            "type": "done", "invalid_lines": expansion.invalid,
+            "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
+        }) + b"\n"
+        return
+
+    # Pooled path: chunk the lazy generator, submit all, emit rows as they finish.
     loop = asyncio.get_running_loop()
+    it = iter(expansion)
+    fut_to_start: dict = {}
     try:
-        futures = [loop.run_in_executor(pool, _batch_pool._work_chunk, c) for c in chunks]
-        ordered: list = [None] * len(chunks)
-        pending = set(futures)
-        done = 0
-        while pending:
-            finished, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-            for fut in finished:
-                ordered[futures.index(fut)] = fut.result()
-                done += 1
-                yield orjson.dumps({"type": "progress",
-                                  "done": min(done * chunk_size, total),
-                                  "total": total}) + b"\n"
-            await asyncio.sleep(0)
-        dicts = [d for chunk in ordered for d in chunk]
+        while True:
+            batch = list(itertools.islice(it, chunk_size))
+            if not batch:
+                break
+            start_idx = batch[0][0]
+            ips = [ip for _, ip in batch]
+            fut = loop.run_in_executor(pool, _batch_pool._work_chunk, ips)
+            fut_to_start[fut] = start_idx
     except BrokenProcessPool:
-        # Pool worker died mid-batch. Spec: never return 5xx for a pool failure —
-        # fall back to inline and emit a single complete. Progress events already
-        # emitted remain valid (monotonic, capped at total).
+        logging.getLogger(__name__).warning(
+            "stream batch pool broke during submit; falling back to inline")
+        ips_all = [ip for _, ip in expansion]
+        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips_all)
+        for i, d in enumerate(dicts):
+            yield orjson.dumps({"type": "row", "idx": i, "result": d}) + b"\n"
+        yield orjson.dumps({
+            "type": "done", "invalid_lines": expansion.invalid,
+            "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
+        }) + b"\n"
+        return
+
+    pending = set(fut_to_start)
+    done_count = 0
+    try:
+        while pending:
+            finished, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED)
+            for fut in finished:
+                start_idx = fut_to_start[fut]
+                dicts = fut.result()
+                for i, d in enumerate(dicts):
+                    yield orjson.dumps({
+                        "type": "row", "idx": start_idx + i, "result": d}) + b"\n"
+                done_count += len(dicts)
+                yield orjson.dumps({
+                    "type": "progress",
+                    "done": min(done_count, total), "total": total}) + b"\n"
+            await asyncio.sleep(0)
+    except BrokenProcessPool:
         logging.getLogger(__name__).warning(
             "stream batch pool broke mid-batch; falling back to inline")
-        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips)
-    yield orjson.dumps({"type": "complete", "results": dicts, "enrich_error": None}) + b"\n"
+        ips_all = [ip for _, ip in expansion]
+        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips_all)
+        for i, d in enumerate(dicts):
+            yield orjson.dumps({"type": "row", "idx": i, "result": d}) + b"\n"
+
+    yield orjson.dumps({
+        "type": "done", "invalid_lines": expansion.invalid,
+        "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
+    }) + b"\n"
 
 
 def _is_cold_start() -> bool:
@@ -178,13 +228,17 @@ app.add_middleware(
 
 @app.post("/api/query/stream")
 async def query_ips_stream(body: dict):
-    ips = body.get("ips", [])
-    if not ips:
+    raw = body.get("ips", [])
+    if not raw:
         raise HTTPException(400, "No IPs provided")
-    if len(ips) > 100000:
-        raise HTTPException(400, "Max 100,000 IPs per request")
+    if len(raw) > 100000:
+        raise HTTPException(400, "Max 100,000 input lines per request")
+    expansion = expand_inputs([str(x) for x in raw])
+    if expansion.total > 500_000:
+        raise HTTPException(
+            400, f"Expanded size {expansion.total:,} exceeds 500,000 limit")
     return StreamingResponse(
-        _stream_lookup(ips),
+        _stream_lookup(expansion),
         media_type="application/x-ndjson",
     )
 
@@ -198,17 +252,22 @@ async def upload_file_stream(file: UploadFile = File(...)):
     lines = content.strip().splitlines()
     if len(lines) > 100000:
         raise HTTPException(400, "File exceeds 100,000 lines")
-    ips = []
+    # take first CSV column if .csv, else whole line
+    first_cols = []
     for line in lines:
         line = line.strip()
         if not line:
             continue
         if file.filename and file.filename.endswith(".csv"):
-            parts = line.split(",")
-            line = parts[0]
-        ips.append(line.strip())
+            line = line.split(",")[0].strip()
+        if line:
+            first_cols.append(line)
+    expansion = expand_inputs(first_cols)
+    if expansion.total > 500_000:
+        raise HTTPException(
+            400, f"Expanded size {expansion.total:,} exceeds 500,000 limit")
     return StreamingResponse(
-        _stream_lookup(ips),
+        _stream_lookup(expansion),
         media_type="application/x-ndjson",
     )
 
