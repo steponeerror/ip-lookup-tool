@@ -20,12 +20,30 @@ def test_f3csystems_loads_scanner_csv(tmp_path):
     assert row["classification_type"] == "scanner"
     assert row["first_seen"] == "2026-02-16 09:00:13"
     assert row["last_seen"] == "2026-07-08 22:00:04"
-    assert row["extra"]["native_type"] == "scanner"
-    assert row["extra"]["scanner_types"] == ["PaloAlto", "email", "ssh"]
+    assert row["native_categories"] == ["PaloAlto", "email", "ssh"]  # top-level, not in extra
     assert row["extra"]["scan_count"] == 3133
     assert row["extra"]["country"] == "TW"
 
     row2 = s.query("147.185.132.33")[0]
-    assert row2["extra"]["scanner_types"] == ["PaloAlto"]
+    assert row2["native_categories"] == ["PaloAlto"]  # top-level, not in extra
 
     assert s.query("203.0.113.42") == {}   # not in feed
+
+
+# Sample for Task 3: native_categories migration
+_SAMPLE_TASK3 = (
+    "ip,first_seen,last_seen,scan_count,country,scanner_types\n"
+    "1.2.3.4,2026-08-01,2026-08-05,5,US,\"PaloAlto, ssh\"\n"
+)
+
+
+def test_f3csystems_scanner_types_become_native_categories(tmp_path):
+    """Task 3: scanner_types moves from extra to top-level native_categories."""
+    (tmp_path / "f3csystems.csv").write_text(_SAMPLE_TASK3)
+    s = F3cSystemsSource(data_dir=tmp_path)
+    s.load()
+    rec = s.query("1.2.3.4")[0]
+    assert rec["native_categories"] == ["PaloAlto", "ssh"]          # top-level (CsvSource verbatim)
+    assert "scanner_types" not in (rec.get("extra") or {})           # moved out of extra
+    assert "native_type" not in (rec.get("extra") or {})             # static "scanner" retired
+    assert rec.get("extra", {}).get("scan_count") == 5               # other extra keys kept

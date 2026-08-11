@@ -32,13 +32,12 @@ class F3cSystemsSource(CsvSource):
             return None
         raw_types = row[5].strip()
         scanner_types = [s.strip() for s in raw_types.split(",") if s.strip()]
+        extra: dict = {}
         try:
             scan_count = int(row[3])
-        except ValueError:
-            scan_count = None
-        extra: dict = {"native_type": "scanner", "scanner_types": scanner_types}
-        if scan_count is not None:
             extra["scan_count"] = scan_count
+        except ValueError:
+            pass
         country = row[4].strip()
         if country:
             extra["country"] = country
@@ -48,5 +47,6 @@ class F3cSystemsSource(CsvSource):
             "verdict": self.verdict,
             "first_seen": row[1].strip(),
             "last_seen": row[2].strip(),
+            "native_categories": scanner_types,   # top-level — CsvSource stores dict verbatim
             "extra": extra,
         }
