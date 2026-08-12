@@ -81,7 +81,7 @@ def test_firehol_covered_ips(tmp_path):
     src = FireholBlocklistSource(data_dir=tmp_path, selected_lists=["l1"])
     src._path.mkdir(parents=True, exist_ok=True)
     (src._path / "l1.netset").write_text("1.2.3.0/24\n8.8.8.8\n10.0.0.0/16\n")
-    src.load()
+    src.rebuild()
     assert src.health().covered_ips == 256 + 1 + 65536
 
 

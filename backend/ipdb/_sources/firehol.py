@@ -53,54 +53,54 @@ class FireholBlocklistSource(IpListSource):
                 dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
 
     def load(self) -> int:
-        import ipaddress as _ipa
-        from ._mmdb import write_mmdb, open_reader
-        from .._evidence import Evidence
-
-        if not self._path.exists():
+        """纯 mmap:打开已有 mmdb,读 sidecar,不重建。"""
+        from ._mmdb import open_reader
+        if not self._mmdb_path.exists():
             self._reader = None
             return 0
-        # cache invalidates on newest netset mtime (multi-file, like cn_isp)
-        netset_mtimes = [p.stat().st_mtime for p in self._files if p.exists()]
-        raw_newest = max(netset_mtimes) if netset_mtimes else 0.0
-        count_path = self._mmdb_path.with_suffix(".count")
-        cache_fresh = (self._mmdb_path.exists()
-                       and self._mmdb_path.stat().st_mtime >= raw_newest)
-        if not cache_fresh or not count_path.exists():
-            if self._reader is not None:
-                self._reader.close()
-                self._reader = None
-            records = []
-            insert_data = Evidence(
-                classification_type=self.classification_type,
-                verdict=self.verdict,
-                reliability=self.reliability,
-            ).to_dict()
-            for list_name in self._lists:
-                p = self._path / f"{list_name}.netset"
-                if not p.exists():
-                    continue
-                with open(p, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#"):
-                            continue
-                        try:
-                            net = _ipa.IPv4Network(line, strict=False)
-                        except (_ipa.AddressValueError, ValueError):
-                            continue
-                        records.append((str(net), [insert_data]))
-            n = write_mmdb(records, self._mmdb_path,
-                           database_type="IP-Radar-firehol")
-            from ._mmdb import covered_ip_count
-            count_path.write_text(str(n))
-            self._mmdb_path.with_suffix(".cov").write_text(
-                str(covered_ip_count(r[0] for r in records)))
-
         self._reader = open_reader(self._mmdb_path)
-        self._count = int(count_path.read_text().strip())
-        from ._mmdb import covered_ips_cached
+        count_path = self._mmdb_path.with_suffix(".count")
+        cov_path = self._mmdb_path.with_suffix(".cov")
+        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
+        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
+        self._loaded_at = time.time()
+        return self._count
+
+    def rebuild(self) -> int:
+        """重建 mmdb(唯一重建入口)。双 buffer swap reader。
+
+        Multi-file mtime gating (like cn_isp): if the MMDB is already newer
+        than the newest netset, the rebuild is a no-op but still opens the
+        reader and refreshes sidecars — so callers that enqueue firehol after
+        a partial state (mmdb exists, sidecars missing) self-heal.
+        """
         import ipaddress as _ipa
+        from ._mmdb import rebuild_mmdb, covered_ip_count, covered_ips_cached
+        if not self._path.exists():
+            return 0
+        old_reader = self._reader
+        insert_data = self.get_insert_data()
+
+        # Preserve multi-file cache-invalidity logic: accumulate records by
+        # iterating each netset, deduping identical CIDRs across lists by
+        # overwriting (records is a list; rebuild_mmdb inserts them in order,
+        # later inserts for the same CIDR overwrite earlier ones — fine for
+        # threat lists where evidence shape is identical across lists).
+        records: list[tuple[str, list[dict]]] = []
+        for list_name in self._lists:
+            p = self._path / f"{list_name}.netset"
+            if not p.exists():
+                continue
+            with open(p, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    try:
+                        net = _ipa.IPv4Network(line, strict=False)
+                    except (_ipa.AddressValueError, ValueError):
+                        continue
+                    records.append((str(net), [insert_data]))
 
         def _enum():
             for list_name in self._lists:
@@ -116,10 +116,35 @@ class FireholBlocklistSource(IpListSource):
                     except (_ipa.AddressValueError, ValueError):
                         continue
 
-        self._covered_ips = covered_ips_cached(
-            self._mmdb_path.with_suffix(".cov"), list(self._files), _enum)
-        self._loaded_at = time.time()
-        return self._count
+        try:
+            n = rebuild_mmdb(
+                records, self._mmdb_path,
+                reader_setter=lambda r: setattr(self, "_reader", r),
+                database_type=f"IP-Radar-{self.name}",
+            )
+            self._mmdb_path.with_suffix(".count").write_text(str(n))
+            cov_path = self._mmdb_path.with_suffix(".cov")
+            self._covered_ips = covered_ips_cached(cov_path, list(self._files), _enum)
+            cov_path.write_text(str(self._covered_ips))
+            self._count = n
+            self._loaded_at = time.time()
+            return n
+        finally:
+            if old_reader is not None:
+                old_reader.close()
+
+    def query(self, ip: str):
+        if self._reader is None:
+            return {}
+        try:
+            node = self._reader.get(ip)
+        except (ValueError, OSError):
+            from ._mmdb import open_reader
+            self._reader = open_reader(self._mmdb_path)
+            node = self._reader.get(ip)
+        if node is None:
+            return {}
+        return node
 
     def health(self) -> SourceHealth:
         import time
