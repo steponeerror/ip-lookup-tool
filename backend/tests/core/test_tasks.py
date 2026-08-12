@@ -397,8 +397,8 @@ def test_heavy_sources_not_concurrent(monkeypatch):
     class HeavyFake(FakeSource):
         rebuild_weight = "heavy"
         rebuild_peak_gb = 0.0   # 关闭峰值预检,只测互斥
-    a = HeavyFake("a", slow=0.3)
-    b = HeavyFake("b", slow=0.3)
+    a = HeavyFake("a", host="ha", slow=0.3)
+    b = HeavyFake("b", host="hb", slow=0.3)
     mgr, by_name = _make_manager([a, b], concurrency=2)
     mgr._valve = MemoryValve(ceiling=2)
     mgr.enqueue_one("a"); mgr.enqueue_one("b")
