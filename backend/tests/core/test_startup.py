@@ -4,7 +4,7 @@ cold = block via run_batch_blocking until the first batch settles.
 Tests focus on BRANCHING (cold→_do_cold_start, warm→_startup_warm) and on the
 _is_cold_start predicate's logic, not on load_db internals.
 """
-from unittest.mock import patch
+from unittest.mock import patch, ANY
 
 
 # ── _startup branching ────────────────────────────────────────────────
@@ -35,6 +35,8 @@ def test_startup_warm_loads_db_then_enqueues_stale():
     import main
     with patch("main.load_db") as load_db, \
          patch("main.stale_source_names", return_value=["src_a", "src_b"]), \
+         patch("ipdb._registry.sources_needing_rebuild", return_value=[]), \
+         patch.object(main, "_ensure_valve_sampler"), \
          patch.object(main.manager, "enqueue_stale") as enqueue:
         main._startup_warm()
     load_db.assert_called_once()
@@ -42,10 +44,12 @@ def test_startup_warm_loads_db_then_enqueues_stale():
 
 
 def test_startup_warm_skips_enqueue_when_no_stale():
-    """No stale sources → load_db only, no background enqueue (warm fast path)."""
+    """No stale sources and no rebuilds → load_db only, no background enqueue (warm fast path)."""
     import main
     with patch("main.load_db"), \
          patch("main.stale_source_names", return_value=[]), \
+         patch("ipdb._registry.sources_needing_rebuild", return_value=[]), \
+         patch.object(main, "_ensure_valve_sampler"), \
          patch.object(main.manager, "enqueue_stale") as enqueue:
         main._startup_warm()
     enqueue.assert_not_called()
@@ -63,9 +67,10 @@ def test_do_cold_start_blocks_on_run_batch_blocking_with_offline_names():
     offline = [FakeSrc("a"), FakeSrc("b")]
     with patch("ipdb._registry._enabled_sources", return_value=offline), \
          patch("ipdb._registry._archetype", return_value="offline"), \
+         patch.object(main, "_ensure_valve_sampler"), \
          patch.object(main.manager, "run_batch_blocking") as rbb:
         main._do_cold_start()
-    rbb.assert_called_once_with(["a", "b"])
+    rbb.assert_called_once_with(["a", "b"], timeout=ANY)
 
 
 def test_do_cold_start_noop_when_no_offline_sources():
@@ -73,6 +78,7 @@ def test_do_cold_start_noop_when_no_offline_sources():
     import main
     with patch("ipdb._registry._enabled_sources", return_value=[]), \
          patch("ipdb._registry._archetype", return_value="offline"), \
+         patch.object(main, "_ensure_valve_sampler"), \
          patch.object(main.manager, "run_batch_blocking") as rbb:
         main._do_cold_start()
     rbb.assert_not_called()
@@ -132,3 +138,23 @@ def test_is_cold_start_true_when_only_online_sources():
     with patch("ipdb._registry._enabled_sources", return_value=[online_only]), \
          patch("ipdb._registry._archetype", return_value="online"):
         assert main._is_cold_start() is True
+
+
+# ── orphan tmp cleanup (Task 10) ──────────────────────────────────────
+
+def test_orphan_tmp_cleaned_on_startup(tmp_path):
+    """lifespan 最早期清掉 *.mmdb.*.tmp。"""
+    (tmp_path / "a.mmdb.123.tmp").write_bytes(b"x")
+    (tmp_path / "b.mmdb.456.tmp").write_bytes(b"x")
+    from main import _cleanup_orphan_tmp
+    _cleanup_orphan_tmp(tmp_path)
+    assert list(tmp_path.glob("*.mmdb.*.tmp")) == []
+
+
+def test_cold_start_timeout_scales_with_memory(monkeypatch):
+    """超时按 total 分档:<6G→1800, <12G→1200, ≥12G→900。"""
+    from main import _cold_start_timeout
+    monkeypatch.setenv("IP_RADAR_COLD_START_TIMEOUT", "")
+    assert _cold_start_timeout(4.0) == 1800
+    assert _cold_start_timeout(8.0) == 1200
+    assert _cold_start_timeout(16.0) == 900

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 import os
 import sys
+import threading
 
 # Release runs `uvicorn app.main:app` from the package root, so this file's
 # directory (holding the sibling `ipdb/` package) isn't on sys.path. Dev runs
@@ -158,6 +159,43 @@ async def _stream_lookup(expansion):
     }) + b"\n"
 
 
+def _cleanup_orphan_tmp(data_dir: Path) -> None:
+    """lifespan 最早期:删所有 *.mmdb.*.tmp(OOM kill 残留)。此时无 worker 在跑。"""
+    for tmp in data_dir.glob("*.mmdb.*.tmp"):
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _cold_start_timeout(total_gb: float) -> int:
+    """超时分档(B2)。env 覆盖。"""
+    env_val = os.environ.get("IP_RADAR_COLD_START_TIMEOUT", "").strip()
+    if env_val:
+        try:
+            return int(env_val)
+        except ValueError:
+            pass
+    if total_gb < 6:
+        return 1800
+    if total_gb < 12:
+        return 1200
+    return 900
+
+
+_valve_stop: threading.Event | None = None
+
+
+def _ensure_valve_sampler() -> None:
+    """Start the memory-valve sampler thread once per process."""
+    global _valve_stop
+    if _valve_stop is not None:
+        return
+    from ipdb._registry import _valve
+    _valve_stop = threading.Event()
+    _valve.start_sampler(manager._queue_cv, _valve_stop, interval=2.0)
+
+
 def _is_cold_start() -> bool:
     """True if NO enabled offline source has an existing data file on disk.
 
@@ -179,19 +217,26 @@ def _do_cold_start():
     (done/failed/cancelled). The server then serves from the freshly-written
     data files. Skips the blocking call when there are no offline sources.
     """
+    import psutil
     from ipdb._registry import _enabled_sources, _archetype
     names = [s.name for s in _enabled_sources() if _archetype(s) == "offline"]
+    _ensure_valve_sampler()
     if names:
-        manager.run_batch_blocking(names)
+        total_gb = psutil.virtual_memory().total / 1e9
+        manager.run_batch_blocking(names, timeout=_cold_start_timeout(total_gb))
 
 
 def _startup_warm():
     """Warm path: load all sources from disk immediately, then refresh any stale
     ones in the background (non-blocking — the whole point of the warm branch)."""
+    from ipdb._registry import sources_needing_rebuild
     load_db()
+    needs_rebuild = sources_needing_rebuild()
     stale = stale_source_names()
-    if stale:
-        manager.enqueue_stale(stale)
+    merge = list(dict.fromkeys(needs_rebuild + stale))
+    if merge:
+        manager.enqueue_stale(merge)
+    _ensure_valve_sampler()
 
 
 def _startup():
@@ -203,6 +248,8 @@ def _startup():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from ipdb._registry import DATA_DIR
+    _cleanup_orphan_tmp(DATA_DIR)
     _startup()
     cpu, ram = _batch_pool.detect_host()
     env = dict(os.environ)
@@ -424,10 +471,16 @@ async def events():
 
 @app.get("/api/perf/layout")
 async def perf_layout():
+    import psutil
+    from ipdb._registry import _valve
     cpu, ram = _batch_pool.detect_host()
     layout = get_active_layout()
     predicted = _batch_pool.predict_layout(cpu, ram, layout)
     warnings = _batch_pool.predict_warnings(predicted["priv_rss_mb"], ram)
+    vmem = psutil.virtual_memory()
+    state = ("critical" if _valve.target_capacity == 0
+             else "throttled" if _valve.target_capacity < _valve.ceiling
+             else "normal")
     return {
         "host": {"cores": cpu, "ram_avail_mb": ram},
         "current": layout,
@@ -438,6 +491,16 @@ async def perf_layout():
             "inline_threshold": _batch_pool.INLINE_THRESHOLD,
         },
         "warnings": warnings,
+        "memory_valve": {
+            "available_mb": int(vmem.available / 1e6),
+            "total_mb": int(vmem.total / 1e6),
+            "available_ratio": round(vmem.available / vmem.total, 3),
+            "target_capacity": _valve.target_capacity,
+            "ceiling": _valve.ceiling,
+            "active_rebuilds": _valve.active_rebuilds,
+            "heavy_busy": _valve.heavy_busy,
+            "state": state,
+        },
     }
 
 
