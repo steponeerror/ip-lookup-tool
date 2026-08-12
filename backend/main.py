@@ -160,8 +160,13 @@ async def _stream_lookup(expansion):
 
 
 def _cleanup_orphan_tmp(data_dir: Path) -> None:
-    """lifespan 最早期:删所有 *.mmdb.*.tmp(OOM kill 残留)。此时无 worker 在跑。"""
-    for tmp in data_dir.glob("*.mmdb.*.tmp"):
+    """lifespan 最早期:删 OOM kill 残留。此时无 worker 在跑。
+
+    Catches both naming schemes: write_mmdb's ``*.mmdb.{pid}.tmp`` and
+    rebuild_mmdb's ``*.mmdb.new.{pid}`` (no .tmp suffix).
+    """
+    orphans = list(data_dir.glob("*.mmdb.*.tmp")) + list(data_dir.glob("*.mmdb.new.*"))
+    for tmp in orphans:
         try:
             tmp.unlink()
         except OSError:
