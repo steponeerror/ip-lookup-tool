@@ -35,13 +35,15 @@ class Source:
     stale_days: int = 7
     reliability: float = 0.5
     authoritative_for: list = []
-    # When True, load() streams one (cidr, [evidence]) per harvest yield
-    # straight into write_mmdb instead of accumulating a full acc dict. Safe
+    # When True, rebuild() streams one (cidr, [evidence]) per harvest yield
+    # straight into rebuild_mmdb instead of accumulating a full acc dict. Safe
     # only for sources whose harvest yields each CIDR at most once (geo/asset
     # lists like ip2proxy/iptoasn); insert_network overwrites idempotently, so
     # a stray duplicate is harmless. Multi-evidence threat sources must leave
     # this False — they rely on acc to group several evidence per CIDR.
     single_evidence: bool = False
+    rebuild_weight: str = "normal"       # "heavy" | "normal"
+    rebuild_peak_gb: float = 0.0         # heavy 且 >0 时启用 acquire 前峰值预检
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir
@@ -78,50 +80,66 @@ class Source:
 
     # ── shared lifecycle ──
     def load(self) -> int:
-        from ._sources._mmdb import (
-            write_mmdb, open_reader, needs_convert, covered_ip_count, covered_ips_cached)
-        if not self._path.exists():
+        """纯 mmap:加载现有 mmdb(若有),永不重建。读 sidecar。"""
+        from ._sources._mmdb import open_reader
+        if not self._mmdb_path.exists():
             self._reader = None
             return 0
+        self._reader = open_reader(self._mmdb_path)
         count_path = self._mmdb_path.with_suffix(".count")
         cov_path = self._mmdb_path.with_suffix(".cov")
-        if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
-            if self._reader is not None:
-                self._reader.close()
-                self._reader = None
-            if self.single_evidence:
-                # CIDRs distinct-by-contract; harvest again for the sum (cheap parse).
-                def _records():
-                    for cidr, ev in self.harvest():
-                        yield cidr, [self.normalize(ev).to_dict()]
-                records = _records()
-                covered_cidrs = (c for c, _ in self.harvest())
-            else:
-                acc: dict[str, list[dict]] = {}
-                for cidr, ev in self.harvest():
-                    ev = self.normalize(ev)
-                    d = ev.to_dict()
-                    bucket = acc.setdefault(cidr, [])
-                    if d not in bucket:                 # full-evidence dedup
-                        bucket.append(d)
-                records = ((k, v) for k, v in acc.items())
-                covered_cidrs = acc.keys()             # exact-distinct (D1)
-            n = write_mmdb(records, self._mmdb_path,
-                           database_type=f"IP-Radar-{self.name}")
-            count_path.write_text(str(n))
-            cov_path.write_text(str(covered_ip_count(covered_cidrs)))
-        self._reader = open_reader(self._mmdb_path)
-        self._count = int(count_path.read_text().strip())
-        self._covered_ips = covered_ips_cached(
-            cov_path, [self._path],
-            lambda: (c for c, _ in self.harvest()))
+        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
+        # cov 只读,缺失则 0,不触发 harvest(rebuild 负责)
+        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
         self._loaded_at = time.time()
         return self._count
+
+    def rebuild(self) -> int:
+        """重建 mmdb(唯一入口,经 manager 队列调用)。双 buffer swap reader。"""
+        from ._sources._mmdb import rebuild_mmdb, covered_ip_count
+        if not self._path.exists():
+            return 0
+        old_reader = self._reader
+        if self.single_evidence:
+            def _records():
+                for cidr, ev in self.harvest():
+                    yield cidr, [self.normalize(ev).to_dict()]
+            records = _records()
+            covered_cidrs = [c for c, _ in self.harvest()]
+        else:
+            acc: dict[str, list[dict]] = {}
+            for cidr, ev in self.harvest():
+                ev = self.normalize(ev)
+                d = ev.to_dict()
+                bucket = acc.setdefault(cidr, [])
+                if d not in bucket:
+                    bucket.append(d)
+            records = ((k, v) for k, v in acc.items())
+            covered_cidrs = list(acc.keys())
+        try:
+            n = rebuild_mmdb(records, self._mmdb_path,
+                             reader_setter=lambda r: setattr(self, "_reader", r),
+                             database_type=f"IP-Radar-{self.name}")
+            self._mmdb_path.with_suffix(".count").write_text(str(n))
+            self._mmdb_path.with_suffix(".cov").write_text(
+                str(covered_ip_count(covered_cidrs)))
+            self._count = n
+            self._covered_ips = covered_ip_count(covered_cidrs)
+            self._loaded_at = time.time()
+            return n
+        finally:
+            if old_reader is not None:
+                old_reader.close()
 
     def query(self, ip: str) -> Any:
         if self._reader is None:
             return {}
-        result = self._reader.get(ip)
+        try:
+            result = self._reader.get(ip)
+        except (ValueError, OSError):
+            from ._sources._mmdb import open_reader
+            self._reader = open_reader(self._mmdb_path)
+            result = self._reader.get(ip)
         return result if result is not None else {}
 
     def health(self) -> SourceHealth:

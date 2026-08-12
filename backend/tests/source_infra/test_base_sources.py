@@ -80,3 +80,87 @@ def test_get_insert_data_without_classification_type_unchanged():
     data = src.get_insert_data()
     assert "extra" not in data
     assert data == {"is_legacy": True}
+
+
+def test_load_pure_mmap_does_not_rebuild(tmp_path, monkeypatch):
+    """load() 纯 mmap:有 mmdb 就读,没有则 _reader=None。不触发任何 harvest。"""
+    from ipdb._source_base import Source
+    from ipdb._sources._mmdb import write_mmdb
+    from ipdb._evidence import Evidence
+
+    class _S(Source):
+        name = "t"; filename = "t.txt"; fields = ("is_x",)
+        single_evidence = True
+        harvest_calls = 0
+        def harvest(self):
+            _S.harvest_calls += 1
+            yield "1.2.3.0/24", Evidence(verdict="malicious")
+
+    s = _S(tmp_path)
+    # 预置一个 mmdb(I1 双 buffer 的"旧 mmdb"场景)
+    write_mmdb([("9.9.9.0/24", [{"k": "v"}])], tmp_path / "t.txt.mmdb")
+    (tmp_path / "t.txt.count").write_text("1")
+    (tmp_path / "t.txt.cov").write_text("256")
+
+    n = s.load()
+    assert n == 1
+    assert s.query("9.9.9.9") == [{"k": "v"}]
+    assert _S.harvest_calls == 0            # load 不重建,不调 harvest
+
+    s._reader.close()
+
+
+def test_load_no_mmdb_returns_zero(tmp_path):
+    """没有 mmdb 文件,load 返回 0,_reader=None。"""
+    from ipdb._source_base import Source
+    from ipdb._evidence import Evidence
+    class _S(Source):
+        name = "t"; filename = "t.txt"; fields = ("is_x",)
+        single_evidence = True
+        def harvest(self):
+            yield "1.2.3.0/24", Evidence(verdict="malicious")
+    s = _S(tmp_path)
+    assert s.load() == 0
+    assert s._reader is None
+    assert s.query("1.2.3.4") == {}
+
+
+def test_rebuild_writes_mmdb_and_swaps_reader(tmp_path):
+    """rebuild() 调 rebuild_mmdb,写出新 mmdb + count + cov,reader 可查新数据。"""
+    from ipdb._source_base import Source
+    from ipdb._evidence import Evidence
+    class _S(Source):
+        name = "t"; filename = "t.txt"; fields = ("is_x",)
+        single_evidence = True
+        def harvest(self):
+            yield "5.6.7.0/24", Evidence(classification_type="proxy", verdict="suspicious")
+
+    s = _S(tmp_path)
+    (tmp_path / "t.txt").write_text("placeholder")  # raw 存在,触发 harvest
+    n = s.rebuild()
+    assert n == 1
+    assert (tmp_path / "t.txt.mmdb").exists()
+    assert (tmp_path / "t.txt.count").read_text() == "1"
+    assert int((tmp_path / "t.txt.cov").read_text()) == 256
+    assert s.query("5.6.7.8") is not None   # 新 reader 可查
+    s._reader.close()
+
+
+def test_query_tolerates_closed_reader(tmp_path, monkeypatch):
+    """query 撞到被 close 的 reader 时,重开重试,不抛。"""
+    from ipdb._source_base import Source
+    from ipdb._sources._mmdb import write_mmdb
+    class _S(Source):
+        name = "t"; filename = "t.txt"; fields = ("is_x",)
+        single_evidence = True
+        def harvest(self):
+            yield from []
+    s = _S(tmp_path)
+    write_mmdb([("9.9.9.0/24", {"k": "v"})], tmp_path / "t.txt.mmdb")
+    (tmp_path / "t.txt.count").write_text("1")
+    (tmp_path / "t.txt.cov").write_text("256")
+    s.load()
+    s._reader.close()                       # 模拟 rebuild 期间被 close
+    # query 应容错重开
+    assert s.query("9.9.9.9") == {"k": "v"}
+    s._reader.close()
