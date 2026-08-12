@@ -74,3 +74,49 @@ def test_task_state_returns_state_or_none():
     # unknown id -> None, never raises
     assert mgr.task_state("does-not-exist") is None
     mgr.cancel(task.id)
+
+
+def test_enabled_offline_sources_returns_objects_not_names(tmp_path):
+    """enabled_offline_sources returns Source objects (offline+enabled), not names.
+    Online (ApiSource) sources are excluded."""
+    from ipdb._registry import enabled_offline_sources
+    srcs = enabled_offline_sources()
+    # Every returned object is a Source instance with a .name and an _path attr
+    # (offline sources set _path in __init__). We assert on shape, not specific
+    # sources, since the discovered set is environment-dependent.
+    from ipdb._sources._base import ApiSource
+    for s in srcs:
+        assert isinstance(s.name, str) and s.name
+        assert not isinstance(s, ApiSource), "online source leaked into offline list"
+        assert hasattr(s, "_path"), f"{s.name} has no _path (not offline-shaped)"
+
+
+def test_needs_rebuild_of_detects_stale_mmdb(tmp_path):
+    """_needs_rebuild_of is True when MMDB is missing or older than raw."""
+    from pathlib import Path
+    from ipdb._registry import _needs_rebuild_of
+    import time
+
+    class _FakeOffline:
+        def __init__(self, p):
+            self._path = p
+            self._mmdb_path = Path(str(p) + ".mmdb")
+
+    raw = tmp_path / "raw.txt"
+    mmdb = tmp_path / "raw.txt.mmdb"
+
+    # raw exists, mmdb missing -> needs rebuild
+    raw.write_text("x")
+    f = _FakeOffline(raw)
+    assert _needs_rebuild_of(f) is True
+
+    # mmdb newer than raw -> does not need rebuild
+    mmdb.write_text("x")
+    fut = time.time() + 100
+    import os
+    os.utime(mmdb, (fut, fut))
+    assert _needs_rebuild_of(f) is False
+
+    # raw newer than mmdb -> needs rebuild
+    os.utime(raw, (fut + 200, fut + 200))
+    assert _needs_rebuild_of(f) is True
