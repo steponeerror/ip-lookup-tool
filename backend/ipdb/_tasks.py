@@ -15,7 +15,7 @@ class Task:
     id: str
     source_name: str
     host: Optional[str]
-    state: str = "queued"  # queued|downloading|loading|done|failed|cancelled
+    state: str = "queued"  # queued|downloading|loading|throttled|done|failed|cancelled
     error: Optional[str] = None
     batch_id: Optional[str] = None
     token: CancelToken = field(default_factory=CancelToken)
@@ -39,12 +39,13 @@ class Batch:
 class UpdateManager:
     def __init__(self, resolve_source: Callable, lock_for: Callable,
                  concurrency: int = 3, archetype_of: Callable = lambda s: "offline",
-                 queue_cap: int = 256):
+                 queue_cap: int = 256, valve=None):
         self._resolve = resolve_source
         self._lock_for = lock_for
         self._concurrency = concurrency
         self._archetype_of = archetype_of
         self._queue_cap = queue_cap
+        self._valve = valve
 
         self._tasks: dict[str, Task] = {}
         self._by_source: dict[str, str] = {}      # source_name -> active task_id
@@ -80,7 +81,7 @@ class UpdateManager:
             raise ValueError(f"online source not updatable: {name}")
         with self._lock:
             existing = self._by_source.get(name)
-            if existing and self._tasks[existing].state in ("queued", "downloading", "loading"):
+            if existing and self._tasks[existing].state in ("queued", "downloading", "loading", "throttled"):
                 return self._tasks[existing]
             task = Task(id=uuid.uuid4().hex[:12], source_name=name,
                         host=getattr(source, "download_host", None),
@@ -153,7 +154,7 @@ class UpdateManager:
                 return
             # done when no active tasks remain for this batch
             active = [t for t in self._tasks.values()
-                      if t.batch_id == b.id and t.state in ("queued", "downloading", "loading")]
+                      if t.batch_id == b.id and t.state in ("queued", "downloading", "loading", "throttled")]
             if not active:
                 b.state = "done"
                 self._emit({"type": "batch", "batch": b.to_dict()})
@@ -187,9 +188,12 @@ class UpdateManager:
         task = self._tasks.get(task_id)
         if task is None:
             return
-        if task.state == "queued":
+        if task.state in ("queued", "throttled"):
             task.state = "cancelled"
             self._emit({"type": "task", "task": task.to_dict()})
+            with self._queue_cv:
+                self._queue = deque(t for t in self._queue if t != task_id)
+                self._queue_cv.notify_all()
             self._settle(task)
         else:
             task.token.cancel()
@@ -206,7 +210,7 @@ class UpdateManager:
                 target = batch_id
             ids = [tid for tid, t in self._tasks.items()
                    if t.batch_id == target
-                   and t.state in ("queued", "downloading", "loading")]
+                   and t.state in ("queued", "downloading", "loading", "throttled")]
         for tid in ids:
             self.cancel(tid)
 
@@ -227,13 +231,34 @@ class UpdateManager:
     def _worker(self):
         while True:
             with self._queue_cv:
-                while not self._go.is_set() or not self._queue:
+                while (not self._go.is_set()) or (not self._queue):
                     self._queue_cv.wait()
-                task_id = self._queue.popleft()
-            task = self._tasks.get(task_id)
-            if task is None or task.state != "queued":
-                continue
+                task_id = self._queue[0]
+                task = self._tasks.get(task_id)
+                if task is None or task.state not in ("queued", "throttled"):
+                    self._queue.popleft()
+                    continue
+                # 阀门判定
+                if self._valve is not None:
+                    src = self._resolve(task.source_name)
+                    weight = getattr(src, "rebuild_weight", "normal") if src else "normal"
+                    peak = getattr(src, "rebuild_peak_gb", 0.0) if src else 0.0
+                    if not self._valve.can_run(weight, peak):
+                        if task.state == "queued":
+                            self._set_state(task, "throttled")
+                        self._queue_cv.wait()
+                        continue
+                    if task.state == "throttled":
+                        self._set_state(task, "queued")
+                    self._valve.on_start(weight)
+                self._queue.popleft()
             self._run_task(task)
+            if self._valve is not None:
+                src = self._resolve(task.source_name)
+                weight = getattr(src, "rebuild_weight", "normal") if src else "normal"
+                self._valve.on_finish(weight)
+                with self._queue_cv:
+                    self._queue_cv.notify_all()
 
     def _set_state(self, task: Task, state: str, error: str | None = None):
         task.state = state
@@ -278,7 +303,7 @@ class UpdateManager:
                 self._set_state(task, "cancelled"); return
             self._set_state(task, "loading")
             try:
-                source.load()
+                source.rebuild()
             except Exception as e:
                 self._set_state(task, "failed", str(e)); return
             self._set_state(task, "done")

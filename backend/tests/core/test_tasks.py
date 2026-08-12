@@ -30,6 +30,8 @@ class FakeSource:
                 self.download_concurrent -= 1
     def load(self):
         self.load_calls += 1
+    def rebuild(self):
+        self.load_calls += 1   # rebuild 复用 load 的计数,兼容既有断言
 
 
 def _make_manager(sources, concurrency=3):
@@ -362,3 +364,63 @@ def test_emit_drops_oldest_when_queue_full():
         assert q not in mgr._subs
     finally:
         loop.close()
+
+
+# --- Task 8: MemoryValve integration (throttled state + acquire-after-dequeue) ---
+
+def test_throttled_state_blocks_and_resumes(monkeypatch):
+    """target=0 时,task 进 throttled;target 恢复后转 loading。"""
+    from ipdb._memory_valve import MemoryValve
+    mgr, by_name = _make_manager([FakeSource("a")])
+    valve = MemoryValve(ceiling=3)
+    valve.target_capacity = 0                       # 模拟危险线
+    mgr._valve = valve
+    mgr.enqueue_one("a")
+    snap = _wait_states(mgr, lambda s: any(t["state"] == "throttled" for t in s["tasks"]),
+                       timeout=2)
+    assert any(t["state"] == "throttled" for t in snap["tasks"])
+    assert by_name["a"].load_calls == 0
+    # 恢复容量
+    valve.target_capacity = 3
+    with mgr._queue_cv:
+        mgr._queue_cv.notify_all()
+    snap = _wait_states(mgr, lambda s: any(t["state"] == "done" for t in s["tasks"]),
+                       timeout=2)
+    assert any(t["state"] == "done" for t in snap["tasks"])
+    assert by_name["a"].load_calls == 1
+
+
+def test_heavy_sources_not_concurrent(monkeypatch):
+    """两个 heavy 源不同时跑(软互斥)。"""
+    from ipdb._memory_valve import MemoryValve
+    # FakeSource 标 heavy
+    class HeavyFake(FakeSource):
+        rebuild_weight = "heavy"
+        rebuild_peak_gb = 0.0   # 关闭峰值预检,只测互斥
+    a = HeavyFake("a", slow=0.3)
+    b = HeavyFake("b", slow=0.3)
+    mgr, by_name = _make_manager([a, b], concurrency=2)
+    mgr._valve = MemoryValve(ceiling=2)
+    mgr.enqueue_one("a"); mgr.enqueue_one("b")
+    # 等 a 跑完
+    _wait_states(mgr, lambda s: all(t["state"] == "done" for t in s["tasks"]), timeout=3)
+    # peak_concurrent 不超过 1(heavy 互斥)
+    assert max(a.peak_concurrent, b.peak_concurrent) <= 1
+
+
+def test_batch_done_ignores_throttled():
+    """throttled task 算 active,batch 不假完成(H1)。"""
+    from ipdb._memory_valve import MemoryValve
+    mgr, by_name = _make_manager([FakeSource("a")])
+    mgr._valve = MemoryValve(ceiling=3)
+    mgr._valve.target_capacity = 0
+    bid = mgr.enqueue_batch(["a"])
+    import time
+    time.sleep(0.3)
+    # batch 不该 done(throttled 算 active)
+    assert mgr._batches[bid].state != "done"
+    # 恢复,让它能完成
+    mgr._valve.target_capacity = 3
+    with mgr._queue_cv:
+        mgr._queue_cv.notify_all()
+    _wait_states(mgr, lambda s: mgr._batches[bid].state == "done", timeout=3)
