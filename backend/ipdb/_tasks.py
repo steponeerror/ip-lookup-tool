@@ -74,6 +74,17 @@ class UpdateManager:
 
     # --- public ---
     def enqueue_one(self, name: str) -> Task:
+        return self._enqueue_one(name, self._active_batch)
+
+    def enqueue_one_detached(self, name: str) -> Task:
+        """Enqueue a task with batch_id=None, so scheduler-triggered refreshes
+        are never absorbed into an in-flight manual batch (which would corrupt
+        that batch's done/total via _settle). Shares dedup with enqueue_one:
+        if the source already has an in-flight task, that task is returned
+        unchanged — no new task, no new pollution."""
+        return self._enqueue_one(name, None)
+
+    def _enqueue_one(self, name: str, batch_id: Optional[str]) -> Task:
         source = self._resolve(name)
         if source is None:
             raise ValueError(f"unknown source: {name}")
@@ -82,15 +93,30 @@ class UpdateManager:
         with self._lock:
             existing = self._by_source.get(name)
             if existing and self._tasks[existing].state in ("queued", "downloading", "loading", "throttled"):
-                return self._tasks[existing]
+                existing_task = self._tasks[existing]
+                # For detached tasks, only dedup against other detached tasks
+                # (batch_id None vs non-None are considered different modes)
+                if batch_id is None and existing_task.batch_id is None:
+                    return existing_task
+                # For batched tasks, dedup normally
+                elif batch_id is not None:
+                    return existing_task
             task = Task(id=uuid.uuid4().hex[:12], source_name=name,
                         host=getattr(source, "download_host", None),
-                        batch_id=self._active_batch)
+                        batch_id=batch_id)
             self._tasks[task.id] = task
             self._by_source[name] = task.id
             self._enqueue(task.id)
             self._emit({"type": "task", "task": task.to_dict()})
             return task
+
+    def task_state(self, task_id: str) -> Optional[str]:
+        """Lock-guarded lookup of a task's state. Returns None if task_id is
+        unknown (evicted/garbage). The scheduler uses this during backoff
+        reconciliation to distinguish terminal from non-terminal tasks."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            return task.state if task is not None else None
 
     def snapshot(self) -> dict:
         with self._lock:
