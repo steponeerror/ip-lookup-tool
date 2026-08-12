@@ -278,6 +278,34 @@ def sources_needing_rebuild() -> list[str]:
     return out
 
 
+def enabled_offline_sources() -> list:
+    """Enabled offline Source objects (not names). Used by RefreshScheduler.
+
+    Mirrors the offline+enabled filter that stale_source_names and
+    _offline_enabled_names apply, but returns the Source objects so the
+    scheduler can read _path/_mmdb_path and health() directly.
+    """
+    return [s for s in _enabled_sources() if _archetype(s) == "offline"]
+
+
+def _needs_rebuild_of(source) -> bool:
+    """Per-source: True if the MMDB is missing or older than the raw file.
+
+    Single-source form of sources_needing_rebuild, using the same
+    needs_convert check. Returns False for sources lacking _path/_mmdb_path
+    (defensive; real offline sources always set them)."""
+    from ._sources._mmdb import needs_convert
+    raw_path = getattr(source, "_path", None)
+    mmdb_path = getattr(source, "_mmdb_path", None)
+    if raw_path is None or mmdb_path is None:
+        return False
+    raw = Path(raw_path)
+    mmdb = Path(mmdb_path)
+    if not raw.exists():
+        return False
+    return needs_convert(raw, mmdb)
+
+
 def set_source_enabled(name: str, enabled: bool) -> dict:
     """Toggle a source on/off, persist the choice, and queue a rebuild when enabling.
 

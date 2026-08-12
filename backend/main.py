@@ -201,6 +201,37 @@ def _ensure_valve_sampler() -> None:
     _valve.start_sampler(manager._queue_cv, _valve_stop, interval=2.0)
 
 
+_refresh_scheduler = None
+_scheduler_stop: threading.Event | None = None
+
+
+def _ensure_refresh_scheduler() -> None:
+    """Start the background auto-refresh scheduler once per process.
+
+    Mirrors _ensure_valve_sampler. Disabled entirely when
+    IPRADAR_AUTO_REFRESH=0 (status endpoint still reports enabled=False).
+    """
+    global _refresh_scheduler, _scheduler_stop
+    if os.environ.get("IPRADAR_AUTO_REFRESH", "1") == "0":
+        return
+    if _refresh_scheduler is not None:
+        return
+    from ipdb._scheduler import RefreshScheduler
+    from ipdb._registry import enabled_offline_sources, _needs_rebuild_of
+    interval = int(os.environ.get("IPRADAR_REFRESH_INTERVAL_SEC", "1800"))
+    _refresh_scheduler = RefreshScheduler(
+        manager=manager,
+        enabled_offline_sources=enabled_offline_sources,
+        needs_rebuild_of=_needs_rebuild_of,
+        interval=interval)
+    _scheduler_stop = threading.Event()
+    threading.Thread(
+        target=_refresh_scheduler.start, args=(_scheduler_stop,),
+        daemon=True, name="refresh-scheduler").start()
+    logging.getLogger(__name__).info(
+        "auto-refresh scheduler started (interval=%ds)", interval)
+
+
 def _is_cold_start() -> bool:
     """True if NO enabled offline source has an existing data file on disk.
 
@@ -256,6 +287,7 @@ async def lifespan(app: FastAPI):
     from ipdb._registry import DATA_DIR
     _cleanup_orphan_tmp(DATA_DIR)
     _startup()
+    _ensure_refresh_scheduler()
     cpu, ram = _batch_pool.detect_host()
     env = dict(os.environ)
     cfg = _batch_pool.load_perf_config()
@@ -277,6 +309,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if _scheduler_stop is not None:
+            _scheduler_stop.set()
         if pool is not None:
             pool.shutdown(wait=False)
         _batch_pool.set_pool(None)
@@ -347,6 +381,16 @@ async def upload_file_stream(file: UploadFile = File(...)):
 @app.get("/api/db-status")
 async def db_status():
     return get_status()
+
+
+@app.get("/api/scheduler/status")
+async def scheduler_status():
+    """Read-only snapshot of the auto-refresh scheduler."""
+    if _refresh_scheduler is None:
+        return {"enabled": False,
+                "interval_sec": int(os.environ.get("IPRADAR_REFRESH_INTERVAL_SEC", "1800")),
+                "last_scan_at": None, "next_scan_at": None, "sources": []}
+    return _refresh_scheduler.status()
 
 
 def _offline_enabled_names():
