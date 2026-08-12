@@ -163,22 +163,28 @@ def test_batch_flows_through_manager_and_snapshot(monkeypatch):
     import main
     from ipdb._registry import _sources, _archetype
 
-    # Stub every offline source: download = no-op, load = return 0.
+    # Stub every offline source: download = no-op, rebuild = return 0.
     # Instance-attribute assignment shadows the class method; the manager calls
-    # source.download(token=...) / source.load() without self.
+    # source.download(token=...) / source.rebuild() without self.
     offline = [s for s in _sources if _archetype(s) == "offline"]
     assert offline, "no offline sources discovered — registry misconfigured"
     for s in offline:
         monkeypatch.setattr(s, "download", lambda token=None: None)
-        monkeypatch.setattr(s, "load", lambda: 0)
+        monkeypatch.setattr(s, "rebuild", lambda: 0)
 
-    # /api/update-db enqueues only STALE sources. Force every offline source
-    # stale so the batch is non-empty regardless of on-disk data freshness
-    # (CI has no data → all stale; a dev worktree with fresh data → none stale
-    # without this, and the batch would be empty).
-    monkeypatch.setattr(main, "stale_source_names", lambda: [s.name for s in offline])
+    # /api/update-db now enqueues ALL enabled offline sources (the MemoryValve
+    # gates rebuild concurrency, so a full batch no longer risks OOM). Patch
+    # _offline_enabled_names so the batch is deterministic regardless of which
+    # sources happen to be enabled in the test environment.
+    monkeypatch.setattr(main, "_offline_enabled_names", lambda: [s.name for s in offline])
 
     mgr = main.manager
+    # This smoke test verifies wiring (endpoint → manager → workers → snapshot),
+    # NOT the valve. The production valve would block heavy sources whose peak
+    # exceeds the test host's available memory, stalling the batch. Stub can_run
+    # to admit everything so the batch completes deterministically.
+    if mgr._valve is not None:
+        monkeypatch.setattr(mgr._valve, "can_run", lambda weight, peak_gb: True)
     sub_loop = asyncio.new_event_loop()
     q = mgr.subscribe(sub_loop)
     received: list[dict] = []

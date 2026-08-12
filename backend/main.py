@@ -357,19 +357,19 @@ def _offline_enabled_names():
 
 @app.post("/api/update-db")
 async def update_db():
-    """Refresh stale sources only.
+    """Refresh ALL enabled offline sources, regardless of staleness.
 
-    Fresh sources are skipped: re-downloading them bumps the raw file's mtime
-    past the MMDB's, forcing a full MMDB rebuild. For multi-million-row sources
-    (ipinfo_lite 3.6M, ip2proxy 2.9M) a single rebuild peaks at several GB and
-    can OOM the host. Skipping fresh sources bounds the batch to what actually
-    needs updating. ``refreshed=0`` lets the UI show "nothing to do".
+    Every source is re-downloaded and rebuilt. The MemoryValve gates rebuild
+    concurrency (heavy sources serialize; target_capacity adapts to available
+    memory), so a full batch no longer risks OOM the way it did before the
+    valve. Returns ``refreshed=0`` only when there are no enabled offline
+    sources at all.
     """
-    stale = stale_source_names()
-    if not stale:
+    names = _offline_enabled_names()
+    if not names:
         return {"batch_id": None, "refreshed": 0}
-    bid = manager.enqueue_batch(stale)
-    return {"batch_id": bid, "refreshed": len(stale)}
+    bid = manager.enqueue_batch(names)
+    return {"batch_id": bid, "refreshed": len(names)}
 
 
 @app.post("/api/update-db/cancel")
