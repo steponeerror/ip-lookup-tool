@@ -15,6 +15,8 @@ class IPinfoLiteSource:
     name = "ipinfo_lite"
     fields = ("country_code", "asn", "as_name", "ip_range")
     stale_days = 7
+    rebuild_weight = "heavy"
+    rebuild_peak_gb = 3.0
 
     def __init__(self, data_dir: Path):
         self._token = os.environ.get("IPINFO_TOKEN", "").strip()

@@ -80,3 +80,23 @@ def test_x4bnet_vpn_get_insert_data_has_is_vpn():
     d = src.get_insert_data()
     assert d["is_vpn"] is True
     assert d["_native_types"] == {"is_vpn": "VPN"}
+
+
+def test_heavy_sources_marked():
+    """三个大源标 heavy + peak。"""
+    from ipdb._sources.ip2proxy import IP2ProxySource
+    from ipdb._sources.iptoasn import IPtoASNSource
+    from ipdb._sources.ipinfo_lite import IPinfoLiteSource
+    assert IP2ProxySource.rebuild_weight == "heavy"
+    assert IP2ProxySource.rebuild_peak_gb == 6.0
+    assert IPtoASNSource.rebuild_weight == "heavy"
+    assert IPtoASNSource.rebuild_peak_gb == 1.6
+    assert IPinfoLiteSource.rebuild_weight == "heavy"
+    assert IPinfoLiteSource.rebuild_peak_gb == 3.0
+
+
+def test_normal_sources_default():
+    """普通源默认 normal。"""
+    from ipdb._sources.threatfox import ThreatFoxSource
+    assert ThreatFoxSource.rebuild_weight == "normal"
+    assert ThreatFoxSource.rebuild_peak_gb == 0.0
