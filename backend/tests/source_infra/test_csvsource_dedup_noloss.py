@@ -20,7 +20,9 @@ def test_two_rows_same_4tuple_diff_confidence_both_kept(tmp_path: Path):
     # same (ctype, verdict, malware, native_type) but different confidence
     f.write_text("1.2.3.4,blacklist,win.x,70\n1.2.3.4,blacklist,win.x,95\n")
     s = _T(data_dir=tmp_path)
-    n = s.load()
-    assert n == 2, f"dedup dropped a row with differing confidence: kept {n}"
+    n = s.rebuild()
+    # rebuild() returns distinct-CIDR count; here both rows share 1.2.3.4/32.
+    assert n == 1, f"expected 1 CIDR, got {n}"
     rec = s.query("1.2.3.4")
-    assert isinstance(rec, list) and len(rec) == 2
+    assert isinstance(rec, list) and len(rec) == 2, (
+        f"dedup dropped a row with differing confidence: kept {len(rec) if isinstance(rec, list) else 0}")

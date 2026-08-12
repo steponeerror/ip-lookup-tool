@@ -29,7 +29,7 @@ def test_same_ip_distinct_types_accumulate(tmp_path):
         "1.2.3.4,malware,vidar\n"      # same IP, different classification
     )
     src = FakeMulti(data_dir=tmp_path)
-    src.load()
+    src.rebuild()
     out = src.query("1.2.3.4")
     assert isinstance(out, list)
     assert len(out) == 2
@@ -44,7 +44,7 @@ def test_duplicate_rows_dedup(tmp_path):
         "1.2.3.4,c2-server,vidar\n"    # same type, different malware -> keep
     )
     src = FakeMulti(data_dir=tmp_path)
-    src.load()
+    src.rebuild()
     out = src.query("1.2.3.4")
     assert len(out) == 2  # (c2-server,botnet) deduped; (c2-server,vidar) distinct
 
@@ -52,7 +52,7 @@ def test_duplicate_rows_dedup(tmp_path):
 def test_miss_returns_empty(tmp_path):
     (tmp_path / "x.csv").write_text("1.2.3.4,c2-server,botnet\n")
     src = FakeMulti(data_dir=tmp_path)
-    src.load()
+    src.rebuild()
     assert src.query("9.9.9.9") == {}
 
 
@@ -81,9 +81,10 @@ def test_native_type_distinguishes_dedup(tmp_path):
     """Two rows same CIDR, different native_type (VPN vs PUB) must NOT merge."""
     src = _FakeProxySource(data_dir=tmp_path)
     src._path.write_text("1.2.3.4,VPN\n1.2.3.4,PUB\n")
-    count = src.load()
-    # Both rows survive (different native_type), so count == 2
-    assert count == 2
+    count = src.rebuild()
+    # rebuild() returns distinct-CIDR count; here both rows share 1.2.3.4/32.
+    assert count == 1
+    # Both rows survive (different native_type): query returns a 2-element list.
     out = src.query("1.2.3.4")
     assert isinstance(out, list) and len(out) == 2
     native_types = {o["extra"]["native_type"] for o in out}

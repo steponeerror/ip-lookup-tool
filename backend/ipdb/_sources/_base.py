@@ -94,47 +94,31 @@ class IpListSource:
             raise
 
     def load(self) -> int:
-        import ipaddress as _ipa
-        from ._mmdb import write_mmdb, open_reader, needs_convert
-
-        if not self._path.exists():
+        """纯 mmap:打开已有 mmdb,读 sidecar,不重建。"""
+        from ._mmdb import open_reader
+        if not self._mmdb_path.exists():
             self._reader = None
             return 0
-        count_path = self._mmdb_path.with_suffix(".count")
-        if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
-            if self._reader is not None:
-                self._reader.close()
-                self._reader = None
-            insert_data = self.get_insert_data()
-            records = []
-            with open(self._path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    for sep in (";", "#"):
-                        if sep in line:
-                            line = line.split(sep, 1)[0].strip()
-                    if not line:
-                        continue
-                    try:
-                        net = _ipa.IPv4Network(line, strict=False)
-                    except (_ipa.AddressValueError, ValueError):
-                        continue
-                    records.append((str(net), [insert_data]))
-            from ._mmdb import covered_ip_count
-            write_mmdb(records, self._mmdb_path)
-            count_path.write_text(str(len(records)))
-            self._mmdb_path.with_suffix(".cov").write_text(
-                str(covered_ip_count(r[0] for r in records)))
-
         self._reader = open_reader(self._mmdb_path)
-        self._count = int(count_path.read_text()) if count_path.exists() else 0
-        from ._mmdb import covered_ips_cached
-        import ipaddress as _ipa
+        count_path = self._mmdb_path.with_suffix(".count")
+        cov_path = self._mmdb_path.with_suffix(".cov")
+        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
+        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
+        self._loaded_at = time.time()
+        return self._count
 
-        def _enum():
-            for line in self._path.read_text().splitlines():
+    def rebuild(self) -> int:
+        """重建 mmdb(唯一重建入口)。双 buffer swap reader。"""
+        import ipaddress as _ipa
+        from ._mmdb import rebuild_mmdb, covered_ip_count
+        if not self._path.exists():
+            return 0
+        old_reader = self._reader
+        insert_data = self.get_insert_data()
+        records = []
+        covered = []
+        with open(self._path, "r", encoding="utf-8") as f:
+            for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
@@ -144,14 +128,25 @@ class IpListSource:
                 if not line:
                     continue
                 try:
-                    yield str(_ipa.IPv4Network(line, strict=False))
+                    net = _ipa.IPv4Network(line, strict=False)
                 except (_ipa.AddressValueError, ValueError):
                     continue
-
-        self._covered_ips = covered_ips_cached(
-            self._mmdb_path.with_suffix(".cov"), [self._path], _enum)
-        self._loaded_at = time.time()
-        return self._count
+                records.append((str(net), [insert_data]))
+                covered.append(str(net))
+        try:
+            n = rebuild_mmdb(iter(records), self._mmdb_path,
+                             reader_setter=lambda r: setattr(self, "_reader", r),
+                             database_type=f"IP-Radar-{self.name}")
+            self._mmdb_path.with_suffix(".count").write_text(str(n))
+            self._mmdb_path.with_suffix(".cov").write_text(
+                str(covered_ip_count(covered)))
+            self._count = n
+            self._covered_ips = covered_ip_count(covered)
+            self._loaded_at = time.time()
+            return n
+        finally:
+            if old_reader is not None:
+                old_reader.close()
 
     def query(self, ip: str) -> Any:
         if self._reader is None:
@@ -199,94 +194,75 @@ class CsvSource(IpListSource):
         raise NotImplementedError("CsvSource subclasses must implement parse_row()")
 
     def load(self) -> int:
-        import csv as _csv
-        import ipaddress as _ipa
-        from ._mmdb import write_mmdb, open_reader, needs_convert
-
-        if not self._path.exists():
+        """纯 mmap:打开已有 mmdb,读 sidecar,不重建。"""
+        from ._mmdb import open_reader
+        if not self._mmdb_path.exists():
             self._reader = None
             return 0
-
-        # cidr_str -> list[evidence dict], deduped by full-evidence equality
-        acc: dict[str, list[dict]] = {}
-        count_path = self._mmdb_path.with_suffix(".count")
-        if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
-            if self._reader is not None:
-                self._reader.close()
-                self._reader = None
-            with open(self._path, "r", encoding="utf-8") as f:
-                for _ in range(self.skip_lines):
-                    next(f, None)
-                reader = _csv.reader(f, delimiter=self.delimiter)
-                for row in reader:
-                    if not row:
-                        continue
-                    parsed = self.parse_row(row)
-                    if parsed is None:
-                        continue
-                    ip_str = parsed.pop("_ip", row[0].strip())
-                    cidr_str = parsed.pop("_cidr", None)
-                    try:
-                        if cidr_str:
-                            net = _ipa.IPv4Network(cidr_str, strict=False)
-                        elif "/" in ip_str:
-                            net = _ipa.IPv4Network(ip_str, strict=False)
-                        else:
-                            _ipa.IPv4Address(ip_str)
-                            net = _ipa.IPv4Network(f"{ip_str}/32", strict=False)
-                    except (_ipa.AddressValueError, ValueError):
-                        continue
-                    key = str(net)
-                    bucket = acc.setdefault(key, [])
-                    # Dedup on the FULL evidence (not just 4-tuple): two rows
-                    # with same classification/verdict/malware but different
-                    # native_categories/confidence/first_seen/comment are distinct
-                    # evidence and must both survive (field-loss fix #6).
-                    if any(parsed == o for o in bucket):
-                        continue
-                    bucket.append(parsed)
-            from ._mmdb import covered_ip_count
-            write_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path)
-            count_path.write_text(str(sum(len(v) for v in acc.values())))
-            self._mmdb_path.with_suffix(".cov").write_text(
-                str(covered_ip_count(acc.keys())))
-
         self._reader = open_reader(self._mmdb_path)
-        self._count = int(count_path.read_text()) if count_path.exists() else 0
-        import csv as _csv
-        import ipaddress as _ipa
-        from ._mmdb import covered_ips_cached
-
-        def _enum():                       # rare decouple path; dedup for D1
-            seen = set()
-            with open(self._path, "r", encoding="utf-8") as f:
-                for _ in range(self.skip_lines):
-                    next(f, None)
-                for row in _csv.reader(f, delimiter=self.delimiter):
-                    if not row:
-                        continue
-                    parsed = self.parse_row(row)
-                    if parsed is None:
-                        continue
-                    ip_str = parsed.pop("_ip", row[0].strip())
-                    cidr_str = parsed.pop("_cidr", None)
-                    try:
-                        if cidr_str:
-                            net = _ipa.IPv4Network(cidr_str, strict=False)
-                        elif "/" in ip_str:
-                            net = _ipa.IPv4Network(ip_str, strict=False)
-                        else:
-                            net = _ipa.IPv4Network(f"{ip_str}/32", strict=False)
-                    except (_ipa.AddressValueError, ValueError):
-                        continue
-                    if str(net) not in seen:
-                        seen.add(str(net))
-                        yield str(net)
-
-        self._covered_ips = covered_ips_cached(
-            self._mmdb_path.with_suffix(".cov"), [self._path], _enum)
+        count_path = self._mmdb_path.with_suffix(".count")
+        cov_path = self._mmdb_path.with_suffix(".cov")
+        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
+        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
         self._loaded_at = time.time()
         return self._count
+
+    def rebuild(self) -> int:
+        """重建 mmdb(唯一重建入口)。双 buffer swap reader。"""
+        import csv as _csv
+        import ipaddress as _ipa
+        from ._mmdb import rebuild_mmdb, covered_ip_count
+        if not self._path.exists():
+            return 0
+        old_reader = self._reader
+        # cidr_str -> list[evidence dict], deduped by full-evidence equality
+        acc: dict[str, list[dict]] = {}
+        with open(self._path, "r", encoding="utf-8") as f:
+            for _ in range(self.skip_lines):
+                next(f, None)
+            reader = _csv.reader(f, delimiter=self.delimiter)
+            for row in reader:
+                if not row:
+                    continue
+                parsed = self.parse_row(row)
+                if parsed is None:
+                    continue
+                ip_str = parsed.pop("_ip", row[0].strip())
+                cidr_str = parsed.pop("_cidr", None)
+                try:
+                    if cidr_str:
+                        net = _ipa.IPv4Network(cidr_str, strict=False)
+                    elif "/" in ip_str:
+                        net = _ipa.IPv4Network(ip_str, strict=False)
+                    else:
+                        _ipa.IPv4Address(ip_str)
+                        net = _ipa.IPv4Network(f"{ip_str}/32", strict=False)
+                except (_ipa.AddressValueError, ValueError):
+                    continue
+                key = str(net)
+                bucket = acc.setdefault(key, [])
+                # Dedup on the FULL evidence (not just 4-tuple): two rows
+                # with same classification/verdict/malware but different
+                # native_categories/confidence/first_seen/comment are distinct
+                # evidence and must both survive (field-loss fix #6).
+                if any(parsed == o for o in bucket):
+                    continue
+                bucket.append(parsed)
+        try:
+            n = rebuild_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path,
+                             reader_setter=lambda r: setattr(self, "_reader", r),
+                             database_type=f"IP-Radar-{self.name}")
+            self._mmdb_path.with_suffix(".count").write_text(
+                str(sum(len(v) for v in acc.values())))
+            self._mmdb_path.with_suffix(".cov").write_text(
+                str(covered_ip_count(acc.keys())))
+            self._count = sum(len(v) for v in acc.values())
+            self._covered_ips = covered_ip_count(acc.keys())
+            self._loaded_at = time.time()
+            return n
+        finally:
+            if old_reader is not None:
+                old_reader.close()
 
 
 class ApiSource:

@@ -45,7 +45,7 @@ class TestIpListSource:
             "\n"
         )
         src = SpamhausLike(data_dir=tmp_path)
-        count = src.load()
+        count = src.rebuild()
 
         assert count == 3
         assert src.query("1.10.16.5") == [{"is_malicious": True}]
@@ -143,6 +143,52 @@ def test_rebuild_writes_mmdb_and_swaps_reader(tmp_path):
     assert (tmp_path / "t.txt.count").read_text() == "1"
     assert int((tmp_path / "t.txt.cov").read_text()) == 256
     assert s.query("5.6.7.8") is not None   # 新 reader 可查
+    s._reader.close()
+
+
+def test_iplistsource_rebuild_accumulates(tmp_path):
+    """IpListSource.rebuild: 从 raw txt 读 CIDR,写 mmdb,可查。"""
+    from ipdb._sources._base import IpListSource
+    class _S(IpListSource):
+        name = "t"; filename = "t.txt"; fields = ("is_x",)
+        def get_insert_data(self):
+            return {"is_x": True}
+    s = _S(tmp_path)
+    (tmp_path / "t.txt").write_text("1.2.3.0/24\n5.6.7.0/24\n")
+    n = s.rebuild()
+    assert n == 2
+    assert s.query("1.2.3.4") == [{"is_x": True}]
+    s._reader.close()
+
+
+def test_csvsource_rebuild_dedup(tmp_path):
+    """CsvSource.rebuild: CSV 行去重后写 mmdb。"""
+    from ipdb._sources._base import CsvSource
+    class _S(CsvSource):
+        name = "t"; filename = "t.csv"; fields = ("is_x",)
+        def parse_row(self, row):
+            return {"_ip": row[0], "is_x": True}
+    s = _S(tmp_path)
+    (tmp_path / "t.csv").write_text("1.2.3.4\n1.2.3.4\n5.6.7.8\n")
+    n = s.rebuild()
+    assert n == 2  # 1.2.3.4 去重
+    s._reader.close()
+
+
+def test_iplistsource_load_pure_mmap(tmp_path):
+    """IpListSource.load 不重建。"""
+    from ipdb._sources._base import IpListSource
+    from ipdb._sources._mmdb import write_mmdb
+    class _S(IpListSource):
+        name = "t"; filename = "t.txt"; fields = ("is_x",)
+        def get_insert_data(self):
+            return {"is_x": True}
+    s = _S(tmp_path)
+    write_mmdb([("9.9.9.0/24", [{"is_x": True}])], tmp_path / "t.txt.mmdb")
+    (tmp_path / "t.txt.count").write_text("1")
+    (tmp_path / "t.txt.cov").write_text("256")
+    assert s.load() == 1
+    assert s.query("9.9.9.9") == [{"is_x": True}]
     s._reader.close()
 
 
