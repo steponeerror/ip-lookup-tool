@@ -35,10 +35,10 @@ class _DemoSingle(Source):
 
 def test_harvest_pairs_become_mmdb_records(tmp_path: Path):
     s = _Demo(data_dir=tmp_path)
-    # pre-create the data file so load() proceeds without download
+    # pre-create the data file so rebuild() proceeds without download
     (tmp_path / "demo.dat").write_text("placeholder\n")
     s._path = tmp_path / "demo.dat"           # base exposes _path
-    n = s.load()
+    n = s.rebuild()
     assert n == 2
     # query() returns list[dict] (MMDB stores multi-evidence lists per CIDR,
     # matching _base.py + test_abuseipdb.py:23 indexing convention)
@@ -50,7 +50,7 @@ def test_health_uses_file_mtime(tmp_path: Path):
     s = _Demo(data_dir=tmp_path)
     s._path = tmp_path / "demo.dat"
     (tmp_path / "demo.dat").write_text("x\n")
-    s.load()                                  # populate _reader so loaded=True
+    s.rebuild()                                # populate _reader so loaded=True
     h = s.health()
     assert h.loaded and not h.is_stale        # just-written file is fresh
 
@@ -73,7 +73,7 @@ def test_single_evidence_load_streams_and_queries(tmp_path: Path):
     s = _DemoSingle(data_dir=tmp_path)
     (tmp_path / "demo_single.dat").write_text("placeholder\n")
     s._path = tmp_path / "demo_single.dat"
-    n = s.load()
+    n = s.rebuild()
     assert n == 2
     assert s.query("10.0.0.5")[0]["classification_type"] == "blacklist"
     assert s.query("10.0.1.5")[0]["classification_type"] == "blacklist"
