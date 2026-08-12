@@ -120,3 +120,217 @@ def test_needs_rebuild_of_detects_stale_mmdb(tmp_path):
     # raw newer than mmdb -> needs rebuild
     os.utime(raw, (fut + 200, fut + 200))
     assert _needs_rebuild_of(f) is True
+
+
+# ── Scheduler-logic tests (no threads; scan() called directly) ──
+
+class SchedFakeSource:
+    """Source object for scheduler tests: has .name, .health(), _path, _mmdb_path."""
+
+    def __init__(self, name, is_stale=False, mtime=None, mmdb_path=None):
+        self.name = name
+        self._is_stale = is_stale
+        self._mtime = mtime
+        from pathlib import Path
+        self._path = Path(f"/tmp/fake_{name}")
+        self._mmdb_path = mmdb_path or Path(f"/tmp/fake_{name}.mmdb")
+
+    def health(self):
+        from ipdb._types import SourceHealth
+        return SourceHealth(name=self.name, loaded=True, record_count=0,
+                            last_updated=None, is_stale=self._is_stale, covered_ips=0)
+
+    def stat_path_mtime(self):
+        return self._mtime
+
+
+class FakeManager:
+    """Stand-in UpdateManager: records detached enqueues, returns scripted states."""
+
+    def __init__(self):
+        self.enqueued = []        # list of source names enqueue_one_detached was called with
+        self._states = {}         # task_id -> state (scripted)
+        self._next_task_id = 0
+
+    def enqueue_one_detached(self, name):
+        tid = f"t{self._next_task_id}"
+        self._next_task_id += 1
+        self.enqueued.append(name)
+        self._states.setdefault(tid, "queued")  # default queued unless overwritten
+        from ipdb._tasks import Task
+        return Task(id=tid, source_name=name, host=None, batch_id=None)
+
+    def task_state(self, task_id):
+        return self._states.get(task_id)
+
+
+def _make_scheduler(sources, manager=None, needs_rebuild=lambda s: False, interval=1800):
+    from ipdb._scheduler import RefreshScheduler
+    mgr = manager or FakeManager()
+    sch = RefreshScheduler(
+        manager=mgr,
+        enabled_offline_sources=lambda: list(sources),
+        needs_rebuild_of=needs_rebuild,
+        interval=interval)
+    return sch, mgr
+
+
+def test_scan_predicate_alignment():
+    """scan enqueues only sources where is_stale or needs_rebuild is True."""
+    sch, mgr = _make_scheduler([
+        SchedFakeSource("stale_a", is_stale=True),
+        SchedFakeSource("stale_b", is_stale=True),
+        SchedFakeSource("fresh", is_stale=False),
+    ])
+    sch.scan(now=1000.0)
+    assert sorted(mgr.enqueued) == ["stale_a", "stale_b"]
+
+
+def test_scan_needs_rebuild_inclusion():
+    """A fresh-mtime source with needs_rebuild=True is still enqueued."""
+    sch, mgr = _make_scheduler(
+        [SchedFakeSource("rebuild_only", is_stale=False)],
+        needs_rebuild=lambda s: s.name == "rebuild_only")
+    sch.scan(now=1000.0)
+    assert mgr.enqueued == ["rebuild_only"]
+
+
+def test_scan_backoff_skip():
+    """A source in active backoff (now < next_attempt) is NOT enqueued."""
+    sch, mgr = _make_scheduler([SchedFakeSource("x", is_stale=True)])
+    # Plant a backoff entry: next_attempt well in the future
+    sch._backoff["x"] = type("B", (), {"fail_count": 1, "next_attempt": 99999.0})()
+    sch.scan(now=1000.0)
+    assert mgr.enqueued == []
+
+
+def test_reconcile_success_clears_fail_count():
+    """mtime changed between scans -> fail_count reset to 0, backoff cleared."""
+    src = SchedFakeSource("x", is_stale=True, mtime=100.0)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=1000.0)              # enqueue; baseline_mtime=100
+    assert "x" in sch._last_task
+    # simulate failed before: plant a fail_count to prove it resets
+    sch._backoff["x"] = type("B", (), {"fail_count": 2, "next_attempt": 0.0})()
+    # next scan: mtime advanced -> success
+    src._mtime = 200.0
+    src._is_stale = False
+    sch.scan(now=2000.0)
+    assert "x" not in sch._backoff
+    assert "x" not in sch._last_task   # cleared on success
+
+
+def test_reconcile_real_failure_increments_backoff():
+    """mtime unchanged + task_state 'failed' -> fail_count++, next_attempt set."""
+    src = SchedFakeSource("x", is_stale=True, mtime=100.0)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=1000.0)              # enqueues t0
+    mgr._states[sch._last_task["x"]] = "failed"
+    # next scan: mtime unchanged, state failed
+    sch.scan(now=2000.0)
+    assert sch._backoff["x"].fail_count == 1
+    # 1h backoff from now=2000 -> next_attempt = 2000 + 3600
+    assert sch._backoff["x"].next_attempt == 2000.0 + 3600
+    # second failure
+    sch.scan(now=3000.0)              # re-enqueue (still stale, backoff expired? no — 3000 < 5600)
+    # backoff not expired at now=3000, so NOT re-enqueued this scan; but reconcile
+    # of the prior failed task already happened. Force a second failed cycle:
+    # advance time past next_attempt, enqueue again, fail again.
+    src._is_stale = True
+    sch.scan(now=6000.0)              # past next_attempt(5600) -> re-enqueue t1
+    assert sch._last_task["x"] == "t1"
+    mgr._states["t1"] = "failed"
+    sch.scan(now=7000.0)              # reconcile t1 as failed
+    assert sch._backoff["x"].fail_count == 2
+    assert sch._backoff["x"].next_attempt == 7000.0 + 7200   # 2h
+
+
+def test_reconcile_throttled_not_a_failure():
+    """H1 fix: non-terminal task_state (throttled) -> no fail_count increment."""
+    src = SchedFakeSource("x", is_stale=True, mtime=100.0)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=1000.0)
+    mgr._states[sch._last_task["x"]] = "throttled"
+    sch.scan(now=2000.0)              # mtime unchanged, state throttled
+    assert "x" not in sch._backoff
+    assert sch._backoff.get("x") is None
+    # last_task retained so next scan reconciles the same task
+    assert "x" in sch._last_task
+
+
+def test_reconcile_cancelled_not_a_failure():
+    """cancelled task_state -> fail_count untouched, last_task cleared."""
+    src = SchedFakeSource("x", is_stale=True, mtime=100.0)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=1000.0)
+    mgr._states[sch._last_task["x"]] = "cancelled"
+    sch.scan(now=2000.0)
+    assert "x" not in sch._backoff
+    assert "x" not in sch._last_task
+
+
+def test_reconcile_done_unreachable_warns_and_clears(caplog):
+    """done + mtime unchanged (unreachable) -> warn, clear last_task, no backoff."""
+    src = SchedFakeSource("x", is_stale=True, mtime=100.0)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=1000.0)
+    mgr._states[sch._last_task["x"]] = "done"
+    import logging
+    with caplog.at_level(logging.WARNING):
+        sch.scan(now=2000.0)
+    assert "x" not in sch._backoff
+    assert "x" not in sch._last_task
+    assert any("unreachable" in r.message.lower() or "done" in r.message.lower()
+               for r in caplog.records)
+
+
+def test_reconcile_unknown_task_id_no_failure():
+    """task_state None (evicted) -> fail_count untouched, last_task cleared."""
+    src = SchedFakeSource("x", is_stale=True, mtime=100.0)
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=1000.0)
+    del mgr._states[sch._last_task["x"]]   # simulate eviction
+    sch.scan(now=2000.0)
+    assert "x" not in sch._backoff
+    assert "x" not in sch._last_task
+
+
+def test_scan_exception_isolation(caplog):
+    """A source whose health() raises does not stop other sources scanning."""
+    class BadSource(SchedFakeSource):
+        def health(self):
+            raise RuntimeError("boom")
+
+    sch, mgr = _make_scheduler([
+        BadSource("bad", is_stale=True),
+        SchedFakeSource("good", is_stale=True),
+    ])
+    import logging
+    with caplog.at_level(logging.ERROR):
+        sch.scan(now=1000.0)        # must not raise
+    assert "good" in mgr.enqueued
+    # bad may or may not have been enqueued before the exception; the point is
+    # the scan completed and processed good.
+
+
+def test_shutdown_stops_thread():
+    """start() returns shortly after stop_event.set(), using a tiny interval."""
+    import threading
+    sch, mgr = _make_scheduler([SchedFakeSource("x", is_stale=False)], interval=0.05)
+    stop = threading.Event()
+    t = threading.Thread(target=sch.start, args=(stop,))
+    t.start()
+    stop.set()
+    t.join(timeout=5.0)
+    assert not t.is_alive(), "scheduler thread did not shut down"
+
+
+def test_status_shape():
+    """status() returns the documented dict shape."""
+    sch, _ = _make_scheduler([SchedFakeSource("x", is_stale=True)])
+    sch.scan(now=1000.0)
+    st = sch.status()
+    assert set(st.keys()) >= {"enabled", "interval_sec", "last_scan_at", "next_scan_at", "sources"}
+    assert st["enabled"] is True
+    assert st["interval_sec"] == 1800
+    assert isinstance(st["sources"], list)
