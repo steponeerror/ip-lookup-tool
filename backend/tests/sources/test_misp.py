@@ -28,7 +28,7 @@ def _sample_doc() -> dict:
 def test_misp_loads_attributes(tmp_path):
     (tmp_path / "misp.json").write_text(json.dumps(_sample_doc()))
     s = MispSource(data_dir=tmp_path)
-    assert s.load() == 3   # 1.2.3.4 (deduped), 5.6.7.8, 9.10.11.12
+    assert s.rebuild() == 3   # 1.2.3.4 (deduped), 5.6.7.8, 9.10.11.12
 
     # Network activity, threat_level 2, to_ids=True → 'other' / malicious / 0.60.
     hit = s.query("1.2.3.4")
@@ -69,7 +69,7 @@ def test_misp_health_file_mtime_staleness(tmp_path):
     assert s.health().loaded is False
 
     (tmp_path / "misp.json").write_text(json.dumps(_sample_doc()))
-    s.load()
+    s.rebuild()
     assert s.health().is_stale is False
     assert s.health().loaded is True
     assert s.health().record_count == 3

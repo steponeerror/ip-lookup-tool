@@ -131,8 +131,7 @@ def test_ip_range_uses_stored_cidr_not_tree_depth(tmp_path):
 
 
 def test_base_iplist_reconverts_when_count_sidecar_missing(tmp_path):
-    """_base IpListSource must self-heal when .count is deleted (match standalone
-    sources that guard with 'or not count_path.exists()')."""
+    """_base IpListSource.rebuild() repopulates a missing .count sidecar."""
     import os
     from ipdb._sources._base import IpListSource
 
@@ -142,14 +141,14 @@ def test_base_iplist_reconverts_when_count_sidecar_missing(tmp_path):
     raw = tmp_path / "t.txt"
     raw.write_text("8.8.8.0/24\n1.2.3.0/24\n")
     src = _S(data_dir=tmp_path)
-    assert src.load() == 2
+    assert src.rebuild() == 2
     (tmp_path / "t.txt.count").unlink()                 # sidecar gone, mmdb fresh
     os.utime(raw, (src._mmdb_path.stat().st_mtime - 100,) * 2)
-    assert src.load() == 2, "_base should reconvert when .count missing"
+    assert src.rebuild() == 2, "_base should rebuild when .count missing"
 
 
 def test_base_csv_reconverts_when_count_sidecar_missing(tmp_path):
-    """Same self-heal for _base CsvSource."""
+    """Same self-heal via rebuild() for _base CsvSource."""
     import os
     from ipdb._sources._base import CsvSource
 
@@ -161,10 +160,10 @@ def test_base_csv_reconverts_when_count_sidecar_missing(tmp_path):
     raw = tmp_path / "c.csv"
     raw.write_text("1.2.3.4\n5.6.7.8\n")
     src = _S(data_dir=tmp_path)
-    assert src.load() == 2
+    assert src.rebuild() == 2
     (tmp_path / "c.csv.count").unlink()
     os.utime(raw, (src._mmdb_path.stat().st_mtime - 100,) * 2)
-    assert src.load() == 2, "_base CsvSource should reconvert when .count missing"
+    assert src.rebuild() == 2, "_base CsvSource should rebuild when .count missing"
 
 def test_cn_isp_download_drops_file_on_per_file_failure(tmp_path, monkeypatch):
     """A failed per-file download must drop the stale file, not leave it to be

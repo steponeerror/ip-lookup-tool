@@ -8,7 +8,7 @@ def test_x4bnet_vpn_retires_native_type(tmp_path: Path):
     f = tmp_path / "x4bnet_vpn.txt"
     f.write_text("1.2.3.4\n5.6.7.8\n")
     s = X4BNetVPNSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     rec = s.query("1.2.3.4")[0]   # query() returns a list
     assert rec["classification_type"] == "proxy"
     # extra.native_type retired (Plan B Task 3): identity is in _native_types

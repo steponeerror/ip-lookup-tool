@@ -3,7 +3,7 @@ from ipdb._sources.infra_services import InfraServicesSource
 
 def test_infra_services_loads_and_routes(tmp_path):
     s = InfraServicesSource(data_dir=tmp_path)
-    assert s.load() == 35
+    assert s.rebuild() == 35
     # DNS resolver — service slot + provider on _native_types (→ AssetStatement.native_type)
     r = s.query("8.8.8.8")[0]
     assert r["service"] == "dns"
@@ -20,7 +20,7 @@ def test_infra_services_loads_and_routes(tmp_path):
 
 def test_infra_services_health_loaded_not_stale(tmp_path):
     s = InfraServicesSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     h = s.health()
     assert h.loaded is True
     assert h.record_count == 35

@@ -20,7 +20,7 @@ SAMPLE = (
 def test_tweetfeed_filters_nonip_and_classifies_per_row(tmp_path: Path):
     (tmp_path / "tweetfeed.csv").write_text(SAMPLE)
     s = TweetFeedSource(data_dir=tmp_path)
-    assert s.load() == 4                        # 4 IP rows; the domain row filtered as noise
+    assert s.rebuild() == 4                        # 4 IP rows; the domain row filtered as noise
 
     phish = s.query("172.67.166.60")[0]
     assert phish["classification_type"] == "phishing"
@@ -53,5 +53,5 @@ def test_tweetfeed_nonip_rows_filtered(tmp_path: Path):
         "2025-07-31 00:00:11,a,ip,203.0.113.55,#phishing,x\n"
     )
     s = TweetFeedSource(data_dir=tmp_path)
-    assert s.load() == 1                        # only the IP row survives
+    assert s.rebuild() == 1                        # only the IP row survives
     assert s.query("203.0.113.55")

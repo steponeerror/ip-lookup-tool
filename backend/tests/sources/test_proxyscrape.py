@@ -9,7 +9,7 @@ def test_proxyscrape_loads_csv_and_queries_proxy(tmp_path):
         ",,1,Bad,BB,X,elite,true,0,AS1,X,1,1\n"  # missing ip -> dropped
     )
     s = ProxyScrapeSource(data_dir=tmp_path)
-    assert s.load() == 2
+    assert s.rebuild() == 2
     rec = s.query("139.28.240.201")[0]
     assert rec["classification_type"] == "proxy"
     assert rec["verdict"] == "suspicious"

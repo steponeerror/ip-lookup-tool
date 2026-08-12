@@ -20,7 +20,7 @@ _SAMPLE = (
 def test_dataplane_loads_three_signals_with_per_row_classification(tmp_path):
     (tmp_path / "dataplane.txt").write_text(_SAMPLE)
     s = DataplaneSource(data_dir=tmp_path)
-    assert s.load() == 3   # 3 valid IPs; malformed row + comments dropped
+    assert s.rebuild() == 3   # 3 valid IPs; malformed row + comments dropped
 
     ssh = s.query("149.13.96.133")[0]
     assert ssh["classification_type"] == "brute-force"

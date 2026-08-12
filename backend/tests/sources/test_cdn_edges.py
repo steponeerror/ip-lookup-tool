@@ -15,7 +15,7 @@ _FIXTURE = """\
 def test_cdn_edges_loads_and_routes(tmp_path):
     (tmp_path / "cdn_edges.csv").write_text(_FIXTURE)
     s = CdnEdgesSource(data_dir=tmp_path)
-    assert s.load() == 5
+    assert s.rebuild() == 5
     # CloudFront edge range
     r = s.query("13.32.10.20")[0]
     assert r["service"] == "cdn"
@@ -33,7 +33,7 @@ def test_cdn_edges_loads_and_routes(tmp_path):
 def test_cdn_edges_health_loaded_not_stale(tmp_path):
     (tmp_path / "cdn_edges.csv").write_text(_FIXTURE)
     s = CdnEdgesSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     h = s.health()
     assert h.loaded is True
     assert h.record_count == 5

@@ -14,7 +14,7 @@ _SAMPLE = (
 def test_f3csystems_loads_scanner_csv(tmp_path):
     (tmp_path / "f3csystems.csv").write_text(_SAMPLE)
     s = F3cSystemsSource(data_dir=tmp_path)
-    assert s.load() == 2   # 2 valid IPs; the bad-IP row is dropped at load
+    assert s.rebuild() == 2   # 2 valid IPs; the bad-IP row is dropped at load
 
     row = s.query("198.235.24.99")[0]
     assert row["classification_type"] == "scanner"
@@ -41,7 +41,7 @@ def test_f3csystems_scanner_types_become_native_categories(tmp_path):
     """Task 3: scanner_types moves from extra to top-level native_categories."""
     (tmp_path / "f3csystems.csv").write_text(_SAMPLE_TASK3)
     s = F3cSystemsSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     rec = s.query("1.2.3.4")[0]
     assert rec["native_categories"] == ["PaloAlto", "ssh"]          # top-level (CsvSource verbatim)
     assert "scanner_types" not in (rec.get("extra") or {})           # moved out of extra

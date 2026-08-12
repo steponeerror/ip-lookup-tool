@@ -10,7 +10,7 @@ def test_stopforumspam_loads_cidr_list(tmp_path):
         "# comment line\n"  # comment — skipped
     )
     s = StopForumSpamSource(data_dir=tmp_path)
-    assert s.load() == 3
+    assert s.rebuild() == 3
 
     hit = s.query("109.200.1.5")[0]               # inside the /24
     assert hit["classification_type"] == "spam"

@@ -56,13 +56,13 @@ def test_lookup_aggregates_attributes_from_multiple_sources(tmp_path, monkeypatc
     ip2p = _Ip2ProxyFixture(data_dir=tmp_path)
     ip2p._path = tmp_path / "ip2proxy.csv"
     ip2p._path.write_text("1.2.3.0/24,VPN\n1.2.3.0/24,DCH\n")
-    ip2p.load()
+    ip2p.rebuild()
 
     # tor: single exit
     tor = _TorFixture(data_dir=tmp_path)
     tor._path = tmp_path / "tor.csv"
     tor._path.write_text("1.2.3.4\n")
-    tor.load()
+    tor.rebuild()
 
     scalar = _ScalarFixture()
     monkeypatch.setattr(reg, "_sources", [ip2p, tor, scalar])

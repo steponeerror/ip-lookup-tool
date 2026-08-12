@@ -16,7 +16,7 @@ def test_abuseipdb_record_is_evidence_shaped(tmp_path: Path, monkeypatch):
     f = tmp_path / "abuseipdb.txt"
     f.write_text("1.2.3.4\n5.6.7.8\n")
     s = AbuseIPDBSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     rec = s.query("1.2.3.4")[0]   # query() returns a list
     assert rec["classification_type"] == "abuse-reports"
     assert "native_type" not in (rec.get("extra") or {})  # retired (Plan B Task 1)

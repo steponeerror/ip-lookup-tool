@@ -13,7 +13,7 @@ def test_bruteforce_parses_ip_and_signals(tmp_path: Path):
     f = tmp_path / "bruteforce_blocker.txt"
     f.write_text(SAMPLE)
     s = BruteforceSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     rec = s.query("195.178.110.137")[0]
     assert rec["classification_type"] == "brute-force"
     assert rec["verdict"] == "malicious"

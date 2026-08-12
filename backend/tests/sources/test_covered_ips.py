@@ -16,7 +16,7 @@ def test_source_base_covered_ips_mixed_prefixes(tmp_path):
 
     (tmp_path / "t.txt").write_text("marker\n")   # _path must exist; harvest ignores it
     s = _S(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     assert s.health().covered_ips == 1 + 256 + 65536
 
 
@@ -28,7 +28,7 @@ def test_iplist_covered_ips_mixed_prefixes(tmp_path):
 
     (tmp_path / "t.txt").write_text("8.8.8.8\n1.2.3.0/24\n10.0.0.0/16\n")
     s = _S(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     assert s.health().covered_ips == 1 + 256 + 65536
 
 
@@ -45,7 +45,7 @@ def test_csv_covered_ips_counts_cidr_once_for_multi_evidence(tmp_path):
     # same /24 declared with two distinct classifications -> covered once (256)
     (tmp_path / "c.csv").write_text("1.2.3.0/24,botnet\n1.2.3.0/24,malware\n")
     s = _S(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     assert s.health().covered_ips == 256
 
 
@@ -60,7 +60,7 @@ def test_csv_covered_ips_mixed_across_cidrs(tmp_path):
 
     (tmp_path / "c.csv").write_text("8.8.8.8\n1.2.3.0/24\n")
     s = _S(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     assert s.health().covered_ips == 1 + 256
 
 

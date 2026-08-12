@@ -11,7 +11,7 @@ def test_abuseipdb_loads_plaintext_blacklist(tmp_path):
         "191.96.249.183\n"
     )
     s = AbuseIPDBSource(data_dir=tmp_path)
-    assert s.load() == 3                       # comment + blank line dropped
+    assert s.rebuild() == 3                       # comment + blank line dropped
 
     hit = s.query("5.188.10.179")
     assert hit, "expected a hit for a listed IP"
@@ -32,7 +32,7 @@ def test_abuseipdb_health_file_mtime_staleness(tmp_path):
     assert h.loaded is False
 
     (tmp_path / "abuseipdb.txt").write_text("5.188.10.179\n")
-    s.load()
+    s.rebuild()
     h = s.health()
     assert h.is_stale is False                  # fresh file → not stale
     assert h.loaded is True

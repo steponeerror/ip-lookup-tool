@@ -22,7 +22,7 @@ def test_novel_fields_survive_to_details(tmp_path: Path, monkeypatch):
     f = tmp_path / "novel.csv"
     f.write_text("9.9.9.9,win.x,80,2026-01-01,443,abc123\n")
     s = _Novel(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     # wire into registry as the only source
     import ipdb._registry as R
     monkeypatch.setattr(R, "_sources", [s])

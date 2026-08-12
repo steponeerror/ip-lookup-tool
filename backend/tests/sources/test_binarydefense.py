@@ -22,7 +22,7 @@ SAMPLE = (
 def test_binarydefense_loads_filters_comments_and_queries(tmp_path: Path):
     (tmp_path / "binarydefense_banlist.txt").write_text(SAMPLE)
     s = BinaryDefenseSource(data_dir=tmp_path)
-    assert s.load() == 3                     # 3 IPs; comment + blank lines filtered as noise
+    assert s.rebuild() == 3                     # 3 IPs; comment + blank lines filtered as noise
     recs = s.query("1.162.11.208")
     assert recs, "query must return a record"
     rec = recs[0]
@@ -36,7 +36,7 @@ def test_binarydefense_record_is_evidence_contract(tmp_path: Path):
     from ipdb._evidence import Evidence
     (tmp_path / "binarydefense_banlist.txt").write_text("9.9.9.9\n")
     s = BinaryDefenseSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     rec = s.query("9.9.9.9")[0]
     assert rec == Evidence(
         classification_type="blacklist", verdict="malicious", reliability=0.65,

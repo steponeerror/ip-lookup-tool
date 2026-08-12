@@ -135,7 +135,7 @@ class TestThreatFoxDownloadUnzips:
 
         src = _make_source(tmp_path)
         src.download()
-        count = src.load()
+        count = src.rebuild()
 
         assert count == 1
         assert src.query("1.2.3.4")[0]["classification_type"] == "malware-distribution"
@@ -170,7 +170,7 @@ def test_threatfox_harvest_per_row_classification(tmp_path):
     (tmp_path / "threatfox.csv").write_text("\n".join(lines) + "\n")
     s = ThreatFoxSource(data_dir=tmp_path)
     s._path = tmp_path / "threatfox.csv"
-    s.load()
+    s.rebuild()
     rec = s.query("1.2.3.4")
     assert rec[0]["classification_type"] == "c2-server"   # botnet_cc → c2-server
     assert rec[0]["malware_name"] == "win.vidar"

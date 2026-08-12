@@ -47,7 +47,7 @@ def test_ip2proxy_harvest_proxy_assets(tmp_path):
         "\"16777472\",\"16777727\",\"DCH\"\n")
     s = IP2ProxySource(data_dir=tmp_path)
     s._path = tmp_path / "ip2proxy_px2.csv"
-    s.load()
+    s.rebuild()
     rec = s.query("1.0.0.0")          # 16777216 = 1.0.0.0
     assert rec[0]["is_proxy"] is True
     assert rec[0]["_native_types"]["is_proxy"] == "VPN"
@@ -98,7 +98,7 @@ def test_ip2proxy_download_extracts_zip_to_path_then_loads(tmp_path, monkeypatch
     s.download()
     assert s._path.exists(), "download() did not extract the CSV to _path"
 
-    n = s.load()                                        # base load() _path guard now passes
-    assert n > 0, "load() harvested nothing from the extracted CSV"
+    n = s.rebuild()                                     # base rebuild() _path guard now passes
+    assert n > 0, "rebuild() harvested nothing from the extracted CSV"
     rec = s.query("1.0.0.0")                            # 16777216 = 1.0.0.0
     assert rec and rec[0]["is_proxy"] is True

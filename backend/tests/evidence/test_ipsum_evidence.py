@@ -19,7 +19,7 @@ def test_ipsum_retires_native_type(tmp_path: Path):
         "1.2.3.4\t1\n"   # below min_count(3) -> dropped
     )
     s = IPsumSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     rec = s.query("41.63.63.211")[0]   # query() returns a list
     assert rec["classification_type"] == "blacklist"
     # extra.native_type retired (Plan B Task 3): redundant canonical echo

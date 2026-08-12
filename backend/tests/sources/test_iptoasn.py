@@ -43,7 +43,7 @@ def test_harvest_then_load_query_round_trip(tmp_path: Path):
         ["1.0.0.0\t1.0.0.255\t13335\tUS\tCloudflare"],
     )
     src = IPtoASNSource(data_dir=tmp_path)
-    n = src.load()
+    n = src.rebuild()
     assert n == 1
 
     recs = src.query("1.0.0.5")

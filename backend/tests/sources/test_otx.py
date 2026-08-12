@@ -119,7 +119,7 @@ class TestOtxHarvest:
              ["5.6.7.0/24", "brute-force", "ssh"]],
         )
         src = OtxSource(tmp_path)
-        src.load()
+        src.rebuild()
         recs = src.query("1.2.3.4")
         assert isinstance(recs, list)
         rec = recs[0]

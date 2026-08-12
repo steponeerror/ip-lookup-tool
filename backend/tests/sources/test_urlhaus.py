@@ -23,7 +23,7 @@ SAMPLE = (
 def test_urlhaus_drops_domain_hosts_and_classifies(tmp_path: Path):
     (tmp_path / "urlhaus.csv").write_text(SAMPLE)
     s = URLhausSource(data_dir=tmp_path)
-    assert s.load() == 4                    # rows 1,2,4,5 (IP-host); row 3 domain dropped
+    assert s.rebuild() == 4                    # rows 1,2,4,5 (IP-host); row 3 domain dropped
 
     bot = s.query("61.54.253.89")[0]        # Mozi tag
     assert bot["classification_type"] == "botnet"
@@ -52,7 +52,7 @@ def test_urlhaus_domain_rows_not_in_db(tmp_path: Path):
         '"2","2026-07-30","http://203.0.113.7/x","online","2026-07-30","malware_download","mirai","x","r"\n'
     )
     s = URLhausSource(data_dir=tmp_path)
-    assert s.load() == 1                    # only the IP-host row survives
+    assert s.rebuild() == 1                    # only the IP-host row survives
     assert s.query("203.0.113.7")
 
 
@@ -65,7 +65,7 @@ def test_urlhaus_native_categories_filters_noise_and_excludes_matched_family(tmp
         '"3","2026-08-01","http://9.10.11.12/z","online","2026-08-05","malware_download","","u3","r3"\n'
     )
     s = URLhausSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
 
     # Row 1: Mozi matched, noise filtered, native_categories empty
     one = {e["classification_type"]: e for e in s.query("1.2.3.4")}

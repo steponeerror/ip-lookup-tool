@@ -23,7 +23,7 @@ SAMPLE = (
 def test_reportedip_grouped_by_canonical_with_official_names(tmp_path: Path):
     (tmp_path / "reportedip.csv").write_text(SAMPLE)
     s = ReportedIPSource(data_dir=tmp_path)
-    assert s.load() == 4                        # 4 IPv4 IPs (IPv6 row dropped); CIDR count unchanged
+    assert s.rebuild() == 4                        # 4 IPv4 IPs (IPv6 row dropped); CIDR count unchanged
 
     # 1.4.221.22: 18,31→brute-force, 55→scanner
     one = s.query("1.4.221.22")
@@ -53,7 +53,7 @@ def test_reportedip_wp_code_classified_not_other(tmp_path: Path):
     not 'other' — the 31-58 range is officially documented (not unpublished)."""
     (tmp_path / "reportedip.csv").write_text(SAMPLE)
     s = ReportedIPSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     bf = s.query("2.56.248.212")
     assert len(bf) == 1
     assert bf[0]["classification_type"] == "brute-force"      # 31 → brute-force, NOT other
@@ -64,7 +64,7 @@ def test_reportedip_wp_code_classified_not_other(tmp_path: Path):
 def test_reportedip_same_type_codes_collected(tmp_path: Path):
     (tmp_path / "reportedip.csv").write_text(SAMPLE)
     s = ReportedIPSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     ddos = s.query("9.10.11.12")
     assert len(ddos) == 1                                    # codes 4,6 both ddos → 1 evidence
     assert ddos[0]["classification_type"] == "ddos"
