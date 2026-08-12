@@ -67,3 +67,44 @@ def test_initial_capacity_tiers():
     assert initial_capacity(11.999) == 2
     assert initial_capacity(12.0) == 3
     assert initial_capacity(32.0) == 3
+
+
+def test_sampler_throttles_on_low_memory(monkeypatch):
+    """内存跌破 25%,采样线程把 target 调到 1。"""
+    import time
+    _set_mem(monkeypatch, available_gb=1.5, total_gb=8.0)   # 18.75% < 25%
+    v = MemoryValve(ceiling=3)
+    v.target_capacity = 3
+    cv = threading.Condition()
+    stop = threading.Event()
+    v.start_sampler(cv, stop, interval=0.05)
+    time.sleep(0.2)
+    stop.set()
+    assert v.target_capacity == 1
+
+
+def test_sampler_relaxes_on_high_memory(monkeypatch):
+    """内存 ≥40% 连续2次,target 升一档(不超 ceiling)。"""
+    import time
+    _set_mem(monkeypatch, available_gb=7.0, total_gb=8.0)   # 87.5% ≥ 40%
+    v = MemoryValve(ceiling=2)   # ceiling=2 cap, so 1→2 holds despite 6 samples
+    v.target_capacity = 1
+    cv = threading.Condition()
+    stop = threading.Event()
+    v.start_sampler(cv, stop, interval=0.05)
+    time.sleep(0.3)   # 至少2个采样周期
+    stop.set()
+    assert v.target_capacity == 2
+
+
+def test_sampler_critical_halt(monkeypatch):
+    """内存 <12%,target=0。"""
+    import time
+    _set_mem(monkeypatch, available_gb=0.5, total_gb=8.0)   # 6.25% < 12%
+    v = MemoryValve(ceiling=3)
+    cv = threading.Condition()
+    stop = threading.Event()
+    v.start_sampler(cv, stop, interval=0.05)
+    time.sleep(0.2)
+    stop.set()
+    assert v.target_capacity == 0

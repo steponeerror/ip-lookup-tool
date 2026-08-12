@@ -70,6 +70,21 @@ class MemoryValve:
                 logger.info("memory valve: avail %.0f%%, target %d→%d (cap %d)",
                             ratio * 100, prev, self.target_capacity, self.ceiling)
 
+    def start_sampler(self, cv: threading.Condition,
+                      stop_event: threading.Event, interval: float = 2.0) -> None:
+        """启动 daemon 采样线程。target 变化时 cv.notify_all(唤醒 _worker)。"""
+        def _loop():
+            while not stop_event.is_set():
+                prev = self.target_capacity
+                self.update_from_sample()
+                if self.target_capacity != prev:
+                    with cv:
+                        cv.notify_all()
+                stop_event.wait(interval)
+
+        t = threading.Thread(target=_loop, daemon=True, name="memory-valve-sampler")
+        t.start()
+
 
 def initial_capacity(total_gb: float) -> int:
     """启动容量分档(D2)。"""
