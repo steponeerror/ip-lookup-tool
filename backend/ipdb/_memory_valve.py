@@ -56,6 +56,7 @@ class MemoryValve:
             prev = self.target_capacity
             if ratio < CRITICAL_RATIO:
                 self.target_capacity = 0
+                self._high_count = 0
             elif ratio < THROTTLE_RATIO:
                 self.target_capacity = 1
                 self._high_count = 0
