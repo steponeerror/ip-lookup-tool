@@ -151,8 +151,10 @@ def test_disable_persists_and_flags(tmp_path, monkeypatch):
     assert load_disabled(tmp_path / "state.json") == {"ipinfo_lite"}
 
 
-def test_enable_loads_source_and_clears_disabled(tmp_path, monkeypatch):
-    loaded = []
+def test_enable_enqueues_rebuild_and_clears_disabled(tmp_path, monkeypatch):
+    """Task 9: set_source_enabled(True) enqueues via manager.enqueue_one
+    (non-blocking) instead of calling source.load() synchronously."""
+    enqueued = []
 
     class Src:
         name = "ipinfo_lite"
@@ -160,7 +162,7 @@ def test_enable_loads_source_and_clears_disabled(tmp_path, monkeypatch):
         reliability = 0.8
         authoritative_for = []
         def load(self):
-            loaded.append(True)
+            pass
         def health(self):
             from ipdb._types import SourceHealth
             return SourceHealth(name="ipinfo_lite", loaded=True, record_count=0,
@@ -169,11 +171,13 @@ def test_enable_loads_source_and_clears_disabled(tmp_path, monkeypatch):
     monkeypatch.setattr(reg, "_sources", [Src()])
     monkeypatch.setattr(reg, "_disabled", {"ipinfo_lite"})
     monkeypatch.setattr(reg, "_STATE_PATH", tmp_path / "state.json")
+    monkeypatch.setattr(reg.manager, "enqueue_one",
+                        lambda n: enqueued.append(n) or type("T", (), {"to_dict": staticmethod(lambda: {})})())
 
     info = reg.set_source_enabled("ipinfo_lite", True)
 
     assert info["enabled"] is True
-    assert loaded == [True]
+    assert enqueued == ["ipinfo_lite"]
     assert reg.is_enabled("ipinfo_lite") is True
 
 

@@ -229,6 +229,12 @@ def _find_source(name: str):
 # so direct references resolve at import time. _tasks.py imports only from
 # _sources._download (not _registry), so no circular import.
 from ._tasks import UpdateManager
+from ._memory_valve import MemoryValve, initial_capacity
+import psutil as _psutil
+
+_total_gb = _psutil.virtual_memory().total / 1e9
+_ceiling = initial_capacity(_total_gb)
+_valve = MemoryValve(ceiling=_ceiling)
 
 _concurrency = int(os.environ.get("IP_RADAR_UPDATE_CONCURRENCY", "3"))
 manager = UpdateManager(
@@ -236,6 +242,7 @@ manager = UpdateManager(
     lock_for=_update_lock_for,
     archetype_of=_archetype,
     concurrency=max(1, _concurrency),
+    valve=_valve,
 )
 
 
@@ -248,10 +255,36 @@ def stale_source_names() -> list[str]:
             if _archetype(s) == "offline" and s.health().is_stale]
 
 
+def sources_needing_rebuild() -> list[str]:
+    """Enabled offline sources whose MMDB is missing or older than raw data.
+
+    Distinct from stale_source_names (which is download-freshness based):
+    this keys off needs_convert, so a freshly-downloaded file whose MMDB
+    has not been rebuilt yet is flagged here.
+    """
+    from ._sources._mmdb import needs_convert
+    out = []
+    for s in _enabled_sources():
+        if _archetype(s) != "offline":
+            continue
+        raw_path = getattr(s, "_path", None)
+        mmdb_path = getattr(s, "_mmdb_path", None)
+        if raw_path is None or mmdb_path is None:
+            continue
+        raw = Path(raw_path)
+        mmdb = Path(mmdb_path)
+        if raw.exists() and needs_convert(raw, mmdb):
+            out.append(s.name)
+    return out
+
+
 def set_source_enabled(name: str, enabled: bool) -> dict:
-    """Toggle a source on/off, persist the choice, and load when enabling.
+    """Toggle a source on/off, persist the choice, and queue a rebuild when enabling.
 
     Returns the updated source info dict. Raises ValueError for unknown names.
+    Enabling is non-blocking: the rebuild runs asynchronously through the
+    UpdateManager (memory-valve gated), so the source is not queryable until
+    the task reaches `done`.
     """
     global _disabled
     source = _find_source(name)
@@ -262,9 +295,9 @@ def set_source_enabled(name: str, enabled: bool) -> dict:
         save_disabled(set(_disabled), _STATE_PATH)
     if enabled:
         try:
-            source.load()
+            manager.enqueue_one(name)
         except Exception as e:
-            logger.warning(f"{name} load-on-enable failed: {e}")
+            logger.warning(f"{name} enqueue-on-enable failed: {e}")
     return _source_info(source)
 
 
