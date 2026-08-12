@@ -1,0 +1,80 @@
+"""Memory valve: 按可用内存动态调控重建并发。"""
+import threading
+import logging
+
+import psutil
+
+logger = logging.getLogger(__name__)
+
+# 滞回阈值(百分比 of total)
+THROTTLE_RATIO = 0.25     # available < 25% → target=1
+RELAX_RATIO = 0.40        # available ≥ 40% 连续2次 → target+1
+CRITICAL_RATIO = 0.12     # available < 12% → target=0
+PEAK_HEADROOM = 1.5       # heavy 源 acquire 前:available ≥ peak_gb × 1.5
+
+
+class MemoryValve:
+    """重建并发阀门。所有状态在 self._lock 下读写。"""
+
+    def __init__(self, ceiling: int):
+        self.ceiling = ceiling
+        self.target_capacity = ceiling
+        self.active_rebuilds = 0
+        self.heavy_busy = False
+        self._lock = threading.Lock()
+        self._high_count = 0
+
+    def can_run(self, weight: str, peak_gb: float) -> bool:
+        with self._lock:
+            if self.active_rebuilds >= self.target_capacity:
+                return False
+            if weight == "heavy" and self.heavy_busy:
+                return False
+            if weight == "heavy" and peak_gb > 0:
+                avail_gb = psutil.virtual_memory().available / 1e9
+                if avail_gb < peak_gb * PEAK_HEADROOM:
+                    return False
+            return True
+
+    def on_start(self, weight: str) -> None:
+        with self._lock:
+            self.active_rebuilds += 1
+            if weight == "heavy":
+                self.heavy_busy = True
+
+    def on_finish(self, weight: str) -> None:
+        with self._lock:
+            self.active_rebuilds = max(0, self.active_rebuilds - 1)
+            if weight == "heavy":
+                self.heavy_busy = False
+
+    def update_from_sample(self) -> None:
+        """采样线程调:按滞回调 target_capacity。"""
+        vmem = psutil.virtual_memory()
+        ratio = vmem.available / vmem.total
+        with self._lock:
+            prev = self.target_capacity
+            if ratio < CRITICAL_RATIO:
+                self.target_capacity = 0
+            elif ratio < THROTTLE_RATIO:
+                self.target_capacity = 1
+                self._high_count = 0
+            elif ratio >= RELAX_RATIO:
+                self._high_count += 1
+                if self._high_count >= 2 and self.target_capacity < self.ceiling:
+                    self.target_capacity += 1
+                    self._high_count = 0
+            else:
+                self._high_count = 0
+            if self.target_capacity != prev:
+                logger.info("memory valve: avail %.0f%%, target %d→%d (cap %d)",
+                            ratio * 100, prev, self.target_capacity, self.ceiling)
+
+
+def initial_capacity(total_gb: float) -> int:
+    """启动容量分档(D2)。"""
+    if total_gb < 6:
+        return 1
+    if total_gb < 12:
+        return 2
+    return 3
