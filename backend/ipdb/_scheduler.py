@@ -149,11 +149,6 @@ class RefreshScheduler:
 
     @staticmethod
     def _read_mtime(source) -> Optional[float]:
-        # Test doubles (SchedFakeSource) expose stat_path_mtime() to inject
-        # deterministic mtimes without touching the filesystem.
-        getter = getattr(source, "stat_path_mtime", None)
-        if callable(getter):
-            return getter()
         from pathlib import Path
         p = getattr(source, "_path", None)
         if p is None:
