@@ -66,91 +66,89 @@ class IPinfoLiteSource:
                 self._gz_path.unlink(missing_ok=True)
 
     def load(self) -> int:
-        import ipaddress as _ipa
-        from ._mmdb import write_mmdb, open_reader, needs_convert
-
-        if not self._path.exists():
+        from ._mmdb import open_reader
+        if not self._mmdb_path.exists():
             self._reader = None
             return 0
-        count_path = self._mmdb_path.with_suffix(".count")
-        if needs_convert(self._path, self._mmdb_path) or not count_path.exists():
-            if self._reader is not None:
-                self._reader.close()
-                self._reader = None
-            import csv as _csv
-            # Stream rows lazily into write_mmdb instead of accumulating a
-            # 3.6M-entry `records` list — the list alone was ~1.2GB and peaked
-            # alongside the MMDB SearchTree, OOMing the host on every rebuild.
-            def _records():
-                with open(self._path, "r", encoding="utf-8") as f:
-                    reader = _csv.reader(f)
-                    next(reader, None)
-                    for row in reader:
-                        if len(row) < 8:
-                            continue
-                        network, country_code, asn, as_name, as_domain = (
-                            row[0], row[2], row[5], row[6], row[7])
-                        try:
-                            _ipa.IPv4Network(network, strict=False)
-                        except (_ipa.AddressValueError, ValueError):
-                            continue
-                        asn_val: int | str = "N/A"
-                        has_asn = False
-                        if asn.startswith("AS"):
-                            try:
-                                asn_val = int(asn[2:]); has_asn = True
-                            except ValueError:
-                                pass
-                        elif asn:
-                            try:
-                                asn_val = int(asn); has_asn = True
-                            except ValueError:
-                                pass
-                        yield network, {
-                            "country_code": country_code,
-                            "asn": asn_val,
-                            "as_name": as_name or as_domain or "N/A",
-                            "has_asn": has_asn,
-                            "_net": network,
-                        }
-            n = write_mmdb(_records(), self._mmdb_path,
-                           database_type="IP-Radar-ipinfo-lite")
-            from ._mmdb import covered_ip_count
-            count_path.write_text(str(n))
-
-            def _cidrs():
-                import csv as _csv2
-                with open(self._path, "r", encoding="utf-8") as f:
-                    reader = _csv2.reader(f)
-                    next(reader, None)
-                    for row in reader:
-                        if len(row) >= 1:
-                            yield row[0]
-            self._mmdb_path.with_suffix(".cov").write_text(
-                str(covered_ip_count(_cidrs())))
-
         self._reader = open_reader(self._mmdb_path)
-        self._count = int(count_path.read_text().strip())
-        from ._mmdb import covered_ips_cached
-        import csv as _csv3
+        count_path = self._mmdb_path.with_suffix(".count")
+        cov_path = self._mmdb_path.with_suffix(".cov")
+        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
+        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
+        self._loaded_at = time.time()
+        return self._count
 
-        def _enum():
+    def rebuild(self) -> int:
+        import ipaddress as _ipa
+        import csv as _csv
+        from ._mmdb import rebuild_mmdb, covered_ip_count
+        if not self._path.exists():
+            return 0
+        old_reader = self._reader
+
+        def _records():
             with open(self._path, "r", encoding="utf-8") as f:
-                reader = _csv3.reader(f)
+                reader = _csv.reader(f)
+                next(reader, None)
+                for row in reader:
+                    if len(row) < 8:
+                        continue
+                    network, country_code, asn, as_name, as_domain = (
+                        row[0], row[2], row[5], row[6], row[7])
+                    try:
+                        _ipa.IPv4Network(network, strict=False)
+                    except (_ipa.AddressValueError, ValueError):
+                        continue
+                    asn_val: int | str = "N/A"
+                    has_asn = False
+                    if asn.startswith("AS"):
+                        try:
+                            asn_val = int(asn[2:]); has_asn = True
+                        except ValueError:
+                            pass
+                    elif asn:
+                        try:
+                            asn_val = int(asn); has_asn = True
+                        except ValueError:
+                            pass
+                    yield network, {
+                        "country_code": country_code,
+                        "asn": asn_val,
+                        "as_name": as_name or as_domain or "N/A",
+                        "has_asn": has_asn,
+                        "_net": network,
+                    }
+
+        def _cidrs():
+            with open(self._path, "r", encoding="utf-8") as f:
+                reader = _csv.reader(f)
                 next(reader, None)
                 for row in reader:
                     if len(row) >= 1:
                         yield row[0]
-
-        self._covered_ips = covered_ips_cached(
-            self._mmdb_path.with_suffix(".cov"), [self._path], _enum)
-        self._loaded_at = time.time()
-        return self._count
+        try:
+            n = rebuild_mmdb(_records(), self._mmdb_path,
+                             reader_setter=lambda r: setattr(self, "_reader", r),
+                             database_type="IP-Radar-ipinfo-lite")
+            self._mmdb_path.with_suffix(".count").write_text(str(n))
+            self._covered_ips = covered_ip_count(_cidrs())
+            self._mmdb_path.with_suffix(".cov").write_text(str(self._covered_ips))
+            self._count = n
+            self._loaded_at = time.time()
+            return n
+        finally:
+            if old_reader is not None:
+                old_reader.close()
 
     def query(self, ip: str) -> dict:
         if self._reader is None:
             return {}
-        node = self._reader.get(ip)
+        try:
+            node = self._reader.get(ip)
+        except (ValueError, OSError):
+            from ._mmdb import open_reader
+            self._reader = open_reader(self._mmdb_path)
+            node = self._reader.get(ip)
         if node is None:
             return {}
         result: dict = {"country_code": node["country_code"], "ip_range": node["_net"]}

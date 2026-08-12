@@ -72,7 +72,7 @@ def test_ipinfo_lite_covered_ips(tmp_path):
         "8.8.8.0/24,Australia,AU,Oceania,OC,AS15169,Google LLC,google.com\n"     # /24
         "10.0.0.0/16,US,US,NA,NA,AS2,Co,co.com\n")                               # /16
     s = IPinfoLiteSource(data_dir=tmp_path)
-    s.load()
+    s.rebuild()
     assert s.health().covered_ips == 256 + 65536
 
 
@@ -90,7 +90,7 @@ def test_cn_isp_covered_ips(tmp_path):
     src = ChineseISPSource(data_dir=tmp_path)
     src._isp_dir.mkdir(parents=True, exist_ok=True)
     (src._isp_dir / "chinatelecom.txt").write_text("1.2.3.0/24\n10.0.0.0/16\n")
-    src.load()
+    src.rebuild()
     assert src.health().covered_ips == 256 + 65536
 
 

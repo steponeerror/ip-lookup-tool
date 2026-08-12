@@ -67,70 +67,67 @@ class ChineseISPSource(Source):
                 dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
 
     def load(self) -> int:
-        import ipaddress as _ipa
-        from ._mmdb import write_mmdb, open_reader, needs_convert
-
-        # newest raw mtime across all ISP files drives cache invalidation
-        raw_mtimes = [p.stat().st_mtime for isp_name in _ISP_FILES
-                      if (p := self._isp_dir / f"{isp_name}.txt").exists()]
-        raw_newest = max(raw_mtimes) if raw_mtimes else 0.0
-        count_path = self._mmdb_path.with_suffix(".count")
-        cache_fresh = (self._mmdb_path.exists()
-                       and self._mmdb_path.stat().st_mtime >= raw_newest)
-        if not cache_fresh or not count_path.exists():
-            if self._reader is not None:
-                self._reader.close()
-                self._reader = None
-            best: dict[str, dict] = {}
-            for isp_name, (country, label) in _ISP_FILES.items():
-                path = self._isp_dir / f"{isp_name}.txt"
-                if not path.exists():
-                    logger.warning(f"Missing ISP file: {path}")
-                    continue
-                with open(path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            _ipa.IPv4Network(line, strict=False)
-                        except (_ipa.AddressValueError, ValueError):
-                            continue
-                        existing = best.get(line)
-                        if existing and existing["isp"] != "其他" and label == "其他":
-                            continue
-                        best[line] = {"country_code": country, "isp": label, "_net": line}
-            write_mmdb(((k, v) for k, v in best.items()), self._mmdb_path,
-                       database_type="IP-Radar-cn-isp")
-            from ._mmdb import covered_ip_count
-            count_path.write_text(str(len(best)))
-            self._mmdb_path.with_suffix(".cov").write_text(
-                str(covered_ip_count(best.keys())))
-
+        from ._mmdb import open_reader
+        if not self._mmdb_path.exists():
+            self._reader = None
+            return 0
         self._reader = open_reader(self._mmdb_path)
-        self._count = int(count_path.read_text().strip())
-        from ._mmdb import covered_ips_cached
-
-        def _enum():
-            for isp_name in _ISP_FILES:
-                p = self._isp_dir / f"{isp_name}.txt"
-                if not p.exists():
-                    continue
-                for line in p.read_text().splitlines():
-                    line = line.strip()
-                    if line:
-                        yield line
-
-        raw_paths = [self._isp_dir / f"{n}.txt" for n in _ISP_FILES]
-        self._covered_ips = covered_ips_cached(
-            self._mmdb_path.with_suffix(".cov"), raw_paths, _enum)
+        count_path = self._mmdb_path.with_suffix(".count")
+        cov_path = self._mmdb_path.with_suffix(".cov")
+        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
+        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
         self._loaded_at = time.time()
         return self._count
+
+    def rebuild(self) -> int:
+        import ipaddress as _ipa
+        from ._mmdb import rebuild_mmdb, covered_ip_count
+        old_reader = self._reader
+
+        best: dict[str, dict] = {}
+        for isp_name, (country, label) in _ISP_FILES.items():
+            path = self._isp_dir / f"{isp_name}.txt"
+            if not path.exists():
+                logger.warning(f"Missing ISP file: {path}")
+                continue
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        _ipa.IPv4Network(line, strict=False)
+                    except (_ipa.AddressValueError, ValueError):
+                        continue
+                    existing = best.get(line)
+                    if existing and existing["isp"] != "其他" and label == "其他":
+                        continue
+                    best[line] = {"country_code": country, "isp": label, "_net": line}
+        try:
+            n = rebuild_mmdb(
+                ((k, v) for k, v in best.items()), self._mmdb_path,
+                reader_setter=lambda r: setattr(self, "_reader", r),
+                database_type="IP-Radar-cn-isp",
+            )
+            self._mmdb_path.with_suffix(".count").write_text(str(n))
+            self._covered_ips = covered_ip_count(best.keys())
+            self._mmdb_path.with_suffix(".cov").write_text(str(self._covered_ips))
+            self._count = n
+            self._loaded_at = time.time()
+            return n
+        finally:
+            if old_reader is not None:
+                old_reader.close()
 
     def query(self, ip: str) -> dict:
         if self._reader is None:
             return {}
-        node = self._reader.get(ip)
+        try:
+            node = self._reader.get(ip)
+        except (ValueError, OSError):
+            from ._mmdb import open_reader
+            self._reader = open_reader(self._mmdb_path)
+            node = self._reader.get(ip)
         if node is None:
             return {}
         return {

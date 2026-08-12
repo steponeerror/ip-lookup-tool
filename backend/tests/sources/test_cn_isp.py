@@ -19,7 +19,7 @@ def test_cn_isp_specific_isp_wins_over_other(tmp_path: Path):
     (isp_dir / "othernet.txt").write_text("1.0.0.0/24\n")
 
     s = ChineseISPSource(data_dir=tmp_path)
-    n = s.load()
+    n = s.rebuild()
     assert n == 1, f"expected 1 deduped CIDR, got {n}"
 
     rec = s.query("1.0.0.5")

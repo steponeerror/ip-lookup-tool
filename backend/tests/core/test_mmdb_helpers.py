@@ -79,12 +79,11 @@ def test_write_mmdb_atomic_on_failure(tmp_path, monkeypatch):
 
 
 def test_reload_closes_prior_reader(tmp_path, monkeypatch):
-    """Re-loading (reconvert on 2nd load) must close the prior mmap reader.
+    """rebuild() must close the prior mmap reader via double-buffer swap.
 
-    Without this, reload_db() leaks an mmap + fd per source per reload, and on
+    Without this, rebuild leaks an mmap + fd per source per rebuild, and on
     Windows the prior reader locks the .mmdb so the rewrite fails.
     """
-    import os
     from ipdb._sources.ipinfo_lite import IPinfoLiteSource
 
     csv = tmp_path / "ipinfo_lite.csv"
@@ -92,17 +91,15 @@ def test_reload_closes_prior_reader(tmp_path, monkeypatch):
         "start_ip,end_ip,country,region,city,asn,as_name,as_domain\n"
         "8.8.8.0,8.8.8.255,US,CA,LA,AS15169,Google LLC,google.com\n")
     src = IPinfoLiteSource(data_dir=tmp_path)
-    src.load()
+    src.rebuild()
     assert src._reader is not None
     # The reader may be a C-extension object whose instance attrs are read-only,
-    # so swap in a plain close-spy to observe the close() call on reconversion.
+    # so swap in a plain close-spy to observe the close() call on rebuild.
     from types import SimpleNamespace
     closed = []
     src._reader = SimpleNamespace(close=lambda: closed.append(1))
 
-    # force reconvert via deterministic mtime (wall-clock sleep is flaky under load)
-    os.utime(csv, (src._mmdb_path.stat().st_mtime + 100,) * 2)
-    src.load()                                          # triggers reconvert
+    src.rebuild()                                          # triggers double-buffer swap
 
     assert closed == [1], "prior reader must be closed before reconversion"
 
@@ -124,7 +121,7 @@ def test_ip_range_uses_stored_cidr_not_tree_depth(tmp_path):
         "1.2.0.0/16,x,US,x,x,AS1,Parent,parent.com\n"
         "1.2.3.0/24,x,US,x,x,AS2,Child,child.com\n")
     src = IPinfoLiteSource(data_dir=tmp_path)
-    src.load()
+    src.rebuild()
     r = src.query("1.2.4.5")                             # in /16, outside /24
     assert r["ip_range"] == "1.2.0.0/16", (
         f"expected stored /16, got {r.get('ip_range')!r} (tree-depth tightening bug)")
