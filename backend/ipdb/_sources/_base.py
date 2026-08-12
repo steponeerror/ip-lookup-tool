@@ -151,7 +151,12 @@ class IpListSource:
     def query(self, ip: str) -> Any:
         if self._reader is None:
             return {}
-        result = self._reader.get(ip)
+        try:
+            result = self._reader.get(ip)
+        except (ValueError, OSError):
+            from ._mmdb import open_reader
+            self._reader = open_reader(self._mmdb_path)
+            result = self._reader.get(ip)
         return result if result is not None else {}
 
     def health(self) -> SourceHealth:
