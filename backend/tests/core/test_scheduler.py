@@ -351,3 +351,35 @@ def test_status_shape(tmp_path):
     assert st["enabled"] is True
     assert st["interval_sec"] == 1800
     assert isinstance(st["sources"], list)
+
+
+def test_status_endpoint_and_env_disable(monkeypatch):
+    """IPRADAR_AUTO_REFRESH=0 disables the scheduler; the status endpoint
+    still works and reports enabled=False. Uses FastAPI TestClient."""
+    monkeypatch.setenv("IPRADAR_AUTO_REFRESH", "0")
+    # Re-import main with the env set so module-level _ensure_refresh_scheduler
+    # sees it. main reads env at lifespan time, so we just need lifespan to run.
+    from fastapi.testclient import TestClient
+    import main as main_mod
+
+    with TestClient(main_mod.app) as client:
+        resp = client.get("/api/scheduler/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["enabled"] is False
+        assert body["interval_sec"] == 1800
+
+
+def test_status_endpoint_enabled_default(monkeypatch):
+    """Default (no env or =1): scheduler enabled, status reports enabled=True."""
+    monkeypatch.delenv("IPRADAR_AUTO_REFRESH", raising=False)
+    monkeypatch.setenv("IPRADAR_REFRESH_INTERVAL_SEC", "60")
+    from fastapi.testclient import TestClient
+    import main as main_mod
+
+    with TestClient(main_mod.app) as client:
+        resp = client.get("/api/scheduler/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["enabled"] is True
+        assert body["interval_sec"] == 60
