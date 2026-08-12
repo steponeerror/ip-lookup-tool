@@ -7,7 +7,7 @@ deterministically without threads.
 import threading
 import time
 
-from ipdb._tasks import UpdateManager, Task
+from ipdb._tasks import UpdateManager
 
 
 class FakeSource:
@@ -44,16 +44,21 @@ def _make_manager(sources, concurrency=3):
 
 def test_enqueue_one_detached_forces_none_batch_id():
     """C1 fix: detached tasks get batch_id=None even with an active batch."""
-    mgr, _ = _make_manager([FakeSource("a", slow=5.0)])
-    # Plant an active batch the way enqueue_batch does.
-    mgr.enqueue_batch(["a"])  # sets _active_batch to a Batch with total=1
+    mgr, _ = _make_manager([FakeSource("a", slow=5.0), FakeSource("b", slow=5.0)])
+    # Plant an active batch with a different source to keep _active_batch set
+    # without creating an in-flight task for "a"
+    mgr.enqueue_batch(["b"])
     assert mgr._active_batch is not None
 
+    # enqueue_one_detached should create a task with batch_id=None,
+    # even though there's an active batch (and no in-flight task for "a")
     task = mgr.enqueue_one_detached("a")
     assert task.batch_id is None, "detached task must never carry a batch_id"
 
     # The task's batch_id is reflected in to_dict (what SSE/clients see).
-    assert mgr.snapshot()["tasks"][0]["batch_id"] is None
+    snap = mgr.snapshot()
+    a_task = [t for t in snap["tasks"] if t["source"] == "a"][0]
+    assert a_task["batch_id"] is None
 
     # cleanup: cancel the in-flight detached task so the worker exits
     mgr.cancel(task.id)

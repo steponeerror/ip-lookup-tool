@@ -93,14 +93,7 @@ class UpdateManager:
         with self._lock:
             existing = self._by_source.get(name)
             if existing and self._tasks[existing].state in ("queued", "downloading", "loading", "throttled"):
-                existing_task = self._tasks[existing]
-                # For detached tasks, only dedup against other detached tasks
-                # (batch_id None vs non-None are considered different modes)
-                if batch_id is None and existing_task.batch_id is None:
-                    return existing_task
-                # For batched tasks, dedup normally
-                elif batch_id is not None:
-                    return existing_task
+                return self._tasks[existing]
             task = Task(id=uuid.uuid4().hex[:12], source_name=name,
                         host=getattr(source, "download_host", None),
                         batch_id=batch_id)
