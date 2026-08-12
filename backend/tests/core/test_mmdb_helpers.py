@@ -242,3 +242,38 @@ def test_covered_ips_cached_recomputes_when_raw_newer(tmp_path):
     n = covered_ips_cached(cov, [raw], lambda: iter(["8.8.8.0/24"]))
     assert n == 256
     assert cov.read_text() == "256"
+
+
+def test_rebuild_mmdb_swaps_reader_and_replaces_file(tmp_path):
+    """rebuild_mmdb 写新 mmdb,通过 reader_setter 原子 swap,最后 os.replace 覆盖原文件。"""
+    from ipdb._sources._mmdb import rebuild_mmdb, open_reader
+    mmdb_path = tmp_path / "s.mmdb"
+    holder = {"reader": None}
+    records = [("10.0.0.0/8", [{"k": "old"}])]
+
+    n = rebuild_mmdb(records, mmdb_path,
+                     reader_setter=lambda r: holder.update(reader=r),
+                     database_type="test")
+
+    assert n == 1
+    assert mmdb_path.exists()                      # 原路径已被 replace 覆盖
+    assert holder["reader"] is not None
+    assert holder["reader"].get("10.1.2.3") == [{"k": "old"}]
+
+
+def test_rebuild_mmdb_cleans_up_new_file_on_error(tmp_path):
+    """write 过程抛异常时,.new 临时文件必须清理。"""
+    from ipdb._sources._mmdb import rebuild_mmdb
+    mmdb_path = tmp_path / "s.mmdb"
+    mmdb_path.write_bytes(b"old")  # 预置"旧 mmdb"
+
+    # 故意用会抛异常的 records(非法 CIDR 让 insert_network 炸)
+    def bad_records():
+        yield ("not-a-cidr", [{"k": "v"}])
+
+    import pytest
+    with pytest.raises(Exception):
+        rebuild_mmdb(bad_records(), mmdb_path,
+                     reader_setter=lambda r: None, database_type="test")
+    # .new 临时文件必须被清理
+    assert list(tmp_path.glob("*.new.*")) == []

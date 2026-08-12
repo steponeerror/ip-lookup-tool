@@ -36,6 +36,31 @@ def write_mmdb(records: Iterable[tuple[str, object]], mmdb_path: Path,
     return count
 
 
+def rebuild_mmdb(records: Iterable[tuple[str, object]], mmdb_path: Path,
+                 reader_setter: Callable[["maxminddb.Reader"], None], *,
+                 database_type: str = "IP-Radar", ip_version: int = 4) -> int:
+    """重建 mmdb 并原子 swap reader。返回 record count。
+
+    旧 reader 的 close 由 caller(rebuild)在 finally 负责——此函数只赋新。
+    竞态:reader_setter 是单条 Python 赋值(原子),query 侧读到旧或新都是
+    完整 reader,无半态;撞到刚 close 的旧 reader 由 query 侧 try/except 兜底。
+    """
+    writer = MMDBWriter(ip_version=ip_version, database_type=database_type)
+    count = 0
+    for cidr, value in records:
+        writer.insert_network(netaddr.IPSet([cidr]), value)
+        count += 1
+    new_path = mmdb_path.parent / (mmdb_path.name + f".new.{os.getpid()}")
+    try:
+        writer.to_db_file(str(new_path))
+        new_reader = open_reader(new_path)
+        reader_setter(new_reader)              # 原子 swap
+        os.replace(str(new_path), str(mmdb_path))
+    finally:
+        new_path.unlink(missing_ok=True)
+    return count
+
+
 def open_reader(mmdb_path: Path) -> maxminddb.Reader:
     """Open an MMDB file as an mmap reader. Use as a context manager."""
     # MODE_AUTO picks MODE_MMAP_EXT (the compiled C extension) when available —
