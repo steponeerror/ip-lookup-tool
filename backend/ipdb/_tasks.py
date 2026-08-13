@@ -19,6 +19,10 @@ class Task:
     error: Optional[str] = None
     batch_id: Optional[str] = None
     token: CancelToken = field(default_factory=CancelToken)
+    # Idempotency guard for _settle: a terminal task can be settled from two
+    # places (cancel()'s _settle and _run_task's finally _settle) when cancel
+    # races dispatch. Without this flag, both calls increment batch.done (#1).
+    _settled: bool = False
 
     def to_dict(self) -> dict:
         return {"id": self.id, "source": self.source_name, "host": self.host,
@@ -146,13 +150,18 @@ class UpdateManager:
             # otherwise they'd read batch_id=None and orphan (#2).
             self._populating_batch = True
             self._emit({"type": "batch", "batch": batch.to_dict()})
-        for n in names:
-            try:
-                self.enqueue_one(n)
-            except ValueError:
-                pass
-        with self._lock:
-            self._populating_batch = False
+        try:
+            for n in names:
+                try:
+                    self.enqueue_one(n)
+                except ValueError:
+                    pass
+        finally:
+            # Always clear the guard — if it stayed True on an exception,
+            # _maybe_finish_batch would early-return forever, stalling every
+            # future batch as perpetually "running".
+            with self._lock:
+                self._populating_batch = False
         self._maybe_finish_batch()
         return batch.id
 
@@ -390,16 +399,23 @@ class UpdateManager:
         terminal `task` event — every terminal path has already emitted via
         `_set_state` (or `cancel()`'s explicit emit for the queued case), so
         emitting here would double-broadcast. Only the batch-progress event
-        (done-counter increment) and `_maybe_finish_batch` are owned here."""
+        (done-counter increment) and `_maybe_finish_batch` are owned here.
+
+        Idempotent: a terminal task can reach _settle twice when cancel()
+        races dispatch (cancel's _settle + _run_task's finally _settle). The
+        _settled flag ensures batch.done increments exactly once (#1)."""
         with self._lock:
-            if self._by_source.get(task.source_name) == task.id:
-                if task.state in ("done", "failed", "cancelled"):
-                    del self._by_source[task.source_name]
-            if task.batch_id and task.batch_id in self._batches:
+            if task._settled:
+                return
+            terminal = task.state in ("done", "failed", "cancelled")
+            if self._by_source.get(task.source_name) == task.id and terminal:
+                del self._by_source[task.source_name]
+            if task.batch_id and task.batch_id in self._batches and terminal:
                 b = self._batches[task.batch_id]
-                if task.state in ("done", "failed", "cancelled"):
-                    b.done += 1
-                    self._emit({"type": "batch", "batch": b.to_dict()})
+                b.done += 1
+                self._emit({"type": "batch", "batch": b.to_dict()})
+            if terminal:
+                task._settled = True
         self._maybe_finish_batch()
 
     # --- event bus (Task 6) ---

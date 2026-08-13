@@ -109,32 +109,39 @@ def test_enqueue_batch_no_task_orphaned_and_done_equals_total():
 
 # ── #1 cancel race ──────────────────────────────────────────────────────────
 
-def test_cancel_never_overshoots_batch_done():
-    """#1 invariant lock: cancel() races _worker's state-check→popleft critical
-    section. The buggy path runs a cancelled queued task to completion AND both
-    cancel()'s _settle and _run_task()'s _settle increment batch.done, so done
-    can exceed total. Regardless of timing, batch.done must NEVER exceed total.
-    Uses a controllable source so we exercise the cancel-while-dispatching path."""
-    started = threading.Event()
+def test_cancel_queued_task_does_not_run_and_does_not_overshoot_batch_done():
+    """#1: cancel a task while it is still QUEUED (behind a worker-holding
+    blocker, concurrency=1). This is the path finding #1 describes: cancel()'s
+    _settle must not double-increment batch.done against _run_task's _settle if
+    the worker races the cancel and runs the task anyway.
+
+    Two invariants:
+      (a) the cancelled queued task must NEVER run (download_calls == 0);
+      (b) batch.done must never exceed batch.total (the double-settle symptom).
+
+    Deterministic RED on pre-fix code: _settle had no idempotency guard, so
+    cancel's settle + _run_task's settle both incremented b.done. The idempotent
+    _settled flag (post-fix) closes it for every path."""
     release = threading.Event()
-    src = _Src("a", host="h")
+    blocker = _Src("blocker", host="hb")
 
-    def slow(token=None):
-        src.download_calls += 1
-        started.set()
-        release.wait(2)          # hold until test releases
-    src.download = slow
-
-    mgr, by_name = _mgr([src], concurrency=1)
-    bid = mgr.enqueue_batch(["a"])
-    assert started.wait(2), "source never started"
-    # cancel mid-flight (runs through the running/token path) then release
-    tid = [t for t in mgr._tasks.values() if t.source_name == "a"][0].id
-    mgr.cancel(tid)
-    release.set()
+    def hold(token=None):
+        blocker.download_calls += 1
+        release.wait(3)              # occupy the single worker
+    blocker.download = hold
+    victim = _Src("victim", host="hv")
+    mgr, by_name = _mgr([blocker, victim], concurrency=1)
+    bid = mgr.enqueue_batch(["blocker", "victim"])   # blocker runs, victim queued
+    # let the blocker claim the worker
+    _wait(mgr, lambda: by_name["blocker"].download_calls >= 1, timeout=2)
+    victim_task = [t for t in mgr._tasks.values() if t.source_name == "victim"][0]
+    assert victim_task.state == "queued", victim_task.state
+    mgr.cancel(victim_task.id)       # cancel while QUEUED — the #1 path
+    release.set()                    # let the blocker finish
     _wait(mgr, lambda: all(t.state in ("done", "failed", "cancelled")
                            for t in mgr._tasks.values()), timeout=3)
     b = mgr._batches[bid]
+    assert by_name["victim"].download_calls == 0, "cancelled queued task ran anyway"
     assert b.done <= b.total, (
         f"batch.done={b.done} > total={b.total} — cancel/_run_task double-settled"
     )
