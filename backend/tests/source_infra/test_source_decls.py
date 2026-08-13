@@ -100,3 +100,20 @@ def test_normal_sources_default():
     from ipdb._sources.threatfox import ThreatFoxSource
     assert ThreatFoxSource.rebuild_weight == "normal"
     assert ThreatFoxSource.rebuild_peak_gb == 0.0
+
+
+def test_all_sources_satisfy_rebuild_weight_contract():
+    """Invariant: no discovered source has a bad rebuild_weight/peak combo.
+
+    validate_source runs at registry load (startup warning); this makes the
+    same check a CI-time hard fail so a future typo can't slip in silently.
+    Passes the class object directly — every inspected attr is a class attr.
+    """
+    from ipdb._validate import validate_source
+    from ipdb._sources.iptoasn import IPtoASNSource
+    from ipdb._sources.ipinfo_lite import IPinfoLiteSource
+    rebuild_sources = [cls for cls, *_ in DECLS] + [IPtoASNSource, IPinfoLiteSource]
+    for cls in rebuild_sources:
+        probs = [p for p in validate_source(cls)
+                 if "rebuild_weight" in p or "rebuild_peak_gb" in p]
+        assert probs == [], f"{cls.__name__}: {probs}"
