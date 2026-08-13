@@ -51,6 +51,12 @@ class UpdateManager:
         self._by_source: dict[str, str] = {}      # source_name -> active task_id
         self._batches: dict[str, Batch] = {}
         self._active_batch: Optional[str] = None
+        # Set while enqueue_batch is still populating the queue. Blocks
+        # _maybe_finish_batch from nulling _active_batch mid-enqueue: without
+        # it, a fast-first source can finish (via _settle) before the rest are
+        # enqueued, orphaning later tasks (batch_id=None) and leaving the batch
+        # done with done < total (#2 enqueue_batch early-done race).
+        self._populating_batch: bool = False
         # Per-task download-progress throttle state: task_id -> (last_ts, last_pct).
         # Reset whenever a task (re-)enters the downloading phase.
         self._prog: dict[str, tuple[float, int]] = {}
@@ -134,12 +140,19 @@ class UpdateManager:
                      if self._resolve(n) is not None
                      and self._archetype_of(self._resolve(n)) == "offline"]
             batch.total = len(names)
+            # Hold the populate guard across the enqueue loop so a fast-first
+            # source finishing mid-loop cannot null _active_batch (via
+            # _settle→_maybe_finish_batch) before later tasks are enqueued —
+            # otherwise they'd read batch_id=None and orphan (#2).
+            self._populating_batch = True
             self._emit({"type": "batch", "batch": batch.to_dict()})
         for n in names:
             try:
                 self.enqueue_one(n)
             except ValueError:
                 pass
+        with self._lock:
+            self._populating_batch = False
         self._maybe_finish_batch()
         return batch.id
 
@@ -167,6 +180,10 @@ class UpdateManager:
     def _maybe_finish_batch(self):
         with self._lock:
             if not self._active_batch:
+                return
+            # Don't finish while enqueue_batch is still populating — a fast-first
+            # source can otherwise null _active_batch before later tasks land (#2).
+            if self._populating_batch:
                 return
             b = self._batches[self._active_batch]
             if b.state == "done":
@@ -209,6 +226,11 @@ class UpdateManager:
             return
         if task.state in ("queued", "throttled"):
             task.state = "cancelled"
+            # Defensive: a worker may have just read state='queued' under the cv
+            # and be about to popleft+run it. Re-check under the cv (in _worker)
+            # is the primary guard; cancelling the token covers the residual
+            # window between that re-check and _run_task (#1 cancel race).
+            task.token.cancel()
             self._emit({"type": "task", "task": task.to_dict()})
             with self._queue_cv:
                 self._queue = deque(t for t in self._queue if t != task_id)
@@ -252,25 +274,56 @@ class UpdateManager:
             with self._queue_cv:
                 while (not self._go.is_set()) or (not self._queue):
                     self._queue_cv.wait()
-                task_id = self._queue[0]
-                task = self._tasks.get(task_id)
-                if task is None or task.state not in ("queued", "throttled"):
-                    self._queue.popleft()
+                # Scan the queue for the first ADMISSIBLE task instead of only
+                # peeking queue[0]. A throttled (valve-blocked) heavy task at the
+                # head must not starve normal tasks queued behind it — pre-fix,
+                # workers peeked queue[0], saw can_run=False, wait+cont without
+                # popping, so queue[1..N] never reached any worker (#3 FIFO
+                # head-block).
+                chosen_idx = None
+                skipped_admit = False
+                for i, tid in enumerate(self._queue):
+                    task = self._tasks.get(tid)
+                    if task is None or task.state not in ("queued", "throttled"):
+                        continue
+                    if self._valve is not None:
+                        src = self._resolve(task.source_name)
+                        weight = getattr(src, "rebuild_weight", "normal") if src else "normal"
+                        peak = getattr(src, "rebuild_peak_gb", 0.0) if src else 0.0
+                        if not self._valve.can_run(weight, peak):
+                            if task.state == "queued":
+                                self._set_state(task, "throttled")
+                            skipped_admit = True
+                            continue
+                    chosen_idx = i
+                    break
+                if chosen_idx is None:
+                    # Either every runnable task is throttled, or the queue is
+                    # all cancelled/garbage. Purge dead entries, then wait for a
+                    # notify (valve target rising, a cancel, or a new enqueue).
+                    if not skipped_admit:
+                        self._queue = deque(
+                            t for t in self._queue
+                            if self._tasks.get(t) is not None
+                            and self._tasks[t].state in ("queued", "throttled"))
+                    self._queue_cv.wait()
                     continue
-                # 阀门判定
+                task_id = self._queue[chosen_idx]
+                task = self._tasks.get(task_id)
+                # Re-check state under the cv RIGHT before popping: cancel() can
+                # flip a queued task to 'cancelled' between the scan above and
+                # here. Without this, a cancelled task runs and both cancel's
+                # _settle and _run_task's _settle increment batch.done (#1).
+                if task is None or task.state not in ("queued", "throttled"):
+                    del self._queue[chosen_idx]
+                    continue
                 if self._valve is not None:
                     src = self._resolve(task.source_name)
                     weight = getattr(src, "rebuild_weight", "normal") if src else "normal"
-                    peak = getattr(src, "rebuild_peak_gb", 0.0) if src else 0.0
-                    if not self._valve.can_run(weight, peak):
-                        if task.state == "queued":
-                            self._set_state(task, "throttled")
-                        self._queue_cv.wait()
-                        continue
                     if task.state == "throttled":
                         self._set_state(task, "queued")
                     self._valve.on_start(weight)
-                self._queue.popleft()
+                del self._queue[chosen_idx]
             self._run_task(task)
             if self._valve is not None:
                 src = self._resolve(task.source_name)
