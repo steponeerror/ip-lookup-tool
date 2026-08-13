@@ -104,14 +104,14 @@ class ChineseISPSource(Source):
                         continue
                     best[line] = {"country_code": country, "isp": label, "_net": line}
         try:
+            cov = covered_ip_count(best.keys())
             n = rebuild_mmdb(
                 ((k, v) for k, v in best.items()), self._mmdb_path,
                 reader_setter=lambda r: setattr(self, "_reader", r),
                 database_type="IP-Radar-cn-isp",
+                covered=cov,
             )
-            self._mmdb_path.with_suffix(".count").write_text(str(n))
-            self._covered_ips = covered_ip_count(best.keys())
-            self._mmdb_path.with_suffix(".cov").write_text(str(self._covered_ips))
+            self._covered_ips = cov
             self._count = n
             self._loaded_at = time.time()
             return n

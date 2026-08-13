@@ -117,12 +117,11 @@ class Source:
             records = ((k, v) for k, v in acc.items())
             covered_cidrs = list(acc.keys())
         try:
+            cov = covered_ip_count(covered_cidrs)
             n = rebuild_mmdb(records, self._mmdb_path,
                              reader_setter=lambda r: setattr(self, "_reader", r),
-                             database_type=f"IP-Radar-{self.name}")
-            cov = covered_ip_count(covered_cidrs)
-            self._mmdb_path.with_suffix(".count").write_text(str(n))
-            self._mmdb_path.with_suffix(".cov").write_text(str(cov))
+                             database_type=f"IP-Radar-{self.name}",
+                             covered=cov)
             self._count = n
             self._covered_ips = cov
             self._loaded_at = time.time()

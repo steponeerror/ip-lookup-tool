@@ -134,12 +134,11 @@ class IpListSource:
                 records.append((str(net), [insert_data]))
                 covered.append(str(net))
         try:
+            cov = covered_ip_count(covered)
             n = rebuild_mmdb(iter(records), self._mmdb_path,
                              reader_setter=lambda r: setattr(self, "_reader", r),
-                             database_type=f"IP-Radar-{self.name}")
-            cov = covered_ip_count(covered)
-            self._mmdb_path.with_suffix(".count").write_text(str(n))
-            self._mmdb_path.with_suffix(".cov").write_text(str(cov))
+                             database_type=f"IP-Radar-{self.name}",
+                             covered=cov)
             self._count = n
             self._covered_ips = cov
             self._loaded_at = time.time()
@@ -240,13 +239,12 @@ class CsvSource(IpListSource):
                     continue
                 bucket.append(parsed)
         try:
-            n = rebuild_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path,
-                             reader_setter=lambda r: setattr(self, "_reader", r),
-                             database_type=f"IP-Radar-{self.name}")
             cov = covered_ip_count(acc.keys())
             cnt = sum(len(v) for v in acc.values())
-            self._mmdb_path.with_suffix(".count").write_text(str(cnt))
-            self._mmdb_path.with_suffix(".cov").write_text(str(cov))
+            n = rebuild_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path,
+                             reader_setter=lambda r: setattr(self, "_reader", r),
+                             database_type=f"IP-Radar-{self.name}",
+                             count=cnt, covered=cov)
             self._count = cnt
             self._covered_ips = cov
             self._loaded_at = time.time()

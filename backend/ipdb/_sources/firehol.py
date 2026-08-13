@@ -75,7 +75,7 @@ class FireholBlocklistSource(IpListSource):
         a partial state (mmdb exists, sidecars missing) self-heal.
         """
         import ipaddress as _ipa
-        from ._mmdb import rebuild_mmdb, covered_ip_count, covered_ips_cached
+        from ._mmdb import rebuild_mmdb, covered_ip_count
         if not self._path.exists():
             return 0
         old_reader = self._reader
@@ -117,15 +117,14 @@ class FireholBlocklistSource(IpListSource):
                         continue
 
         try:
+            cov = covered_ip_count(_enum())
             n = rebuild_mmdb(
                 records, self._mmdb_path,
                 reader_setter=lambda r: setattr(self, "_reader", r),
                 database_type=f"IP-Radar-{self.name}",
+                covered=cov,
             )
-            self._mmdb_path.with_suffix(".count").write_text(str(n))
-            cov_path = self._mmdb_path.with_suffix(".cov")
-            self._covered_ips = covered_ips_cached(cov_path, list(self._files), _enum)
-            cov_path.write_text(str(self._covered_ips))
+            self._covered_ips = cov
             self._count = n
             self._loaded_at = time.time()
             return n

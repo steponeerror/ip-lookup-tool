@@ -129,12 +129,12 @@ class IPinfoLiteSource:
                     if len(row) >= 1:
                         yield row[0]
         try:
+            cov = covered_ip_count(_cidrs())
             n = rebuild_mmdb(_records(), self._mmdb_path,
                              reader_setter=lambda r: setattr(self, "_reader", r),
-                             database_type="IP-Radar-ipinfo-lite")
-            self._mmdb_path.with_suffix(".count").write_text(str(n))
-            self._covered_ips = covered_ip_count(_cidrs())
-            self._mmdb_path.with_suffix(".cov").write_text(str(self._covered_ips))
+                             database_type="IP-Radar-ipinfo-lite",
+                             covered=cov)
+            self._covered_ips = cov
             self._count = n
             self._loaded_at = time.time()
             return n
