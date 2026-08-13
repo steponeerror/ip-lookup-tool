@@ -104,6 +104,18 @@ class UpdateManager:
             existing = self._by_source.get(name)
             if existing and self._tasks[existing].state in ("queued", "downloading", "loading", "throttled"):
                 return self._tasks[existing]
+            # Evict the source's prior TERMINAL tasks (and their progress state)
+            # before installing the new one, so _tasks/_prog stay O(sources)
+            # instead of growing one entry per run forever (#5). _settle clears
+            # _by_source on termination, so terminal tasks linger in _tasks with
+            # no back-reference — sweep by source_name. A terminal task was
+            # retained until now so snapshot()/task_state() could report the last
+            # phase; once the source moves on it's stale.
+            stale = [tid for tid, t in self._tasks.items()
+                     if t.source_name == name and t.state in ("done", "failed", "cancelled")]
+            for tid in stale:
+                self._tasks.pop(tid, None)
+                self._prog.pop(tid, None)
             task = Task(id=uuid.uuid4().hex[:12], source_name=name,
                         host=getattr(source, "download_host", None),
                         batch_id=batch_id)
