@@ -137,11 +137,11 @@ class IpListSource:
             n = rebuild_mmdb(iter(records), self._mmdb_path,
                              reader_setter=lambda r: setattr(self, "_reader", r),
                              database_type=f"IP-Radar-{self.name}")
+            cov = covered_ip_count(covered)
             self._mmdb_path.with_suffix(".count").write_text(str(n))
-            self._mmdb_path.with_suffix(".cov").write_text(
-                str(covered_ip_count(covered)))
+            self._mmdb_path.with_suffix(".cov").write_text(str(cov))
             self._count = n
-            self._covered_ips = covered_ip_count(covered)
+            self._covered_ips = cov
             self._loaded_at = time.time()
             return n
         finally:
@@ -198,20 +198,6 @@ class CsvSource(IpListSource):
         """Parse one CSV row → {field: value} dict. Return None to skip."""
         raise NotImplementedError("CsvSource subclasses must implement parse_row()")
 
-    def load(self) -> int:
-        """纯 mmap:打开已有 mmdb,读 sidecar,不重建。"""
-        from ._mmdb import open_reader
-        if not self._mmdb_path.exists():
-            self._reader = None
-            return 0
-        self._reader = open_reader(self._mmdb_path)
-        count_path = self._mmdb_path.with_suffix(".count")
-        cov_path = self._mmdb_path.with_suffix(".cov")
-        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
-        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
-        self._loaded_at = time.time()
-        return self._count
-
     def rebuild(self) -> int:
         """重建 mmdb(唯一重建入口)。双 buffer swap reader。"""
         import csv as _csv
@@ -257,12 +243,12 @@ class CsvSource(IpListSource):
             n = rebuild_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path,
                              reader_setter=lambda r: setattr(self, "_reader", r),
                              database_type=f"IP-Radar-{self.name}")
-            self._mmdb_path.with_suffix(".count").write_text(
-                str(sum(len(v) for v in acc.values())))
-            self._mmdb_path.with_suffix(".cov").write_text(
-                str(covered_ip_count(acc.keys())))
-            self._count = sum(len(v) for v in acc.values())
-            self._covered_ips = covered_ip_count(acc.keys())
+            cov = covered_ip_count(acc.keys())
+            cnt = sum(len(v) for v in acc.values())
+            self._mmdb_path.with_suffix(".count").write_text(str(cnt))
+            self._mmdb_path.with_suffix(".cov").write_text(str(cov))
+            self._count = cnt
+            self._covered_ips = cov
             self._loaded_at = time.time()
             return n
         finally:

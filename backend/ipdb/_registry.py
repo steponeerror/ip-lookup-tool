@@ -342,11 +342,6 @@ def load_db() -> None:
     logger.info(f"Loaded {counts} records")
 
 
-def expected_counts() -> dict[str, int]:
-    """Deprecated stub — threat booleans removed. Returns {} for backward import compat."""
-    return {}
-
-
 def lookup(ip: str) -> LookupResult:
     """Look up an IP address and return a typed LookupResult."""
     if not _db_loaded():
