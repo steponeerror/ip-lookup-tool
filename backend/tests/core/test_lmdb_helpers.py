@@ -109,10 +109,13 @@ def test_lookup_three_level_nested_cidr(tmp_path):
 
 
 def test_lookup_backscan_exhaustion_warns(tmp_path, monkeypatch, caplog):
-    """步数耗尽 ≠ 真 miss,必须可观测:monkeypatch 调小上限到 2,
-    构造需要 3 步回退的场景,断言返回 None 且 warning 记录(含 ip_int 与步数)。"""
+    """步数耗尽 ≠ 真 miss,必须可观测,但**每进程只告警一次**(否则不相交
+    数据下的真 miss 会日志轰炸):monkeypatch 调小上限到 2 + reset 模块级
+    flag,构造需要 3 步回退的场景,断言第一次耗尽发 warning(含 ip_int 与
+    步数),第二次耗尽不再发。"""
     import ipdb._sources._lmdb as m
     monkeypatch.setattr(m, "MAX_BACKSCAN_STEPS", 2)
+    monkeypatch.setattr(m, "_exhaustion_warned", False)
     e = lmdb.open(str(tmp_path / "exh"), map_size=1024 * 1024)
     with e.begin(write=True) as txn:
         txn.put(encode_key(0x01000000), encode_value(0x0100FFFF, {"cc": "PARENT"}))
@@ -124,6 +127,11 @@ def test_lookup_backscan_exhaustion_warns(tmp_path, monkeypatch, caplog):
     assert warns, "expected backscan-exhaustion warning"
     assert str(0x01004405) in warns[0].getMessage()   # ip_int 在告警里
     assert "2" in warns[0].getMessage()               # 步数在告警里
+    # 第二次耗尽:同一进程内不再告警(caplog 记录数不增)
+    with caplog.at_level("WARNING", logger="ipdb._sources._lmdb"):
+        assert lookup(e, 0x01004406) is None          # 另一个耗尽 miss
+    warns2 = [r for r in caplog.records if "exhausted" in r.message]
+    assert len(warns2) == len(warns), "exhaustion warning must fire only once"
     e.close()
 
 

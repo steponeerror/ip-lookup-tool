@@ -33,6 +33,11 @@ BATCH_SIZE = 10_000
 # 1 步即命中;上限只防病态深嵌套拖慢 miss 查询(保住 bench p99)。
 MAX_BACKSCAN_STEPS = 16
 
+# 耗尽告警每进程只发一次:不相交数据(常态)下真 miss 也会走满 16 步进入
+# 耗尽分支,若每次都告警,生产全源 fan-out(mostly miss)会日志轰炸。
+# 首次告警足以暴露数据不变量违反。
+_exhaustion_warned = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -93,11 +98,16 @@ def lookup(env, ip_int: int) -> Any:
             # 候选 range 已结束于 ip 之前:prev() 找更早(可能是嵌套祖先)的 range
             if not cur.prev():
                 return None               # 跑过头 = 真正的 miss,不告警
-        # 步数耗尽 ≠ 真 miss:可能存在被深嵌套遮蔽的覆盖 range 被丢弃
-        logger.warning(
-            "lmdb lookup backscan exhausted after %d steps for ip_int=%d; "
-            "data may violate the mostly-disjoint ranges assumption — "
-            "possible missed hit", MAX_BACKSCAN_STEPS, ip_int)
+        # 步数耗尽 ≠ 真 miss:可能存在被深嵌套遮蔽的覆盖 range 被丢弃。
+        # 每进程只告警一次(见 _exhaustion_warned 注释)。
+        global _exhaustion_warned
+        if not _exhaustion_warned:
+            logger.warning(
+                "lmdb lookup backscan exhausted after %d steps for ip_int=%d; "
+                "data may violate the mostly-disjoint ranges assumption — "
+                "possible missed hit (warning once per process)",
+                MAX_BACKSCAN_STEPS, ip_int)
+            _exhaustion_warned = True
         return None
 
 
