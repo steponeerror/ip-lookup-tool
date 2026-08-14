@@ -2,6 +2,7 @@ fastapi==0.115.12
 uvicorn[standard]==0.34.2
 maxminddb==3.1.1          # MMDB reader (mmap-based, low RSS)
 mmdb-writer==0.2.7        # MMDB writer (build .mmdb from CIDR+value pairs)
+lmdb==2.3.0              # LMDB storage (streaming build, mmap query)
 python-multipart==0.0.20
 python-dotenv==1.1.0
 cabby==0.1.23            # OTX TAXII 1.x client (AlienVault OTX bulk download)
