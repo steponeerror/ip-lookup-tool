@@ -53,30 +53,31 @@ class FireholBlocklistSource(IpListSource):
                 dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
 
     def load(self) -> int:
-        """纯 mmap:打开已有 mmdb,读 sidecar,不重建。"""
-        from ._mmdb import open_reader
-        if not self._mmdb_path.exists():
+        """纯 mmap:打开已有 LMDB env,读 sidecar,不重建。"""
+        from ._lmdb import read_ptr, open_env_read, cleanup_stale, count_path, cov_path
+        cleanup_stale(self._lmdb_base)
+        epoch = read_ptr(self._lmdb_base)
+        if epoch is None:
             self._reader = None
             return 0
-        self._reader = open_reader(self._mmdb_path)
-        count_path = self._mmdb_path.with_suffix(".count")
-        cov_path = self._mmdb_path.with_suffix(".cov")
-        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
-        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
+        self._reader = open_env_read(
+            self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
+        cp, vp = count_path(self._lmdb_base), cov_path(self._lmdb_base)
+        self._count = int(cp.read_text().strip()) if cp.exists() else 0
+        self._covered_ips = int(vp.read_text().strip()) if vp.exists() else 0
         self._loaded_at = time.time()
         return self._count
 
     def rebuild(self) -> int:
-        """重建 mmdb(唯一重建入口)。双 buffer swap reader。
+        """重建 LMDB(唯一重建入口)。新 epoch + ptr swap reader。
 
-        Multi-file mtime gating (like cn_isp): if the MMDB is already newer
+        Multi-file mtime gating (like cn_isp): if the ptr is already newer
         than the newest netset, the rebuild is a no-op but still opens the
         reader and refreshes sidecars — so callers that enqueue firehol after
-        a partial state (mmdb exists, sidecars missing) self-heal.
+        a partial state (env exists, sidecars missing) self-heal.
         """
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count
-        from ._mmdb import rebuild_mmdb
+        from ._lmdb import covered_ip_count, rebuild_lmdb
         if not self._path.exists():
             return 0
         old_reader = self._reader
@@ -84,9 +85,11 @@ class FireholBlocklistSource(IpListSource):
 
         # Preserve multi-file cache-invalidity logic: accumulate records by
         # iterating each netset, deduping identical CIDRs across lists by
-        # overwriting (records is a list; rebuild_mmdb inserts them in order,
-        # later inserts for the same CIDR overwrite earlier ones — fine for
-        # threat lists where evidence shape is identical across lists).
+        # overwriting (records is a list; rebuild_lmdb txn.put's them in
+        # order, later puts for the same start key overwrite earlier ones —
+        # semantically identical to the MMDB-era insert_network overwrite,
+        # fine for threat lists where evidence shape is identical across
+        # lists).
         records: list[tuple[str, list[dict]]] = []
         for list_name in self._lists:
             p = self._path / f"{list_name}.netset"
@@ -119,29 +122,38 @@ class FireholBlocklistSource(IpListSource):
 
         try:
             cov = covered_ip_count(_enum())
-            n = rebuild_mmdb(
-                records, self._mmdb_path,
-                reader_setter=lambda r: setattr(self, "_reader", r),
-                database_type=f"IP-Radar-{self.name}",
-                covered=cov,
-            )
+            n = rebuild_lmdb(records, self._lmdb_base,
+                             reader_setter=lambda e: setattr(self, "_reader", e),
+                             covered=cov)
             self._covered_ips = cov
             self._count = n
             self._loaded_at = time.time()
             return n
         finally:
             if old_reader is not None:
-                old_reader.close()
+                try:
+                    old_reader.close()
+                except Exception:
+                    pass          # lmdb env 二次 close/已失效:容忍
 
     def query(self, ip: str):
         if self._reader is None:
             return {}
+        import ipaddress as _ipa
+        import lmdb as _lmdb
+        from ._lmdb import lookup, read_ptr, open_env_read
+        ip_int = int(_ipa.IPv4Address(ip))
         try:
-            node = self._reader.get(ip)
-        except (ValueError, OSError):
-            from ._mmdb import open_reader
-            self._reader = open_reader(self._mmdb_path)
-            node = self._reader.get(ip)
+            node = lookup(self._reader, ip_int)
+        except (_lmdb.Error, OSError):
+            # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
+            epoch = read_ptr(self._lmdb_base)
+            self._reader = (open_env_read(
+                self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
+                if epoch is not None else None)
+            if self._reader is None:
+                return {}
+            node = lookup(self._reader, ip_int)
         if node is None:
             return {}
         return node
