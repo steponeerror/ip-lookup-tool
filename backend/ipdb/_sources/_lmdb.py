@@ -194,6 +194,21 @@ def cleanup_stale(base: Path) -> None:
                 shutil.rmtree(child, ignore_errors=True)
 
 
+def cleanup_legacy_mmdb(base: Path) -> None:
+    """迁移一次性清理:删 MMDB 时代旧命名孤儿文件。
+
+    旧布局 <filename>.mmdb / <filename>.count / <filename>.cov(不带 .lmdb
+    段)在 LMDB 迁移后无人再读写,永留 data 目录。精确名构造而非 glob
+    通配,保证绝不误删 <filename>.lmdb.count 等新 sidecar(ptr/epoch 目录
+    亦不在目标内)。base = <filename>.lmdb(两个 Source 基类的构造契约)。
+    """
+    if not base.name.endswith(".lmdb"):
+        return
+    stem = base.name[: -len(".lmdb")]
+    for suffix in (".mmdb", ".count", ".cov"):
+        (base.parent / (stem + suffix)).unlink(missing_ok=True)
+
+
 def initial_map_size(base: Path) -> int:
     cp = count_path(base)
     if cp.exists():
@@ -280,6 +295,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     finally:
         for s, _ in staged:
             Path(s).unlink(missing_ok=True)
+
+    cleanup_legacy_mmdb(base)               # 提交成功后:清 MMDB 时代孤儿
 
     new_env = open_env_read(target)
     reader_setter(new_env)
