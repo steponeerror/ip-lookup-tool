@@ -9,9 +9,16 @@ never Path.with_suffix: it would eat the ``.lmdb`` segment):
     <base>.count / <base>.cov  sidecars (unchanged commit-order contract)
 
 key = start_ip 4-byte big-endian; value = JSON [end_ip_int, evidence].
+
+Invariant (same-start collision): two CIDRs sharing the same start with
+different lengths (e.g. 1.0.0.0/24 vs 1.0.0.0/16) collide on the same key;
+the later write overwrites the earlier one, and the overlaid range's parent
+segment is permanently lost with no backscan rescue — every source migrated
+to this module MUST be audited to have ZERO same-start collisions.
 """
 import ipaddress
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -25,6 +32,8 @@ BATCH_SIZE = 10_000
 # 候选 range 不覆盖时需 prev() 找祖先。真实数据(厂商聚合)基本不相交,
 # 1 步即命中;上限只防病态深嵌套拖慢 miss 查询(保住 bench p99)。
 MAX_BACKSCAN_STEPS = 16
+
+logger = logging.getLogger(__name__)
 
 
 def encode_key(start_int: int) -> bytes:
@@ -83,7 +92,12 @@ def lookup(env, ip_int: int) -> Any:
                 return decode_value(cur.value())[1]
             # 候选 range 已结束于 ip 之前:prev() 找更早(可能是嵌套祖先)的 range
             if not cur.prev():
-                return None
+                return None               # 跑过头 = 真正的 miss,不告警
+        # 步数耗尽 ≠ 真 miss:可能存在被深嵌套遮蔽的覆盖 range 被丢弃
+        logger.warning(
+            "lmdb lookup backscan exhausted after %d steps for ip_int=%d; "
+            "data may violate the mostly-disjoint ranges assumption — "
+            "possible missed hit", MAX_BACKSCAN_STEPS, ip_int)
         return None
 
 

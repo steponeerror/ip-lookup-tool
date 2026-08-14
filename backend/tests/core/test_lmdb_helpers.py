@@ -87,6 +87,46 @@ def test_lookup_nested_backscan_bounded(tmp_path):
     e.close()
 
 
+def test_lookup_three_level_nested_cidr(tmp_path):
+    """三层嵌套命中(≥2 步回退):孙 /24 在子 /22 前段内、子 /22 在父 /16 内
+    (各层 start 错开,规避同 start key 碰撞)。
+
+    - 查询落在孙之后、子 end 之后、父覆盖内 → 2 步回退命中父
+    - 查询落在子后段(孙之外) → 1 步回退命中子
+    """
+    e = lmdb.open(str(tmp_path / "nest3"), map_size=1024 * 1024)
+    with e.begin(write=True) as txn:
+        # 父 1.0.0.0/16 = 0x01000000..0x0100FFFF
+        txn.put(encode_key(0x01000000), encode_value(0x0100FFFF, {"cc": "PARENT"}))
+        # 子 1.0.64.0/22 = 0x01004000..0x010043FF(父前半段内)
+        txn.put(encode_key(0x01004000), encode_value(0x010043FF, {"cc": "CHILD"}))
+        # 孙 1.0.65.0/24 = 0x01004100..0x010041FF(子前段内)
+        txn.put(encode_key(0x01004100), encode_value(0x010041FF, {"cc": "GRAND"}))
+    assert lookup(e, 0x01004405)["cc"] == "PARENT"   # 孙+子之后,父覆盖内
+    assert lookup(e, 0x0100430A)["cc"] == "CHILD"    # 子后段(孙之外)
+    assert lookup(e, 0x01004180)["cc"] == "GRAND"    # 孙段内最长前缀
+    e.close()
+
+
+def test_lookup_backscan_exhaustion_warns(tmp_path, monkeypatch, caplog):
+    """步数耗尽 ≠ 真 miss,必须可观测:monkeypatch 调小上限到 2,
+    构造需要 3 步回退的场景,断言返回 None 且 warning 记录(含 ip_int 与步数)。"""
+    import ipdb._sources._lmdb as m
+    monkeypatch.setattr(m, "MAX_BACKSCAN_STEPS", 2)
+    e = lmdb.open(str(tmp_path / "exh"), map_size=1024 * 1024)
+    with e.begin(write=True) as txn:
+        txn.put(encode_key(0x01000000), encode_value(0x0100FFFF, {"cc": "PARENT"}))
+        txn.put(encode_key(0x01004000), encode_value(0x010043FF, {"cc": "CHILD"}))
+        txn.put(encode_key(0x01004100), encode_value(0x010041FF, {"cc": "GRAND"}))
+    with caplog.at_level("WARNING", logger="ipdb._sources._lmdb"):
+        assert lookup(e, 0x01004405) is None          # 需 3 步,上限 2 → 耗尽
+    warns = [r for r in caplog.records if "exhausted" in r.message]
+    assert warns, "expected backscan-exhaustion warning"
+    assert str(0x01004405) in warns[0].getMessage()   # ip_int 在告警里
+    assert "2" in warns[0].getMessage()               # 步数在告警里
+    e.close()
+
+
 def test_lookup_empty_env(tmp_path):
     e = lmdb.open(str(tmp_path / "empty"), map_size=1024 * 1024)
     assert lookup(e, 0x01000000) is None
