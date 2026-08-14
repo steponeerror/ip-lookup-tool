@@ -148,3 +148,104 @@ def cleanup_stale(base: Path) -> None:
             epoch = int(parts[0])
             if live is not None and epoch != live:
                 shutil.rmtree(child, ignore_errors=True)
+
+
+def initial_map_size(base: Path) -> int:
+    cp = count_path(base)
+    if cp.exists():
+        try:
+            return max(DEFAULT_MAP_SIZE, int(cp.read_text().strip()) * BYTES_PER_RECORD_EST)
+        except ValueError:
+            pass
+    return DEFAULT_MAP_SIZE
+
+
+def _write_staged(path: Path, text: str) -> Path:
+    """Write staging file + fsync so a replace never exposes torn bytes."""
+    staged = path.parent / (path.name + f".new.{os.getpid()}")
+    with open(staged, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    return staged
+
+
+def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
+                 count: int | None = None, covered: int | None = None,
+                 map_size: int | None = None) -> int:
+    """Stream-build a fresh epoch env, then atomically swap via ptr.
+
+    Commit order (mirror of rebuild_mmdb's invariant): rename closed env
+    dir → sidecars (staged+fsynced, os.replace) → ptr LAST → in-memory
+    reader_setter. The ptr only ever names a fully-built, synced env.
+    Old-env close is the caller's job (finally), same as rebuild_mmdb.
+    """
+    import shutil
+    epoch = next_epoch(base)
+    target = env_dir(base, epoch)
+    staging = base.parent / f"{target.name}.new.{os.getpid()}"
+    if staging.exists():
+        shutil.rmtree(staging)
+    if target.exists():
+        shutil.rmtree(target)          # orphan of an aborted prior run
+
+    size = map_size or initial_map_size(base)
+    env = lmdb.open(str(staging), map_size=size, writemap=True, subdir=True)
+    n = 0
+    batch: list[tuple[bytes, bytes]] = []
+
+    def _flush():
+        nonlocal batch
+        while batch:
+            try:
+                with env.begin(write=True) as txn:
+                    for k, v in batch:
+                        txn.put(k, v)
+                batch = []
+            except lmdb.MapFullError:
+                env.set_mapsize(env.info()["map_size"] * 2)
+                # retry same batch after growth
+
+    for cidr, evidence in records:
+        try:
+            net = ipaddress.IPv4Network(cidr, strict=False)
+        except (ipaddress.AddressValueError, ValueError):
+            continue
+        batch.append((encode_key(int(net.network_address)),
+                      encode_value(int(net.broadcast_address), evidence)))
+        n += 1
+        if len(batch) >= BATCH_SIZE:
+            _flush()
+    _flush()
+    env.sync(True)
+    env.close()                        # closed BEFORE rename — Windows-safe
+    os.rename(staging, target)
+
+    staged = []
+    try:
+        if count is None:
+            count = n
+        staged.append((_write_staged(count_path(base), str(count)), count_path(base)))
+        if covered is not None:
+            staged.append((_write_staged(cov_path(base), str(covered)), cov_path(base)))
+        for s, final in staged:                      # sidecars commit first
+            os.replace(s, final)
+        p_staged = _write_staged(ptr_path(base), str(epoch))
+        os.replace(p_staged, ptr_path(base))         # ptr LAST
+        staged.clear()
+    finally:
+        for s, _ in staged:
+            Path(s).unlink(missing_ok=True)
+
+    new_env = open_env_read(target)
+    old = read_ptr(base)                              # == epoch now
+    reader_setter(new_env)
+    # best-effort prune older epochs
+    if base.parent.exists():
+        for child in base.parent.iterdir():
+            name = child.name
+            if child.is_dir() and name.startswith(base.name + "."):
+                head = name[len(base.name) + 1:].split(".")[0]
+                if head.isdigit() and int(head) < epoch:
+                    shutil.rmtree(child, ignore_errors=True)
+    return n

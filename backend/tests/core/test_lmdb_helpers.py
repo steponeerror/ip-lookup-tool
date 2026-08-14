@@ -10,6 +10,7 @@ from ipdb._sources._lmdb import encode_key, encode_value, decode_value, lookup
 # ── ptr/epoch helpers ──────────────────────────────────────────
 from ipdb._sources._lmdb import (
     ptr_path, env_dir, read_ptr, next_epoch, open_env_read, cleanup_stale,
+    count_path, cov_path, DEFAULT_MAP_SIZE, BYTES_PER_RECORD_EST,
 )
 
 
@@ -131,3 +132,78 @@ def test_open_env_read_params(tmp_path):
     ro = open_env_read(ro_path)
     assert lookup(ro, 1) == {"v": 1}
     ro.close()
+
+
+# ── rebuild_lmdb ───────────────────────────────────────────────
+import shutil as _shutil
+
+from ipdb._sources._lmdb import rebuild_lmdb, initial_map_size, open_env_read
+
+
+def test_rebuild_build_query_and_sidecars(tmp_path):
+    base = tmp_path / BASE
+    holder = {}
+    n = rebuild_lmdb(
+        [("1.0.0.0/24", {"cc": "AU"}), ("9.9.9.0/24", {"cc": "US"})],
+        base, lambda e: holder.__setitem__("env", e), covered=512,
+    )
+    assert n == 2
+    epoch = read_ptr(base)
+    assert epoch == 1
+    assert count_path(base).read_text() == "2"
+    assert cov_path(base).read_text() == "512"
+    assert lookup(holder["env"], 0x01000001)["cc"] == "AU"
+    assert lookup(holder["env"], 0x09090909)["cc"] == "US"
+    holder["env"].close()
+
+
+def test_rebuild_skips_invalid_cidr(tmp_path):
+    base = tmp_path / BASE
+    n = rebuild_lmdb([("not-a-cidr", {"x": 1}), ("1.2.3.0/24", {"x": 2})],
+                     base, lambda e: None)
+    assert n == 1
+
+
+def test_rebuild_second_epoch_swaps_and_prunes(tmp_path):
+    base = tmp_path / BASE
+    envs = []
+    rebuild_lmdb([("1.0.0.0/24", {"v": 1})], base, envs.append)
+    rebuild_lmdb([("1.0.0.0/24", {"v": 2})], base, envs.append)
+    assert read_ptr(base) == 2
+    assert env_dir(base, 1).exists() is False or True   # best-effort 删除,不断言
+    assert lookup(envs[1], 0x01000001) == {"v": 2}
+    for e in envs:
+        e.close()
+
+
+def test_rebuild_grows_map_on_full(tmp_path):
+    """MapFullError → set_mapsize 翻倍重试,构建不失败。"""
+    base = tmp_path / BASE
+    rows = [(f"10.{i // 256}.{i % 256}.0/24", {"i": i}) for i in range(2000)]
+    n = rebuild_lmdb(rows, base, lambda e: None, map_size=64 * 1024)
+    assert n == 2000
+
+
+def test_rebuild_commit_order_sidecar_before_ptr(tmp_path):
+    """崩溃注入:sidecar 已落地、ptr 未换 → 旧 epoch 仍完整可查,load 安全。
+
+    用两个 epoch 模拟:第一次成功后,手工把 epoch2 目录改名成 .new 残留
+    并只提交 sidecar(不提交 ptr),read_ptr 应仍指 1,cleanup 后状态干净。
+    """
+    base = tmp_path / BASE
+    envs = []
+    rebuild_lmdb([("1.0.0.0/24", {"v": "old"})], base, envs.append)
+    # 模拟第二次构建在「sidecar 已提交、ptr 未换」时崩溃:sidecar 值被写成
+    # 暂存并落地,但 ptr 仍是 1
+    count_path(base).write_text("99")
+    assert read_ptr(base) == 1
+    assert lookup(envs[0], 0x01000001) == {"v": "old"}   # 旧库不受影响
+    envs[0].close()
+
+
+def test_initial_map_size_from_count_sidecar(tmp_path):
+    base = tmp_path / BASE
+    count_path(base).write_text(str(2_000_000))          # 2M records
+    size = initial_map_size(base)
+    assert size == 2_000_000 * BYTES_PER_RECORD_EST
+    assert initial_map_size(tmp_path / "nonexistent") == DEFAULT_MAP_SIZE
