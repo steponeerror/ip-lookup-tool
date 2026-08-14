@@ -21,6 +21,10 @@ import lmdb
 DEFAULT_MAP_SIZE = 512 * 1024 * 1024   # first-build default; grown on demand
 BYTES_PER_RECORD_EST = 512             # initial estimate from .count sidecar
 BATCH_SIZE = 10_000
+# 嵌套 CIDR 回退扫描上限:MMDB 是最长前缀匹配,父 range 会被子 CIDR 遮蔽,
+# 候选 range 不覆盖时需 prev() 找祖先。真实数据(厂商聚合)基本不相交,
+# 1 步即命中;上限只防病态深嵌套拖慢 miss 查询(保住 bench p99)。
+MAX_BACKSCAN_STEPS = 16
 
 
 def encode_key(start_int: int) -> bytes:
@@ -36,12 +40,23 @@ def decode_value(raw: bytes) -> tuple[int, Any]:
     return int(end), evidence
 
 
+def _end_int(raw: bytes) -> int:
+    """Backscan 快路径:value 布局固定为 ``[end, evidence]`` 且 end 是无符号
+    整数,首个 ``,`` 前的数字即 end — 免去每步 json.loads(嵌套回退时一步
+    一解码曾把 miss p50 从 ~3µs 拖到 ~40µs)。"""
+    return int(raw[1:raw.index(b",")])
+
+
 def lookup(env, ip_int: int) -> Any:
     """Per-query read txn (LMDB read txns are not thread-safe to share).
 
     Three paths unified: exact start hit, fallback to greatest start ≤ ip,
     and ip outside every range. The set_range-False branch MUST still
     prev() — an ip inside the LAST range has no key ≥ it (bench bug).
+
+    候选 range 不覆盖 ip 时继续 prev() 回找嵌套祖先(MMDB 最长前缀语义:
+    子 CIDR 遮蔽父 range 的前段,父 range 后段仍应命中),最多
+    MAX_BACKSCAN_STEPS 步;不相交数据(厂商聚合)1 步即终止。
     """
     key = encode_key(ip_int)
     with env.begin() as txn:
@@ -61,9 +76,15 @@ def lookup(env, ip_int: int) -> Any:
             if not cur.prev():
                 return None               # empty db
         # Now cursor is at greatest start ≤ ip (or exact start)
-        start = int.from_bytes(cur.key(), "big")
-        end, evidence = decode_value(cur.value())
-        return evidence if start <= ip_int <= end else None
+        for _ in range(MAX_BACKSCAN_STEPS):
+            start = int.from_bytes(cur.key(), "big")
+            end = _end_int(cur.value())
+            if start <= ip_int <= end:
+                return decode_value(cur.value())[1]
+            # 候选 range 已结束于 ip 之前:prev() 找更早(可能是嵌套祖先)的 range
+            if not cur.prev():
+                return None
+        return None
 
 
 # ── ptr/epoch helpers ──────────────────────────────────────────

@@ -57,6 +57,36 @@ def test_lookup_below_all(env):
     assert lookup(env, 0x00000001) is None
 
 
+def test_lookup_nested_cidr_falls_back_to_parent(tmp_path):
+    """嵌套 CIDR 回归(MMDB 最长前缀语义):子 /24 遮蔽父 /16 前段,
+    查询父 range 后段(子 CIDR 之外)时,候选(子)不覆盖 → prev() 找到父。
+    """
+    e = lmdb.open(str(tmp_path / "nest"), map_size=1024 * 1024)
+    with e.begin(write=True) as txn:
+        txn.put(encode_key(0x01020000), encode_value(0x0102FFFF, {"cc": "PARENT"}))
+        txn.put(encode_key(0x01020300), encode_value(0x010203FF, {"cc": "CHILD"}))
+    assert lookup(e, 0x01020405)["cc"] == "PARENT"   # 父后段(1.2.4.5)
+    assert lookup(e, 0x01020333)["cc"] == "CHILD"    # 子段内仍最长前缀
+    assert lookup(e, 0x01020000)["cc"] == "PARENT"   # 父起始
+    assert lookup(e, 0x01030000) is None             # 父结束之后 miss
+    e.close()
+
+
+def test_lookup_nested_backscan_bounded(tmp_path):
+    """回退扫描有上限:超过 MAX_BACKSCAN_STEPS 层的深嵌套不再回找(防 miss O(n))。"""
+    import ipdb._sources._lmdb as m
+    e = lmdb.open(str(tmp_path / "deep"), map_size=1024 * 1024)
+    with e.begin(write=True) as txn:
+        # 最外层 /8 覆盖目标 ip,但被 m+1 个逐层递进的子 CIDR 遮蔽到上限之外
+        txn.put(encode_key(0x01000000), encode_value(0x01FFFFFF, {"cc": "ROOT"}))
+        for i in range(m.MAX_BACKSCAN_STEPS + 1):
+            s = 0x01000000 + i
+            txn.put(encode_key(s), encode_value(s, {"cc": f"L{i}"}))
+    # 候选链超过上限 → miss(有界退化的已文档语义,真实数据不出现)
+    assert lookup(e, 0x01000000 + m.MAX_BACKSCAN_STEPS + 1) is None
+    e.close()
+
+
 def test_lookup_empty_env(tmp_path):
     e = lmdb.open(str(tmp_path / "empty"), map_size=1024 * 1024)
     assert lookup(e, 0x01000000) is None
