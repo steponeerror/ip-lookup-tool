@@ -50,13 +50,12 @@ echo "  → data/ 同步完成"
 # 5. Python + 依赖：不在本机安装，由 build.bat 在 Windows 端首次运行时安装
 echo ""
 echo "[5/5] Python + 依赖：不在本机安装，由 build.bat 在 Windows 端首次运行时安装"
-echo "  → 依赖（maxminddb 有官方 wheel、mmdb-writer 纯 Python）build.bat 直接 pip install，无需预编译 wheel"
+echo "  → 依赖（lmdb 有官方 wheel、纯 Python 扩展）build.bat 直接 pip install，无需预编译 wheel"
 
 # requirements.txt（build.bat / 用户参考用）
 echo "fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
-maxminddb>=3.1.0
-mmdb-writer>=0.2.0
+lmdb>=2.3.0
 python-multipart>=0.0.20
 python-dotenv>=1.1.0
 cabby>=0.1.0" > "$RELEASE_DIR/requirements.txt"

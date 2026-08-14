@@ -1,7 +1,6 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
-maxminddb>=3.1.0
-mmdb-writer>=0.2.0
+lmdb>=2.3.0
 python-multipart>=0.0.20
 python-dotenv>=1.1.0
 cabby>=0.1.0
