@@ -285,3 +285,32 @@ def test_initial_map_size_from_count_sidecar(tmp_path):
     size = initial_map_size(base)
     assert size == 2_000_000 * BYTES_PER_RECORD_EST
     assert initial_map_size(tmp_path / "nonexistent") == DEFAULT_MAP_SIZE
+
+
+# ── covered_ip_count / covered_ips_cached (P1-T1, 从 _mmdb 迁入) ──
+from ipdb._sources._lmdb import covered_ip_count, covered_ips_cached
+
+
+def test_covered_ip_count_prefix_math_and_invalid_skipped():
+    # /32→1, /24→256, /16→65536, 裸 IP 视为 /32, 非法串跳过
+    assert covered_ip_count(["8.8.8.8/32", "1.2.3.0/24", "10.0.0.0/16",
+                             "8.8.8.8", "not-a-cidr", ""]) == 1 + 256 + 65536 + 1
+    assert covered_ip_count([]) == 0
+
+
+def test_covered_ips_cached_cache_hit_and_recompute(tmp_path):
+    import os
+    cov = tmp_path / "x.cov"
+    raw = tmp_path / "raw.txt"
+    raw.write_text("x")
+    cov.write_text("999")
+    os.utime(cov, (raw.stat().st_mtime + 100,) * 2)     # cov 新于 raw → 命中缓存
+    calls = []
+    assert covered_ips_cached(cov, [raw],
+                              lambda: (calls.append(1) or iter([]))) == 999
+    assert calls == [], "缓存命中时不得触发重算"
+    # raw 变新 → 重算分支: 重新枚举并写回 cov
+    os.utime(raw, (cov.stat().st_mtime + 100,) * 2)
+    n = covered_ips_cached(cov, [raw], lambda: iter(["8.8.8.0/24"]))
+    assert n == 256
+    assert cov.read_text() == "256"

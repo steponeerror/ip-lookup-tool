@@ -89,8 +89,7 @@ class IPinfoLiteSource:
     def rebuild(self) -> int:
         import ipaddress as _ipa
         import csv as _csv
-        from ._lmdb import rebuild_lmdb
-        from ._mmdb import covered_ip_count
+        from ._lmdb import rebuild_lmdb, covered_ip_count
         if not self._path.exists():
             return 0
         old_reader = self._reader

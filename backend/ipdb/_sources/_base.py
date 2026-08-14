@@ -110,7 +110,8 @@ class IpListSource:
     def rebuild(self) -> int:
         """重建 mmdb(唯一重建入口)。双 buffer swap reader。"""
         import ipaddress as _ipa
-        from ._mmdb import rebuild_mmdb, covered_ip_count
+        from ._lmdb import covered_ip_count
+        from ._mmdb import rebuild_mmdb
         if not self._path.exists():
             return 0
         old_reader = self._reader
@@ -201,7 +202,8 @@ class CsvSource(IpListSource):
         """重建 mmdb(唯一重建入口)。双 buffer swap reader。"""
         import csv as _csv
         import ipaddress as _ipa
-        from ._mmdb import rebuild_mmdb, covered_ip_count
+        from ._lmdb import covered_ip_count
+        from ._mmdb import rebuild_mmdb
         if not self._path.exists():
             return 0
         old_reader = self._reader

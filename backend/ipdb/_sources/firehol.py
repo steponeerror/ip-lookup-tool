@@ -75,7 +75,8 @@ class FireholBlocklistSource(IpListSource):
         a partial state (mmdb exists, sidecars missing) self-heal.
         """
         import ipaddress as _ipa
-        from ._mmdb import rebuild_mmdb, covered_ip_count
+        from ._lmdb import covered_ip_count
+        from ._mmdb import rebuild_mmdb
         if not self._path.exists():
             return 0
         old_reader = self._reader

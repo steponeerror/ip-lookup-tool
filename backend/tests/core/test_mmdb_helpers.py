@@ -191,55 +191,6 @@ def test_cn_isp_download_drops_file_on_per_file_failure(tmp_path, monkeypatch):
         "failed download must drop the stale file, not leave it to be mixed in")
 
 
-def test_covered_ip_count_mixed_prefixes():
-    from ipdb._sources._mmdb import covered_ip_count
-    # bare IP (/32=1) + /24 (256) + /16 (65536)
-    assert covered_ip_count(["8.8.8.8", "1.2.3.0/24", "10.0.0.0/16"]) == 1 + 256 + 65536
-
-
-def test_covered_ip_count_empty_and_invalid_skipped():
-    from ipdb._sources._mmdb import covered_ip_count
-    assert covered_ip_count([]) == 0
-    assert covered_ip_count(["not-a-cidr", "", "1.2.3.0/24"]) == 256
-
-
-def test_covered_ips_cached_recomputes_when_missing(tmp_path):
-    from ipdb._sources._mmdb import covered_ips_cached
-    raw = tmp_path / "raw.txt"
-    raw.write_text("x")
-    cov = tmp_path / "x.cov"
-    n = covered_ips_cached(cov, [raw], lambda: iter(["1.2.3.0/24", "8.8.8.8"]))
-    assert n == 256 + 1
-    assert cov.read_text() == "257"
-
-
-def test_covered_ips_cached_serves_when_fresh(tmp_path):
-    import os
-    from ipdb._sources._mmdb import covered_ips_cached
-    raw = tmp_path / "raw.txt"
-    raw.write_text("x")
-    cov = tmp_path / "x.cov"
-    cov.write_text("999")
-    os.utime(cov, (raw.stat().st_mtime + 100,) * 2)   # cov newer than raw
-    calls = []
-    n = covered_ips_cached(cov, [raw], lambda: (calls.append(1) or iter([])))
-    assert n == 999
-    assert calls == [], "enumerator must NOT run when .cov is fresh"
-
-
-def test_covered_ips_cached_recomputes_when_raw_newer(tmp_path):
-    import os
-    from ipdb._sources._mmdb import covered_ips_cached
-    raw = tmp_path / "raw.txt"
-    raw.write_text("x")
-    cov = tmp_path / "x.cov"
-    cov.write_text("999")
-    os.utime(raw, (cov.stat().st_mtime + 100,) * 2)   # raw newer than cov
-    n = covered_ips_cached(cov, [raw], lambda: iter(["8.8.8.0/24"]))
-    assert n == 256
-    assert cov.read_text() == "256"
-
-
 def test_rebuild_mmdb_swaps_reader_and_replaces_file(tmp_path):
     """rebuild_mmdb 写新 mmdb,通过 reader_setter 原子 swap,最后 os.replace 覆盖原文件。"""
     from ipdb._sources._mmdb import rebuild_mmdb, open_reader

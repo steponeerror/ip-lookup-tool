@@ -96,7 +96,8 @@ class Source:
 
     def rebuild(self) -> int:
         """重建 mmdb(唯一入口,经 manager 队列调用)。双 buffer swap reader。"""
-        from ._sources._mmdb import rebuild_mmdb, covered_ip_count
+        from ._sources._lmdb import covered_ip_count
+        from ._sources._mmdb import rebuild_mmdb
         if not self._path.exists():
             return 0
         old_reader = self._reader

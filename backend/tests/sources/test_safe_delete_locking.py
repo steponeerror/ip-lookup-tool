@@ -1,7 +1,7 @@
 """Locking tests for the safe-delete bucket (#6/#9): these assert the
 refactor's invariant, NOT just correctness. They fail if the pre-refactor
 double-call / duplicate-method is reintroduced."""
-from ipdb._sources import _mmdb as mmdb_mod
+from ipdb._sources import _lmdb as lmdb_mod   # P1-T1: covered_ip_count 迁至 _lmdb
 
 
 def _tmp_iplist(tmp_path, lines: str):
@@ -32,13 +32,13 @@ def test_iplist_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
     rebuild (pre-refactor called it twice — once for the .cov sidecar, once
     for self._covered_ips — re-parsing every CIDR through netaddr twice)."""
     calls = {"n": 0}
-    real = mmdb_mod.covered_ip_count
+    real = lmdb_mod.covered_ip_count
 
     def spy(cidrs, **kw):
         calls["n"] += 1
         return real(cidrs, **kw)
 
-    monkeypatch.setattr(mmdb_mod, "covered_ip_count", spy)
+    monkeypatch.setattr(lmdb_mod, "covered_ip_count", spy)
     s = _tmp_iplist(tmp_path, "8.8.8.8\n1.2.3.0/24\n10.0.0.0/16\n")
     s.rebuild()
     assert calls["n"] == 1
@@ -47,13 +47,13 @@ def test_iplist_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
 def test_csv_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
     """#6 CsvSource: same invariant — covered_ip_count invoked once per rebuild."""
     calls = {"n": 0}
-    real = mmdb_mod.covered_ip_count
+    real = lmdb_mod.covered_ip_count
 
     def spy(cidrs, **kw):
         calls["n"] += 1
         return real(cidrs, **kw)
 
-    monkeypatch.setattr(mmdb_mod, "covered_ip_count", spy)
+    monkeypatch.setattr(lmdb_mod, "covered_ip_count", spy)
     s = _tmp_csv(tmp_path, "1.2.3.0/24,botnet\n1.2.3.0/24,malware\n")
     s.rebuild()
     assert calls["n"] == 1
@@ -65,13 +65,13 @@ def test_source_base_rebuild_calls_covered_ip_count_once(tmp_path, monkeypatch):
     from ipdb._evidence import Evidence
 
     calls = {"n": 0}
-    real = mmdb_mod.covered_ip_count
+    real = lmdb_mod.covered_ip_count
 
     def spy(cidrs, **kw):
         calls["n"] += 1
         return real(cidrs, **kw)
 
-    monkeypatch.setattr(mmdb_mod, "covered_ip_count", spy)
+    monkeypatch.setattr(lmdb_mod, "covered_ip_count", spy)
 
     class _S(Source):
         name, filename, fields = "t", "t.txt", ("is_malicious",)

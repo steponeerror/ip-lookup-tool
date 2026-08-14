@@ -82,7 +82,8 @@ class ChineseISPSource(Source):
 
     def rebuild(self) -> int:
         import ipaddress as _ipa
-        from ._mmdb import rebuild_mmdb, covered_ip_count
+        from ._lmdb import covered_ip_count
+        from ._mmdb import rebuild_mmdb
         old_reader = self._reader
 
         best: dict[str, dict] = {}

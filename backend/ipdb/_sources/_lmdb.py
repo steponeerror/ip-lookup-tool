@@ -21,9 +21,10 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 import lmdb
+import netaddr
 
 DEFAULT_MAP_SIZE = 512 * 1024 * 1024   # first-build default; grown on demand
 BYTES_PER_RECORD_EST = 512             # initial estimate from .count sidecar
@@ -283,4 +284,54 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                 head = name[len(base.name) + 1:].split(".")[0]
                 if head.isdigit() and int(head) < epoch:
                     shutil.rmtree(child, ignore_errors=True)
+    return n
+
+
+def covered_ip_count(cidr_strs, *, ip_version: int = 4) -> int:
+    """Σ 2^(host_bits) over the given CIDR strings.
+
+    IPv4 by default: /32→1, /24→256, /16→65536. Bare IPs count as /32.
+    O(1) memory — a running integer sum, no IPSet, no list — so it is safe
+    to run over a million-row source. Invalid entries are skipped. A v6 CIDR
+    (ip_version=6) is count-as-1 (no v6 sources today; placeholder only).
+    """
+    bits = 32 if ip_version == 4 else 128
+    total = 0
+    for cidr in cidr_strs:
+        try:
+            net = netaddr.IPNetwork(cidr)
+        except (netaddr.AddrFormatError, ValueError, TypeError):
+            continue
+        if ip_version == 6:
+            total += 1                     # v6 space is astronomically large
+            continue
+        host_bits = bits - net.prefixlen
+        if host_bits < 0:
+            host_bits = 0
+        total += 1 << host_bits
+    return total
+
+
+def covered_ips_cached(cov_path: Path, raw_paths: list[Path],
+                        enumerate_cidrs: Callable[[], Iterable[str]], *,
+                        ip_version: int = 4) -> int:
+    """Return a source's covered_ips, backed by a ``.cov`` sidecar cache.
+
+    Serves the cached integer when ``cov_path`` exists and is at least as new
+    as the newest existing ``raw_paths`` mtime. Otherwise recomputes via
+    ``enumerate_cidrs()`` (a zero-arg callable yielding CIDR strings) and
+    writes ``cov_path``. The owning ``load()`` writes ``cov_path`` itself in
+    its rebuild branch (exact-distinct), so this only re-enumerates in the
+    rare stale-but-fresh case (e.g. first run after upgrade). Never
+    touches the 存储.
+    """
+    raw_newest = max(
+        (p.stat().st_mtime for p in raw_paths if p.exists()), default=0.0)
+    if cov_path.exists() and cov_path.stat().st_mtime >= raw_newest:
+        try:
+            return int(cov_path.read_text().strip())
+        except (ValueError, OSError):
+            pass                         # corrupt/empty — fall through
+    n = covered_ip_count(enumerate_cidrs(), ip_version=ip_version)
+    cov_path.write_text(str(n))
     return n
