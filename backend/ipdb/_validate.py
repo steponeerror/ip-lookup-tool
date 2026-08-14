@@ -31,24 +31,6 @@ def validate_source(source) -> list[str]:
         for d in dupes:
             problems.append(f"field_map collision: multiple sources → slot {d!r}")
 
-    # rebuild_weight contract: MemoryValve schedules rebuilds on an EXACT
-    # "heavy" string match (heavy mutual-exclusion + peak precheck). Any other
-    # value silently degrades to "normal", disabling heavy protection and
-    # risking OOM on big sources. peak_gb only takes effect for heavy, so a
-    # peak set without heavy is dead config (typically a forgotten "heavy").
-    weight = getattr(source, "rebuild_weight", None)
-    if weight is not None:
-        if weight not in ("heavy", "normal"):
-            problems.append(
-                f"rebuild_weight {weight!r} must be 'heavy' or 'normal' "
-                f"(valve matches 'heavy' exactly; other values silently "
-                f"disable heavy mutual-exclusion + peak precheck)")
-        peak = getattr(source, "rebuild_peak_gb", 0.0)
-        if peak > 0 and weight != "heavy":
-            problems.append(
-                f"rebuild_peak_gb {peak} set but rebuild_weight is {weight!r}; "
-                f"peak precheck only fires when rebuild_weight=='heavy'")
-
     # reliability drift: class attr must match SOURCE_RELIABILITY dict so the
     # classification path (reads attr) and scalar path (reads dict) agree.
     from ._merge import SOURCE_RELIABILITY

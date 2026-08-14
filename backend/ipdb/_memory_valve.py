@@ -24,7 +24,7 @@ class MemoryValve:
         self._lock = threading.Lock()
         self._high_count = 0
 
-    def can_run(self, weight: str, peak_gb: float) -> bool:
+    def can_run(self, weight: str = "normal", peak_gb: float = 0.0) -> bool:
         with self._lock:
             if self.active_rebuilds >= self.target_capacity:
                 return False
@@ -36,13 +36,13 @@ class MemoryValve:
                     return False
             return True
 
-    def on_start(self, weight: str) -> None:
+    def on_start(self, weight: str = "normal") -> None:
         with self._lock:
             self.active_rebuilds += 1
             if weight == "heavy":
                 self.heavy_busy = True
 
-    def on_finish(self, weight: str) -> None:
+    def on_finish(self, weight: str = "normal") -> None:
         with self._lock:
             self.active_rebuilds = max(0, self.active_rebuilds - 1)
             if weight == "heavy":

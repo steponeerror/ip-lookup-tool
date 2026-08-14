@@ -21,8 +21,6 @@ class IPtoASNSource(Source):
     stale_days = 7
     reliability = 0.90
     single_evidence = True   # one evidence per CIDR → stream load() (OOM guard)
-    rebuild_weight = "heavy"
-    rebuild_peak_gb = 1.6
 
     def __init__(self, data_dir: Path):
         super().__init__(data_dir)

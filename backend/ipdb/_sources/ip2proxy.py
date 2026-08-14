@@ -36,8 +36,6 @@ class IP2ProxySource(Source):
     reliability = 0.80
     single_evidence = True   # one evidence per CIDR → stream load() (OOM guard)
     authoritative_for = ["is_proxy"]
-    rebuild_weight = "heavy"
-    rebuild_peak_gb = 6.0
 
     def __init__(self, data_dir: Path):
         self._token = os.environ.get("IP2PROXY_TOKEN", "").strip()

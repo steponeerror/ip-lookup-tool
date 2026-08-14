@@ -180,11 +180,10 @@ def test_batch_flows_through_manager_and_snapshot(monkeypatch):
 
     mgr = main.manager
     # This smoke test verifies wiring (endpoint → manager → workers → snapshot),
-    # NOT the valve. The production valve would block heavy sources whose peak
-    # exceeds the test host's available memory, stalling the batch. Stub can_run
-    # to admit everything so the batch completes deterministically.
+    # NOT the valve. Stub can_run to admit everything so the batch completes
+    # deterministically.
     if mgr._valve is not None:
-        monkeypatch.setattr(mgr._valve, "can_run", lambda weight, peak_gb: True)
+        monkeypatch.setattr(mgr._valve, "can_run", lambda: True)
     sub_loop = asyncio.new_event_loop()
     q = mgr.subscribe(sub_loop)
     received: list[dict] = []

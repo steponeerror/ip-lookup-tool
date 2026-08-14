@@ -9,13 +9,11 @@ from ipdb._tasks import UpdateManager
 
 
 class _Src:
-    """Minimal source matching the worker's getattr contract:
+    """Minimal source matching the worker's contract:
     name, download_host, download(token), rebuild()."""
-    def __init__(self, name, host="h", weight="normal", peak=0.0, slow=0.0):
+    def __init__(self, name, host="h", slow=0.0):
         self.name = name
         self.download_host = host
-        self.rebuild_weight = weight
-        self.rebuild_peak_gb = peak
         self._slow = slow
         self.download_calls = 0
         self.rebuild_calls = 0
@@ -49,38 +47,41 @@ def _wait(mgr, predicate, timeout=5):
 
 # ── #3 FIFO head-block ──────────────────────────────────────────────────────
 
-class _HeavyBlockingValve:
-    """Valve that never admits a heavy task but always admits normal ones.
-    Deterministically reproduces the throttled-head-of-line scenario."""
+class _AdmitSecondValve:
+    """Valve that rejects the very first can_run check and admits everything
+    after — deterministically puts the queue head into 'throttled'
+    (head-of-line scenario)."""
     def __init__(self):
         self.active_rebuilds = 0
-    def can_run(self, weight, peak_gb):
-        return weight != "heavy"
-    def on_start(self, weight):
-        if weight != "heavy":
-            self.active_rebuilds += 1
-    def on_finish(self, weight):
-        if weight != "heavy":
-            self.active_rebuilds -= 1
+        self._blocked_once = False
+    def can_run(self):
+        if not self._blocked_once:
+            self._blocked_once = True
+            return False
+        return True
+    def on_start(self):
+        self.active_rebuilds += 1
+    def on_finish(self):
+        self.active_rebuilds -= 1
 
 
-def test_fifo_head_block_does_not_starve_normal_source():
-    """#3: a throttled heavy task at queue[0] must NOT block normal tasks queued
-    behind it. Pre-redesign, workers peek queue[0], see can_run=False, wait+cont
-    without popping — so queue[1..N] normal tasks never reach any worker,
-    defeating concurrency. After redesign (scan queue for an admissible task),
-    the normal source runs even while heavy is throttled."""
-    heavy = _Src("heavy", weight="heavy")
-    normal = _Src("normal", host="n")
-    mgr, by_name = _mgr([heavy, normal], concurrency=2, valve=_HeavyBlockingValve())
-    mgr.enqueue_one("heavy")     # queue[0] = heavy (never admissible)
-    mgr.enqueue_one("normal")    # queue[1] = normal (admissible)
-    # The normal source must run despite heavy being stuck at the head.
-    ran = _wait(mgr, lambda: by_name["normal"].download_calls >= 1, timeout=3)
-    # cleanup: nothing to drain (heavy never starts; normal is instant)
+def test_fifo_head_block_does_not_starve_next_task():
+    """#3: a throttled task at queue[0] must NOT block tasks queued behind it.
+    Pre-redesign, workers peek queue[0], see can_run=False, wait+cont without
+    popping — so queue[1..N] tasks never reach any worker, defeating
+    concurrency. After redesign (scan queue for an admissible task), the
+    second task runs even while the head is throttled."""
+    head = _Src("head")
+    follower = _Src("follower", host="n")
+    mgr, by_name = _mgr([head, follower], concurrency=2, valve=_AdmitSecondValve())
+    mgr.enqueue_one("head")        # queue[0] = head (rejected on first check)
+    mgr.enqueue_one("follower")    # queue[1] = follower (admissible)
+    # The follower must run despite the head being throttled.
+    ran = _wait(mgr, lambda: by_name["follower"].download_calls >= 1, timeout=3)
+    # cleanup: nothing to drain (head never starts; follower is instant)
     assert ran, (
-        "normal source starved behind throttled heavy head — FIFO head-block bug. "
-        f"normal.download_calls={by_name['normal'].download_calls}"
+        "follower starved behind throttled head — FIFO head-block bug. "
+        f"follower.download_calls={by_name['follower'].download_calls}"
     )
 
 

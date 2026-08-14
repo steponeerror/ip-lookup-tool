@@ -390,24 +390,6 @@ def test_throttled_state_blocks_and_resumes(monkeypatch):
     assert by_name["a"].load_calls == 1
 
 
-def test_heavy_sources_not_concurrent(monkeypatch):
-    """两个 heavy 源不同时跑(软互斥)。"""
-    from ipdb._memory_valve import MemoryValve
-    # FakeSource 标 heavy
-    class HeavyFake(FakeSource):
-        rebuild_weight = "heavy"
-        rebuild_peak_gb = 0.0   # 关闭峰值预检,只测互斥
-    a = HeavyFake("a", host="ha", slow=0.3)
-    b = HeavyFake("b", host="hb", slow=0.3)
-    mgr, by_name = _make_manager([a, b], concurrency=2)
-    mgr._valve = MemoryValve(ceiling=2)
-    mgr.enqueue_one("a"); mgr.enqueue_one("b")
-    # 等 a 跑完
-    _wait_states(mgr, lambda s: all(t["state"] == "done" for t in s["tasks"]), timeout=3)
-    # peak_concurrent 不超过 1(heavy 互斥)
-    assert max(a.peak_concurrent, b.peak_concurrent) <= 1
-
-
 def test_batch_done_ignores_throttled():
     """throttled task 算 active,batch 不假完成(H1)。"""
     from ipdb._memory_valve import MemoryValve
@@ -432,9 +414,9 @@ class _TrackingValve:
         self.starts = 0
         self.finishes = 0
         self.target_capacity = 99
-    def can_run(self, weight, peak_gb): return True
-    def on_start(self, weight): self.starts += 1
-    def on_finish(self, weight): self.finishes += 1
+    def can_run(self): return True
+    def on_start(self): self.starts += 1
+    def on_finish(self): self.finishes += 1
 
 
 class _CrashSource(FakeSource):

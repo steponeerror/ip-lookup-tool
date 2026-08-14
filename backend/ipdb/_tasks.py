@@ -303,8 +303,8 @@ class UpdateManager:
                 while (not self._go.is_set()) or (not self._queue):
                     self._queue_cv.wait()
                 # Scan the queue for the first ADMISSIBLE task instead of only
-                # peeking queue[0]. A throttled (valve-blocked) heavy task at the
-                # head must not starve normal tasks queued behind it — pre-fix,
+                # peeking queue[0]. A throttled (valve-blocked) task at the
+                # head must not starve tasks queued behind it — pre-fix,
                 # workers peeked queue[0], saw can_run=False, wait+cont without
                 # popping, so queue[1..N] never reached any worker (#3 FIFO
                 # head-block).
@@ -315,10 +315,7 @@ class UpdateManager:
                     if task is None or task.state not in ("queued", "throttled"):
                         continue
                     if self._valve is not None:
-                        src = self._resolve(task.source_name)
-                        weight = getattr(src, "rebuild_weight", "normal") if src else "normal"
-                        peak = getattr(src, "rebuild_peak_gb", 0.0) if src else 0.0
-                        if not self._valve.can_run(weight, peak):
+                        if not self._valve.can_run():
                             if task.state == "queued":
                                 self._set_state(task, "throttled")
                             skipped_admit = True
@@ -346,19 +343,15 @@ class UpdateManager:
                     del self._queue[chosen_idx]
                     continue
                 if self._valve is not None:
-                    src = self._resolve(task.source_name)
-                    weight = getattr(src, "rebuild_weight", "normal") if src else "normal"
                     if task.state == "throttled":
                         self._set_state(task, "queued")
-                    self._valve.on_start(weight)
+                    self._valve.on_start()
                 del self._queue[chosen_idx]
             try:
                 self._run_task(task)
             finally:
                 if self._valve is not None:
-                    src = self._resolve(task.source_name)
-                    weight = getattr(src, "rebuild_weight", "normal") if src else "normal"
-                    self._valve.on_finish(weight)
+                    self._valve.on_finish()
                     with self._queue_cv:
                         self._queue_cv.notify_all()
 

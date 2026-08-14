@@ -41,8 +41,6 @@ class Source:
     # a stray duplicate is harmless. Multi-evidence threat sources must leave
     # this False — they rely on acc to group several evidence per CIDR.
     single_evidence: bool = False
-    rebuild_weight: str = "normal"       # "heavy" | "normal"
-    rebuild_peak_gb: float = 0.0         # heavy 且 >0 时启用 acquire 前峰值预检
 
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir
