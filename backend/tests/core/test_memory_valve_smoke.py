@@ -12,7 +12,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_iptoasn_rebuild_stays_under_available():
-    """iptoasn（最小 heavy）单源重建峰值 < 当前 available。"""
+    """iptoasn 单源重建峰值 < 当前 available。"""
     import psutil
     from ipdb._sources.iptoasn import IPtoASNSource
 
@@ -31,7 +31,7 @@ def test_cold_start_no_oom():
     import time
     from ipdb._registry import manager
 
-    names = ["iptoasn"]   # 先只测最小 heavy，ip2proxy/ipinfo_lite 手动验证
+    names = ["iptoasn"]   # 最小源先测,ip2proxy/ipinfo_lite 手动验证
     bid = manager.enqueue_batch(names)
     deadline = time.time() + 300
     while time.time() < deadline:

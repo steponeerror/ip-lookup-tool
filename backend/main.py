@@ -410,10 +410,9 @@ async def update_db():
     """Refresh ALL enabled offline sources, regardless of staleness.
 
     Every source is re-downloaded and rebuilt. The MemoryValve gates rebuild
-    concurrency (heavy sources serialize; target_capacity adapts to available
-    memory), so a full batch no longer risks OOM the way it did before the
-    valve. Returns ``refreshed=0`` only when there are no enabled offline
-    sources at all.
+    concurrency (target_capacity adapts to available memory), so a full batch
+    no longer risks OOM the way it did before the valve. Returns
+    ``refreshed=0`` only when there are no enabled offline sources at all.
     """
     names = _offline_enabled_names()
     if not names:
@@ -553,7 +552,6 @@ async def perf_layout():
             "target_capacity": _valve.target_capacity,
             "ceiling": _valve.ceiling,
             "active_rebuilds": _valve.active_rebuilds,
-            "heavy_busy": _valve.heavy_busy,
             "state": state,
         },
     }

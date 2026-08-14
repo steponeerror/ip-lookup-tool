@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 THROTTLE_RATIO = 0.25     # available < 25% → target=1
 RELAX_RATIO = 0.40        # available ≥ 40% 连续2次 → target+1
 CRITICAL_RATIO = 0.12     # available < 12% → target=0
-PEAK_HEADROOM = 1.5       # heavy 源 acquire 前:available ≥ peak_gb × 1.5
 
 
 class MemoryValve:
@@ -20,33 +19,20 @@ class MemoryValve:
         self.ceiling = ceiling
         self.target_capacity = ceiling
         self.active_rebuilds = 0
-        self.heavy_busy = False
         self._lock = threading.Lock()
         self._high_count = 0
 
-    def can_run(self, weight: str = "normal", peak_gb: float = 0.0) -> bool:
+    def can_run(self) -> bool:
         with self._lock:
-            if self.active_rebuilds >= self.target_capacity:
-                return False
-            if weight == "heavy" and self.heavy_busy:
-                return False
-            if weight == "heavy" and peak_gb > 0:
-                avail_gb = psutil.virtual_memory().available / 1e9
-                if avail_gb < peak_gb * PEAK_HEADROOM:
-                    return False
-            return True
+            return self.active_rebuilds < self.target_capacity
 
-    def on_start(self, weight: str = "normal") -> None:
+    def on_start(self) -> None:
         with self._lock:
             self.active_rebuilds += 1
-            if weight == "heavy":
-                self.heavy_busy = True
 
-    def on_finish(self, weight: str = "normal") -> None:
+    def on_finish(self) -> None:
         with self._lock:
             self.active_rebuilds = max(0, self.active_rebuilds - 1)
-            if weight == "heavy":
-                self.heavy_busy = False
 
     def update_from_sample(self) -> None:
         """采样线程调:按滞回调 target_capacity。"""

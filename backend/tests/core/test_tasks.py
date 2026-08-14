@@ -429,7 +429,7 @@ class _CrashSource(FakeSource):
 def test_on_finish_called_when_run_task_raises():
     """_run_task 抛 BaseException 时,on_finish 仍须被调用。
 
-    无 try/finally 时,SystemExit 跳过 on_finish → heavy_busy 永久 True。
+    无 try/finally 时,SystemExit 跳过 on_finish → active_rebuilds 永久虚高,阀门卡死。
     """
     valve = _TrackingValve()
     src = _CrashSource("crash")

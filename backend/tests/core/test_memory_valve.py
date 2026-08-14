@@ -10,11 +10,11 @@ def _set_mem(monkeypatch, available_gb, total_gb=8.0):
                         lambda: _VM(available_gb * 1e9))
 
 
-def test_can_run_normal_within_capacity(monkeypatch):
-    """normal 源,未达容量,可跑。"""
+def test_can_run_within_capacity(monkeypatch):
+    """未达容量,可跑。"""
     _set_mem(monkeypatch, available_gb=6.0)
     v = MemoryValve(ceiling=3)
-    assert v.can_run("normal", peak_gb=0.0) is True
+    assert v.can_run() is True
 
 
 def test_can_run_blocked_at_capacity(monkeypatch):
@@ -22,31 +22,10 @@ def test_can_run_blocked_at_capacity(monkeypatch):
     _set_mem(monkeypatch, available_gb=6.0)
     v = MemoryValve(ceiling=3)
     v.target_capacity = 1
-    v.on_start("normal")
-    assert v.can_run("normal", peak_gb=0.0) is False   # active=1 == cap
-    v.on_finish("normal")
-    assert v.can_run("normal", peak_gb=0.0) is True
-
-
-def test_heavy_exclusion(monkeypatch):
-    """一个 heavy 在跑,另一个 heavy 不可跑(软互斥);normal 不受影响。"""
-    _set_mem(monkeypatch, available_gb=10.0)
-    v = MemoryValve(ceiling=3)
-    v.on_start("heavy")
-    assert v.heavy_busy is True
-    assert v.can_run("heavy", peak_gb=1.6) is False     # heavy 互斥
-    assert v.can_run("normal", peak_gb=0.0) is True     # normal 不受影响
-    v.on_finish("heavy")
-    assert v.heavy_busy is False
-
-
-def test_heavy_peak_preflight(monkeypatch):
-    """heavy 源 available < peak×1.5 时不可跑(acquire 前)。"""
-    _set_mem(monkeypatch, available_gb=5.0)             # peak 6.0 ×1.5 = 9.0 > 5.0
-    v = MemoryValve(ceiling=3)
-    assert v.can_run("heavy", peak_gb=6.0) is False
-    _set_mem(monkeypatch, available_gb=10.0)            # 10 > 9.0
-    assert v.can_run("heavy", peak_gb=6.0) is True
+    v.on_start()
+    assert v.can_run() is False   # active=1 == cap
+    v.on_finish()
+    assert v.can_run() is True
 
 
 def test_target_capacity_capped_at_ceiling(monkeypatch):
