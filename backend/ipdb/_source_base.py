@@ -111,7 +111,9 @@ class Source:
                 for cidr, ev in self.harvest():
                     yield cidr, [self.normalize(ev).to_dict()]
             records = _records()
-            covered_cidrs = [c for c, _ in self.harvest()]
+            # 生成器而非 list:covered_ip_count 是 O(1) 内存流式求和,
+            # 物化 3M CIDR 字符串(~250MB)曾把 ip2proxy 峰值 RSS 推到 686MB
+            covered_cidrs = (c for c, _ in self.harvest())
         else:
             acc: dict[str, list[dict]] = {}
             for cidr, ev in self.harvest():
@@ -121,7 +123,7 @@ class Source:
                 if d not in bucket:
                     bucket.append(d)
             records = ((k, v) for k, v in acc.items())
-            covered_cidrs = list(acc.keys())
+            covered_cidrs = acc.keys()   # dict view,无拷贝
         try:
             cov = covered_ip_count(covered_cidrs)
             n = rebuild_lmdb(records, self._lmdb_base,
