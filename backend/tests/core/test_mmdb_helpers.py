@@ -131,6 +131,7 @@ def test_base_iplist_reconverts_when_count_sidecar_missing(tmp_path):
     """_base IpListSource.rebuild() repopulates a missing .count sidecar."""
     import os
     from ipdb._sources._base import IpListSource
+    from ipdb._sources._lmdb import count_path
 
     class _S(IpListSource):
         name, filename, fields = "t", "t.txt", ("is_malicious",)
@@ -139,7 +140,7 @@ def test_base_iplist_reconverts_when_count_sidecar_missing(tmp_path):
     raw.write_text("8.8.8.0/24\n1.2.3.0/24\n")
     src = _S(data_dir=tmp_path)
     assert src.rebuild() == 2
-    (tmp_path / "t.txt.count").unlink()                 # sidecar gone, mmdb fresh
+    count_path(tmp_path / "t.txt.lmdb").unlink()     # sidecar gone, mmdb fresh
     os.utime(raw, (src._mmdb_path.stat().st_mtime - 100,) * 2)
     assert src.rebuild() == 2, "_base should rebuild when .count missing"
 
@@ -148,6 +149,7 @@ def test_base_csv_reconverts_when_count_sidecar_missing(tmp_path):
     """Same self-heal via rebuild() for _base CsvSource."""
     import os
     from ipdb._sources._base import CsvSource
+    from ipdb._sources._lmdb import count_path
 
     class _S(CsvSource):
         name, filename, fields = "c", "c.csv", ("is_malicious",)
@@ -158,7 +160,7 @@ def test_base_csv_reconverts_when_count_sidecar_missing(tmp_path):
     raw.write_text("1.2.3.4\n5.6.7.8\n")
     src = _S(data_dir=tmp_path)
     assert src.rebuild() == 2
-    (tmp_path / "c.csv.count").unlink()
+    count_path(tmp_path / "c.csv.lmdb").unlink()
     os.utime(raw, (src._mmdb_path.stat().st_mtime - 100,) * 2)
     assert src.rebuild() == 2, "_base CsvSource should rebuild when .count missing"
 
