@@ -10,16 +10,15 @@ Hooks (override what you need):
                          expansion (one input row → many CIDRs).
   normalize(raw)       — optional per-source classification/field mapping.
 
-Shared: MMDB write from harvest, mmap query, health (file-mtime staleness),
-HTTP get with retries + auth header + atomic tmp→rename write.
+Shared: LMDB write from harvest (epoch/ptr swap), mmap query,
+health (file-mtime staleness), HTTP get with retries + auth header +
+atomic tmp→rename write.
 """
 import logging
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any, Iterator, Optional
-
-import maxminddb
+from typing import Any, Iterator
 
 from ._types import SourceHealth
 from ._evidence import Evidence
@@ -36,7 +35,7 @@ class Source:
     reliability: float = 0.5
     authoritative_for: list = []
     # When True, rebuild() streams one (cidr, [evidence]) per harvest yield
-    # straight into rebuild_mmdb instead of accumulating a full acc dict. Safe
+    # straight into rebuild_lmdb instead of accumulating a full acc dict. Safe
     # only for sources whose harvest yields each CIDR at most once (geo/asset
     # lists like ip2proxy/iptoasn); insert_network overwrites idempotently, so
     # a stray duplicate is harmless. Multi-evidence threat sources must leave
@@ -48,8 +47,12 @@ class Source:
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir
         self._path = data_dir / self.filename
-        self._mmdb_path = data_dir / f"{self.filename}.mmdb"
-        self._reader: Optional[maxminddb.Reader] = None
+        self._lmdb_base = data_dir / f"{self.filename}.lmdb"
+        # registry/scheduler 的 needs_convert 比较对象(名保留):ptr 文件
+        # (mtime 随重建刷新,与旧 .mmdb 同语义)
+        from ._sources._lmdb import ptr_path as _ptr_path
+        self._mmdb_path = _ptr_path(self._lmdb_base)
+        self._reader = None      # LMDB env (readonly, lock=False)
         self._count = 0
         self._covered_ips = 0
         self._loaded_at = 0.0
@@ -80,24 +83,26 @@ class Source:
 
     # ── shared lifecycle ──
     def load(self) -> int:
-        """纯 mmap:加载现有 mmdb(若有),永不重建。读 sidecar。"""
-        from ._sources._mmdb import open_reader
-        if not self._mmdb_path.exists():
+        """纯 mmap:加载现有 LMDB env(若有),永不重建。读 sidecar。"""
+        from ._sources._lmdb import (
+            read_ptr, open_env_read, cleanup_stale, count_path, cov_path)
+        cleanup_stale(self._lmdb_base)
+        epoch = read_ptr(self._lmdb_base)
+        if epoch is None:
             self._reader = None
             return 0
-        self._reader = open_reader(self._mmdb_path)
-        count_path = self._mmdb_path.with_suffix(".count")
-        cov_path = self._mmdb_path.with_suffix(".cov")
-        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
+        self._reader = open_env_read(
+            self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
+        cp, vp = count_path(self._lmdb_base), cov_path(self._lmdb_base)
+        self._count = int(cp.read_text().strip()) if cp.exists() else 0
         # cov 只读,缺失则 0,不触发 harvest(rebuild 负责)
-        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
+        self._covered_ips = int(vp.read_text().strip()) if vp.exists() else 0
         self._loaded_at = time.time()
         return self._count
 
     def rebuild(self) -> int:
-        """重建 mmdb(唯一入口,经 manager 队列调用)。双 buffer swap reader。"""
-        from ._sources._lmdb import covered_ip_count
-        from ._sources._mmdb import rebuild_mmdb
+        """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
+        from ._sources._lmdb import covered_ip_count, rebuild_lmdb
         if not self._path.exists():
             return 0
         old_reader = self._reader
@@ -119,9 +124,8 @@ class Source:
             covered_cidrs = list(acc.keys())
         try:
             cov = covered_ip_count(covered_cidrs)
-            n = rebuild_mmdb(records, self._mmdb_path,
-                             reader_setter=lambda r: setattr(self, "_reader", r),
-                             database_type=f"IP-Radar-{self.name}",
+            n = rebuild_lmdb(records, self._lmdb_base,
+                             reader_setter=lambda e: setattr(self, "_reader", e),
                              covered=cov)
             self._count = n
             self._covered_ips = cov
@@ -129,17 +133,29 @@ class Source:
             return n
         finally:
             if old_reader is not None:
-                old_reader.close()
+                try:
+                    old_reader.close()
+                except Exception:
+                    pass          # lmdb env 二次 close/已失效:容忍
 
     def query(self, ip: str) -> Any:
         if self._reader is None:
             return {}
+        import ipaddress as _ipa
+        import lmdb as _lmdb
+        from ._sources._lmdb import lookup, read_ptr, open_env_read
+        ip_int = int(_ipa.IPv4Address(ip))
         try:
-            result = self._reader.get(ip)
-        except (ValueError, OSError):
-            from ._sources._mmdb import open_reader
-            self._reader = open_reader(self._mmdb_path)
-            result = self._reader.get(ip)
+            result = lookup(self._reader, ip_int)
+        except (_lmdb.Error, OSError):
+            # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
+            epoch = read_ptr(self._lmdb_base)
+            self._reader = (open_env_read(
+                self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
+                if epoch is not None else None)
+            if self._reader is None:
+                return {}
+            result = lookup(self._reader, ip_int)
         return result if result is not None else {}
 
     def health(self) -> SourceHealth:

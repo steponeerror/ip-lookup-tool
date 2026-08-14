@@ -83,9 +83,9 @@ def test_get_insert_data_without_classification_type_unchanged():
 
 
 def test_load_pure_mmap_does_not_rebuild(tmp_path, monkeypatch):
-    """load() 纯 mmap:有 mmdb 就读,没有则 _reader=None。不触发任何 harvest。"""
+    """load() 纯 mmap:有 LMDB ptr 就开 env,没有则 _reader=None。不触发任何 harvest。"""
     from ipdb._source_base import Source
-    from ipdb._sources._mmdb import write_mmdb
+    from ipdb._sources._lmdb import rebuild_lmdb
     from ipdb._evidence import Evidence
 
     class _S(Source):
@@ -97,10 +97,9 @@ def test_load_pure_mmap_does_not_rebuild(tmp_path, monkeypatch):
             yield "1.2.3.0/24", Evidence(verdict="malicious")
 
     s = _S(tmp_path)
-    # 预置一个 mmdb(I1 双 buffer 的"旧 mmdb"场景)
-    write_mmdb([("9.9.9.0/24", [{"k": "v"}])], tmp_path / "t.txt.mmdb")
-    (tmp_path / "t.txt.count").write_text("1")
-    (tmp_path / "t.txt.cov").write_text("256")
+    # 预置一个已建库(双 buffer 的"旧 epoch"场景);立即 close 避免同进程双开
+    rebuild_lmdb([("9.9.9.0/24", [{"k": "v"}])], tmp_path / "t.txt.lmdb",
+                 reader_setter=lambda e: e.close())
 
     n = s.load()
     assert n == 1
@@ -126,7 +125,7 @@ def test_load_no_mmdb_returns_zero(tmp_path):
 
 
 def test_rebuild_writes_mmdb_and_swaps_reader(tmp_path):
-    """rebuild() 调 rebuild_mmdb,写出新 mmdb + count + cov,reader 可查新数据。"""
+    """rebuild() 调 rebuild_lmdb,写出新 epoch + ptr + count + cov,reader 可查新数据。"""
     from ipdb._source_base import Source
     from ipdb._evidence import Evidence
     class _S(Source):
@@ -139,9 +138,9 @@ def test_rebuild_writes_mmdb_and_swaps_reader(tmp_path):
     (tmp_path / "t.txt").write_text("placeholder")  # raw 存在,触发 harvest
     n = s.rebuild()
     assert n == 1
-    assert (tmp_path / "t.txt.mmdb").exists()
-    assert (tmp_path / "t.txt.count").read_text() == "1"
-    assert int((tmp_path / "t.txt.cov").read_text()) == 256
+    assert (tmp_path / "t.txt.lmdb.ptr").exists()
+    assert (tmp_path / "t.txt.lmdb.count").read_text() == "1"
+    assert int((tmp_path / "t.txt.lmdb.cov").read_text()) == 256
     assert s.query("5.6.7.8") is not None   # 新 reader 可查
     s._reader.close()
 
@@ -193,18 +192,17 @@ def test_iplistsource_load_pure_mmap(tmp_path):
 
 
 def test_query_tolerates_closed_reader(tmp_path, monkeypatch):
-    """query 撞到被 close 的 reader 时,重开重试,不抛。"""
+    """query 撞到被 close 的 env 时,读 ptr 重开重试,不抛。"""
     from ipdb._source_base import Source
-    from ipdb._sources._mmdb import write_mmdb
+    from ipdb._sources._lmdb import rebuild_lmdb
     class _S(Source):
         name = "t"; filename = "t.txt"; fields = ("is_x",)
         single_evidence = True
         def harvest(self):
             yield from []
     s = _S(tmp_path)
-    write_mmdb([("9.9.9.0/24", {"k": "v"})], tmp_path / "t.txt.mmdb")
-    (tmp_path / "t.txt.count").write_text("1")
-    (tmp_path / "t.txt.cov").write_text("256")
+    rebuild_lmdb([("9.9.9.0/24", {"k": "v"})], tmp_path / "t.txt.lmdb",
+                 reader_setter=lambda e: e.close())
     s.load()
     s._reader.close()                       # 模拟 rebuild 期间被 close
     # query 应容错重开
