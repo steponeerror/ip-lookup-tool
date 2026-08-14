@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from ._download import download_file, CancelToken
+from ._lmdb import ptr_path as ptr_path_for
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,9 @@ class IPinfoLiteSource:
         self._path = data_dir / "ipinfo_lite.csv"
         self._gz_path = data_dir / "ipinfo_lite.csv.gz"
         self._data_dir = data_dir
-        self._mmdb_path = data_dir / "ipinfo_lite.csv.mmdb"
+        self._lmdb_base = data_dir / "ipinfo_lite.csv.lmdb"
+        # registry 的 needs_convert 比较对象:ptr 文件(mtime 随重建刷新)
+        self._mmdb_path = ptr_path_for(self._lmdb_base)
         self._reader: Optional["maxminddb.Reader"] = None
         self._count: int = 0
         self._covered_ips: int = 0
@@ -69,22 +72,25 @@ class IPinfoLiteSource:
                 self._gz_path.unlink(missing_ok=True)
 
     def load(self) -> int:
-        from ._mmdb import open_reader
-        if not self._mmdb_path.exists():
+        from ._lmdb import read_ptr, open_env_read, cleanup_stale, count_path, cov_path
+        cleanup_stale(self._lmdb_base)
+        epoch = read_ptr(self._lmdb_base)
+        if epoch is None:
             self._reader = None
             return 0
-        self._reader = open_reader(self._mmdb_path)
-        count_path = self._mmdb_path.with_suffix(".count")
-        cov_path = self._mmdb_path.with_suffix(".cov")
-        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
-        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
+        self._reader = open_env_read(
+            self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
+        cp, vp = count_path(self._lmdb_base), cov_path(self._lmdb_base)
+        self._count = int(cp.read_text().strip()) if cp.exists() else 0
+        self._covered_ips = int(vp.read_text().strip()) if vp.exists() else 0
         self._loaded_at = time.time()
         return self._count
 
     def rebuild(self) -> int:
         import ipaddress as _ipa
         import csv as _csv
-        from ._mmdb import rebuild_mmdb, covered_ip_count
+        from ._lmdb import rebuild_lmdb
+        from ._mmdb import covered_ip_count
         if not self._path.exists():
             return 0
         old_reader = self._reader
@@ -131,9 +137,8 @@ class IPinfoLiteSource:
                         yield row[0]
         try:
             cov = covered_ip_count(_cidrs())
-            n = rebuild_mmdb(_records(), self._mmdb_path,
-                             reader_setter=lambda r: setattr(self, "_reader", r),
-                             database_type="IP-Radar-ipinfo-lite",
+            n = rebuild_lmdb(_records(), self._lmdb_base,
+                             reader_setter=lambda e: setattr(self, "_reader", e),
                              covered=cov)
             self._covered_ips = cov
             self._count = n
@@ -141,17 +146,29 @@ class IPinfoLiteSource:
             return n
         finally:
             if old_reader is not None:
-                old_reader.close()
+                try:
+                    old_reader.close()
+                except Exception:
+                    pass          # lmdb env 二次 close/已失效:容忍
 
     def query(self, ip: str) -> dict:
         if self._reader is None:
             return {}
+        import ipaddress as _ipa
+        import lmdb as _lmdb
+        from ._lmdb import lookup, read_ptr, open_env_read
+        ip_int = int(_ipa.IPv4Address(ip))
         try:
-            node = self._reader.get(ip)
-        except (ValueError, OSError):
-            from ._mmdb import open_reader
-            self._reader = open_reader(self._mmdb_path)
-            node = self._reader.get(ip)
+            node = lookup(self._reader, ip_int)
+        except (_lmdb.Error, OSError):
+            # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
+            epoch = read_ptr(self._lmdb_base)
+            self._reader = (open_env_read(
+                self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
+                if epoch is not None else None)
+            if self._reader is None:
+                return {}
+            node = lookup(self._reader, ip_int)
         if node is None:
             return {}
         result: dict = {"country_code": node["country_code"], "ip_range": node["_net"]}
