@@ -1,81 +1,27 @@
-"""Round-trip tests for MMDB write/read helpers."""
+"""Storage-helper and base-source semantics tests (LMDB era).
+
+needs_convert now lives in _lmdb (compares raw vs ptr mtime); the write_mmdb/
+open_reader/rebuild_mmdb helpers were deleted with _mmdb.py — their contracts
+live on in test_lmdb_helpers.py (rebuild_lmdb) and test_sidecar_atomicity.py.
+"""
+import os
 from pathlib import Path
 
-from ipdb._sources._mmdb import write_mmdb, open_reader, needs_convert
-
-
-def test_write_then_read_scalar_value(tmp_path):
-    mmdb = tmp_path / "scalar.mmdb"
-    count = write_mmdb([("8.8.8.0/24", {"country_code": "US", "asn": 15169})], mmdb)
-    assert count == 1
-
-    with open_reader(mmdb) as r:
-        assert r.get("8.8.8.1") == {"country_code": "US", "asn": 15169}
-
-
-def test_write_then_read_array_value(tmp_path):
-    """Threat sources store a list of evidence dicts per CIDR."""
-    mmdb = tmp_path / "threat.mmdb"
-    evidence = [{"classification_type": "malware", "verdict": "malicious"},
-                {"classification_type": "scanner", "verdict": "suspicious"}]
-    write_mmdb([("1.2.3.0/24", evidence)], mmdb)
-
-    with open_reader(mmdb) as r:
-        assert r.get("1.2.3.4") == evidence
-
-
-def test_miss_returns_none(tmp_path):
-    """maxminddb returns None on miss (unlike pytricia's KeyError)."""
-    mmdb = tmp_path / "x.mmdb"
-    write_mmdb([("8.8.8.0/24", {"v": 1})], mmdb)
-    with open_reader(mmdb) as r:
-        assert r.get("9.9.9.9") is None
-
-
-def test_prefix_len_available(tmp_path):
-    """get_with_prefix_len reconstructs ip_range (replaces pytricia get_key)."""
-    mmdb = tmp_path / "x.mmdb"
-    write_mmdb([("8.8.8.0/24", {"v": 1})], mmdb)
-    with open_reader(mmdb) as r:
-        val, plen = r.get_with_prefix_len("8.8.8.1")
-        assert plen == 24
+from conftest import build_lmdb
+from ipdb._sources._lmdb import needs_convert
 
 
 def test_needs_convert_respects_mtime(tmp_path):
-    import os
     raw = tmp_path / "raw.csv"
-    raw.write_text("x")
-    mmdb = tmp_path / "out.mmdb"
-    assert needs_convert(raw, mmdb) is True            # no mmdb yet
-    write_mmdb([("8.8.8.0/24", {"v": 1})], mmdb)
-    os.utime(mmdb, (raw.stat().st_mtime + 100,) * 2)   # mmdb strictly newer (deterministic)
-    assert needs_convert(raw, mmdb) is False
-    os.utime(raw, (mmdb.stat().st_mtime + 100,) * 2)   # raw strictly newer
-    assert needs_convert(raw, mmdb) is True
-
-
-def test_write_mmdb_atomic_on_failure(tmp_path, monkeypatch):
-    """A failed write must not corrupt an existing .mmdb or leave a .tmp.
-
-    Locks in the fix for the 'crash mid-conversion bricks the source' bug: the
-    mtime cache stays coherent only if mmdb_path is never observed half-written.
-    """
-    from mmdb_writer import MMDBWriter
-    import pytest
-
-    mmdb = tmp_path / "x.mmdb"
-    write_mmdb([("8.8.8.0/24", {"v": 1})], mmdb)       # pre-existing good file
-    good_bytes = mmdb.read_bytes()
-
-    def boom(self, fname):
-        raise RuntimeError("simulated crash mid-write")
-    monkeypatch.setattr(MMDBWriter, "to_db_file", boom)
-
-    with pytest.raises(RuntimeError):
-        write_mmdb([("1.2.3.0/24", {"v": 2})], mmdb)
-
-    assert mmdb.read_bytes() == good_bytes              # original untouched
-    assert not (tmp_path / "x.mmdb.tmp").exists()       # no partial left behind
+    raw.write_text("8.8.8.0/24\n")
+    base = tmp_path / "raw.csv.lmdb"
+    ptr = tmp_path / "raw.csv.lmdb.ptr"
+    assert needs_convert(raw, ptr) is True            # no ptr yet
+    build_lmdb([("8.8.8.0/24", {"v": 1})], base)
+    os.utime(ptr, (raw.stat().st_mtime + 100,) * 2)   # ptr strictly newer (deterministic)
+    assert needs_convert(raw, ptr) is False
+    os.utime(raw, (ptr.stat().st_mtime + 100,) * 2)   # raw strictly newer
+    assert needs_convert(raw, ptr) is True
 
 
 def test_reload_closes_prior_reader(tmp_path, monkeypatch):
@@ -129,7 +75,6 @@ def test_ip_range_uses_stored_cidr_not_tree_depth(tmp_path):
 
 def test_base_iplist_reconverts_when_count_sidecar_missing(tmp_path):
     """_base IpListSource.rebuild() repopulates a missing .count sidecar."""
-    import os
     from ipdb._sources._base import IpListSource
     from ipdb._sources._lmdb import count_path
 
@@ -147,7 +92,6 @@ def test_base_iplist_reconverts_when_count_sidecar_missing(tmp_path):
 
 def test_base_csv_reconverts_when_count_sidecar_missing(tmp_path):
     """Same self-heal via rebuild() for _base CsvSource."""
-    import os
     from ipdb._sources._base import CsvSource
     from ipdb._sources._lmdb import count_path
 
@@ -191,38 +135,3 @@ def test_cn_isp_download_drops_file_on_per_file_failure(tmp_path, monkeypatch):
     src.download()
     assert not (src._isp_dir / f"{fail_name}.txt").exists(), (
         "failed download must drop the stale file, not leave it to be mixed in")
-
-
-def test_rebuild_mmdb_swaps_reader_and_replaces_file(tmp_path):
-    """rebuild_mmdb 写新 mmdb,通过 reader_setter 原子 swap,最后 os.replace 覆盖原文件。"""
-    from ipdb._sources._mmdb import rebuild_mmdb, open_reader
-    mmdb_path = tmp_path / "s.mmdb"
-    holder = {"reader": None}
-    records = [("10.0.0.0/8", [{"k": "old"}])]
-
-    n = rebuild_mmdb(records, mmdb_path,
-                     reader_setter=lambda r: holder.update(reader=r),
-                     database_type="test")
-
-    assert n == 1
-    assert mmdb_path.exists()                      # 原路径已被 replace 覆盖
-    assert holder["reader"] is not None
-    assert holder["reader"].get("10.1.2.3") == [{"k": "old"}]
-
-
-def test_rebuild_mmdb_cleans_up_new_file_on_error(tmp_path):
-    """write 过程抛异常时,.new 临时文件必须清理。"""
-    from ipdb._sources._mmdb import rebuild_mmdb
-    mmdb_path = tmp_path / "s.mmdb"
-    mmdb_path.write_bytes(b"old")  # 预置"旧 mmdb"
-
-    # 故意用会抛异常的 records(非法 CIDR 让 insert_network 炸)
-    def bad_records():
-        yield ("not-a-cidr", [{"k": "v"}])
-
-    import pytest
-    with pytest.raises(Exception):
-        rebuild_mmdb(bad_records(), mmdb_path,
-                     reader_setter=lambda r: None, database_type="test")
-    # .new 临时文件必须被清理
-    assert list(tmp_path.glob("*.new.*")) == []
