@@ -112,7 +112,15 @@ def bench(data_dir: Path, source: str) -> dict:
     with open(csv_path, newline="") as f:
         r = csv.reader(f)
         next(r, None)
-        cidrs = [row[0] for row in r if row]
+        cidrs = []
+        for row in r:
+            if not row:
+                continue
+            try:
+                ipaddress.IPv4Network(row[0], strict=False)
+                cidrs.append(row[0])
+            except ValueError:
+                continue
     hits, misses = sample_query_ips(iter(cidrs))
 
     def timed(ips):
@@ -170,7 +178,14 @@ def main():
     print(json.dumps(cur, indent=2))
     if args.out:
         Path(args.out).write_text(json.dumps(cur, indent=2))
-    base = json.loads(Path(args.baseline).read_text()) if args.baseline else None
+    if args.baseline:
+        baseline_path = Path(args.baseline)
+        if not baseline_path.exists():
+            print(f"baseline file not found: {baseline_path}", file=sys.stderr)
+            sys.exit(2)
+        base = json.loads(baseline_path.read_text())
+    else:
+        base = None
     sys.exit(0 if judge(cur, base) else 1)
 
 
