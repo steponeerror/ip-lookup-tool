@@ -3,7 +3,7 @@ import logging
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 from .._types import SourceHealth
@@ -29,8 +29,12 @@ class IpListSource:
     def __init__(self, data_dir: Path):
         self._data_dir = data_dir
         self._path = data_dir / self.filename
-        self._mmdb_path = data_dir / f"{self.filename}.mmdb"
-        self._reader: Optional["maxminddb.Reader"] = None
+        self._lmdb_base = data_dir / f"{self.filename}.lmdb"
+        # registry/scheduler 的 needs_convert 比较对象(名保留):ptr 文件
+        # (mtime 随重建刷新,与旧 .mmdb 同语义)
+        from ._lmdb import ptr_path as _ptr_path
+        self._mmdb_path = _ptr_path(self._lmdb_base)
+        self._reader = None      # LMDB env (readonly, lock=False)
         self._count: int = 0
         self._covered_ips: int = 0
         self._loaded_at: float = 0.0
@@ -94,24 +98,26 @@ class IpListSource:
             raise
 
     def load(self) -> int:
-        """纯 mmap:打开已有 mmdb,读 sidecar,不重建。"""
-        from ._mmdb import open_reader
-        if not self._mmdb_path.exists():
+        """纯 mmap:加载现有 LMDB env(若有),永不重建。读 sidecar。"""
+        from ._lmdb import (
+            read_ptr, open_env_read, cleanup_stale, count_path, cov_path)
+        cleanup_stale(self._lmdb_base)
+        epoch = read_ptr(self._lmdb_base)
+        if epoch is None:
             self._reader = None
             return 0
-        self._reader = open_reader(self._mmdb_path)
-        count_path = self._mmdb_path.with_suffix(".count")
-        cov_path = self._mmdb_path.with_suffix(".cov")
-        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
-        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
+        self._reader = open_env_read(
+            self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
+        cp, vp = count_path(self._lmdb_base), cov_path(self._lmdb_base)
+        self._count = int(cp.read_text().strip()) if cp.exists() else 0
+        self._covered_ips = int(vp.read_text().strip()) if vp.exists() else 0
         self._loaded_at = time.time()
         return self._count
 
     def rebuild(self) -> int:
-        """重建 mmdb(唯一重建入口)。双 buffer swap reader。"""
+        """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count
-        from ._mmdb import rebuild_mmdb
+        from ._lmdb import covered_ip_count, rebuild_lmdb
         if not self._path.exists():
             return 0
         old_reader = self._reader
@@ -136,9 +142,8 @@ class IpListSource:
                 covered.append(str(net))
         try:
             cov = covered_ip_count(covered)
-            n = rebuild_mmdb(iter(records), self._mmdb_path,
-                             reader_setter=lambda r: setattr(self, "_reader", r),
-                             database_type=f"IP-Radar-{self.name}",
+            n = rebuild_lmdb(iter(records), self._lmdb_base,
+                             reader_setter=lambda e: setattr(self, "_reader", e),
                              covered=cov)
             self._count = n
             self._covered_ips = cov
@@ -146,17 +151,29 @@ class IpListSource:
             return n
         finally:
             if old_reader is not None:
-                old_reader.close()
+                try:
+                    old_reader.close()
+                except Exception:
+                    pass          # lmdb env 二次 close/已失效:容忍
 
     def query(self, ip: str) -> Any:
         if self._reader is None:
             return {}
+        import ipaddress as _ipa
+        import lmdb as _lmdb
+        from ._lmdb import lookup, read_ptr, open_env_read
+        ip_int = int(_ipa.IPv4Address(ip))
         try:
-            result = self._reader.get(ip)
-        except (ValueError, OSError):
-            from ._mmdb import open_reader
-            self._reader = open_reader(self._mmdb_path)
-            result = self._reader.get(ip)
+            result = lookup(self._reader, ip_int)
+        except (_lmdb.Error, OSError):
+            # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
+            epoch = read_ptr(self._lmdb_base)
+            self._reader = (open_env_read(
+                self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
+                if epoch is not None else None)
+            if self._reader is None:
+                return {}
+            result = lookup(self._reader, ip_int)
         return result if result is not None else {}
 
     def health(self) -> SourceHealth:
@@ -199,11 +216,10 @@ class CsvSource(IpListSource):
         raise NotImplementedError("CsvSource subclasses must implement parse_row()")
 
     def rebuild(self) -> int:
-        """重建 mmdb(唯一重建入口)。双 buffer swap reader。"""
+        """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
         import csv as _csv
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count
-        from ._mmdb import rebuild_mmdb
+        from ._lmdb import covered_ip_count, rebuild_lmdb
         if not self._path.exists():
             return 0
         old_reader = self._reader
@@ -243,9 +259,8 @@ class CsvSource(IpListSource):
         try:
             cov = covered_ip_count(acc.keys())
             cnt = sum(len(v) for v in acc.values())
-            n = rebuild_mmdb(((k, v) for k, v in acc.items()), self._mmdb_path,
-                             reader_setter=lambda r: setattr(self, "_reader", r),
-                             database_type=f"IP-Radar-{self.name}",
+            n = rebuild_lmdb(((k, v) for k, v in acc.items()), self._lmdb_base,
+                             reader_setter=lambda e: setattr(self, "_reader", e),
                              count=cnt, covered=cov)
             self._count = cnt
             self._covered_ips = cov
@@ -253,7 +268,10 @@ class CsvSource(IpListSource):
             return n
         finally:
             if old_reader is not None:
-                old_reader.close()
+                try:
+                    old_reader.close()
+                except Exception:
+                    pass          # lmdb env 二次 close/已失效:容忍
 
 
 class ApiSource:

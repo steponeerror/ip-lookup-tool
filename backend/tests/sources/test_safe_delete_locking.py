@@ -108,8 +108,9 @@ def test_csvsource_load_reads_sidecars_through_inherited_method(tmp_path):
 
     (tmp_path / "c.csv").write_text("1.2.3.0/24,x\n")
     s = _S(data_dir=tmp_path)
-    n = s.rebuild()                      # writes mmdb + .count + .cov
+    n = s.rebuild()                      # writes lmdb epoch + .count + .cov
     assert n > 0
+    s._reader.close()                    # 同进程双开同 epoch 会报错;先关再 load
     loaded = _S(data_dir=tmp_path)       # fresh instance: must reload via inherited load
     assert loaded.load() == n            # count sidecar round-trips
     assert loaded._covered_ips == 256    # cov sidecar round-trips

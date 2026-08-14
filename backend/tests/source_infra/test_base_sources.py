@@ -177,15 +177,15 @@ def test_csvsource_rebuild_dedup(tmp_path):
 def test_iplistsource_load_pure_mmap(tmp_path):
     """IpListSource.load 不重建。"""
     from ipdb._sources._base import IpListSource
-    from ipdb._sources._mmdb import write_mmdb
+    from ipdb._sources._lmdb import rebuild_lmdb
     class _S(IpListSource):
         name = "t"; filename = "t.txt"; fields = ("is_x",)
         def get_insert_data(self):
             return {"is_x": True}
     s = _S(tmp_path)
-    write_mmdb([("9.9.9.0/24", [{"is_x": True}])], tmp_path / "t.txt.mmdb")
-    (tmp_path / "t.txt.count").write_text("1")
-    (tmp_path / "t.txt.cov").write_text("256")
+    # 预置一个已建库(立即 close 避免同进程双开)
+    rebuild_lmdb([("9.9.9.0/24", [{"is_x": True}])], tmp_path / "t.txt.lmdb",
+                 reader_setter=lambda e: e.close())
     assert s.load() == 1
     assert s.query("9.9.9.9") == [{"is_x": True}]
     s._reader.close()
