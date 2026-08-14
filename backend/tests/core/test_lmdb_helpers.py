@@ -7,6 +7,12 @@ import pytest
 from ipdb._sources._lmdb import encode_key, encode_value, decode_value, lookup
 
 
+# ── ptr/epoch helpers ──────────────────────────────────────────
+from ipdb._sources._lmdb import (
+    ptr_path, env_dir, read_ptr, next_epoch, open_env_read, cleanup_stale,
+)
+
+
 @pytest.fixture()
 def env(tmp_path):
     e = lmdb.open(str(tmp_path / "t"), map_size=1024 * 1024)
@@ -64,3 +70,64 @@ def test_duplicate_start_last_write_wins(tmp_path):
         txn.put(encode_key(0x01000000), encode_value(0x010000FF, {"v": 2}))
     assert lookup(e, 0x01000000) == {"v": 2}
     e.close()
+
+
+# ── ptr/epoch helpers tests ──────────────────────────────────────────
+BASE = "ipinfo_lite.csv.lmdb"
+
+
+def test_read_ptr_missing_returns_none(tmp_path):
+    assert read_ptr(tmp_path / BASE) is None
+
+
+def test_read_ptr_roundtrip(tmp_path):
+    p = ptr_path(tmp_path / BASE)
+    p.write_text("7")
+    assert read_ptr(tmp_path / BASE) == 7
+
+
+def test_ptr_path_string_concat(tmp_path):
+    # 绝不能是 with_suffix:ipinfo_lite.csv.lmdb → ipinfo_lite.csv.ptr 是错的
+    assert ptr_path(tmp_path / BASE).name == "ipinfo_lite.csv.lmdb.ptr"
+
+
+def test_next_epoch_empty_is_1(tmp_path):
+    assert next_epoch(tmp_path / BASE) == 1
+
+
+def test_next_epoch_scans_dirs_and_ptr(tmp_path):
+    env_dir(tmp_path / BASE, 3).mkdir()
+    env_dir(tmp_path / BASE, 9).mkdir()
+    assert next_epoch(tmp_path / BASE) == 10
+
+
+def test_cleanup_stale_removes_new_and_orphans(tmp_path):
+    base = tmp_path / BASE
+    env_dir(base, 1).mkdir()                     # orphan (ptr says 2)
+    env_dir(base, 2).mkdir()                     # live
+    (tmp_path / f"{BASE}.2.new.999").mkdir()     # crash leftover
+    ptr_path(base).write_text("2")
+    cleanup_stale(base)
+    assert env_dir(base, 2).is_dir()
+    assert not env_dir(base, 1).exists()
+    assert not (tmp_path / f"{BASE}.2.new.999").exists()
+
+
+def test_cleanup_stale_no_ptr_keeps_epochs(tmp_path):
+    base = tmp_path / BASE
+    env_dir(base, 1).mkdir()
+    (tmp_path / f"{BASE}.1.new.999").mkdir()
+    cleanup_stale(base)
+    assert env_dir(base, 1).is_dir()             # epochs untouched
+    assert not (tmp_path / f"{BASE}.1.new.999").exists()
+
+
+def test_open_env_read_params(tmp_path):
+    ro_path = tmp_path / "ro"
+    e = lmdb.open(str(ro_path), map_size=1024 * 1024)
+    with e.begin(write=True) as txn:
+        txn.put(encode_key(1), encode_value(1, {"v": 1}))
+    e.close()
+    ro = open_env_read(ro_path)
+    assert lookup(ro, 1) == {"v": 1}
+    ro.close()

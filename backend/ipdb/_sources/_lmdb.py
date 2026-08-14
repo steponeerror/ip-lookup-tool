@@ -64,3 +64,87 @@ def lookup(env, ip_int: int) -> Any:
         start = int.from_bytes(cur.key(), "big")
         end, evidence = decode_value(cur.value())
         return evidence if start <= ip_int <= end else None
+
+
+# ── ptr/epoch helpers ──────────────────────────────────────────
+
+
+def _base_str(base: Path) -> str:
+    return str(base)
+
+
+def ptr_path(base: Path) -> Path:
+    return base.parent / (base.name + ".ptr")
+
+
+def count_path(base: Path) -> Path:
+    return base.parent / (base.name + ".count")
+
+
+def cov_path(base: Path) -> Path:
+    return base.parent / (base.name + ".cov")
+
+
+def env_dir(base: Path, epoch: int) -> Path:
+    return base.parent / f"{base.name}.{epoch}"
+
+
+def _fsync_file(path: Path) -> None:
+    with open(path, "rb") as f:
+        os.fsync(f.fileno())
+
+
+def read_ptr(base: Path) -> int | None:
+    p = ptr_path(base)
+    if not p.exists():
+        return None
+    try:
+        return int(p.read_text().strip())
+    except ValueError:
+        return None
+
+
+def next_epoch(base: Path) -> int:
+    prefix = base.name + "."
+    best = 0
+    if base.parent.exists():
+        for child in base.parent.iterdir():
+            name = child.name
+            if not (child.is_dir() and name.startswith(prefix)):
+                continue
+            tail = name[len(prefix):].split(".")[0]   # strip ".new.<pid>"
+            if tail.isdigit():
+                best = max(best, int(tail))
+    return best + 1
+
+
+def open_env_read(path: Path):
+    """Query-side env: readonly + lock=False — the env is never written
+    in place (rebuilds write a fresh epoch dir), so readers need no
+    lock-file registration; safe across processes."""
+    return lmdb.open(str(path), readonly=True, lock=False, subdir=True)
+
+
+def cleanup_stale(base: Path) -> None:
+    """Startup cleanup: drop crash-leftover ``.new.*`` dirs and epoch dirs
+    not referenced by ptr. With no ptr (never built / first boot after
+    wipe) leave epoch dirs alone — next rebuild continues from max+1."""
+    import shutil
+    parent = base.parent
+    if not parent.exists():
+        return
+    live = read_ptr(base)
+    prefix = base.name + "."
+    for child in parent.iterdir():
+        name = child.name
+        if not (child.is_dir() and name.startswith(prefix)):
+            continue
+        tail = name[len(prefix):]
+        parts = tail.split(".")
+        if parts[-1].isdigit() and len(parts) >= 2 and parts[-2] == "new":
+            shutil.rmtree(child, ignore_errors=True)   # .new.<pid>
+            continue
+        if parts[0].isdigit():
+            epoch = int(parts[0])
+            if live is not None and epoch != live:
+                shutil.rmtree(child, ignore_errors=True)
