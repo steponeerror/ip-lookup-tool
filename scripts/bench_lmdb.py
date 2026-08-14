@@ -174,16 +174,16 @@ def main():
     ap.add_argument("--baseline")
     ap.add_argument("--out")
     args = ap.parse_args()
+    if args.baseline and not Path(args.baseline).exists():
+        # 先于 bench():避免白跑 ~25s 构建后才 exit 2
+        print(f"baseline file not found: {Path(args.baseline)}", file=sys.stderr)
+        sys.exit(2)
     cur = bench(Path(args.data), args.source)
     print(json.dumps(cur, indent=2))
     if args.out:
         Path(args.out).write_text(json.dumps(cur, indent=2))
     if args.baseline:
-        baseline_path = Path(args.baseline)
-        if not baseline_path.exists():
-            print(f"baseline file not found: {baseline_path}", file=sys.stderr)
-            sys.exit(2)
-        base = json.loads(baseline_path.read_text())
+        base = json.loads(Path(args.baseline).read_text())
     else:
         base = None
     sys.exit(0 if judge(cur, base) else 1)

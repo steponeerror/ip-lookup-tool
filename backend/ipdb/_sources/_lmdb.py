@@ -114,10 +114,6 @@ def lookup(env, ip_int: int) -> Any:
 # ── ptr/epoch helpers ──────────────────────────────────────────
 
 
-def _base_str(base: Path) -> str:
-    return str(base)
-
-
 def ptr_path(base: Path) -> Path:
     return base.parent / (base.name + ".ptr")
 
@@ -132,11 +128,6 @@ def cov_path(base: Path) -> Path:
 
 def env_dir(base: Path, epoch: int) -> Path:
     return base.parent / f"{base.name}.{epoch}"
-
-
-def _fsync_file(path: Path) -> None:
-    with open(path, "rb") as f:
-        os.fsync(f.fileno())
 
 
 def read_ptr(base: Path) -> int | None:
@@ -283,7 +274,6 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
             Path(s).unlink(missing_ok=True)
 
     new_env = open_env_read(target)
-    old = read_ptr(base)                              # == epoch now
     reader_setter(new_env)
     # best-effort prune older epochs
     if base.parent.exists():

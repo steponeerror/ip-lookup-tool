@@ -215,7 +215,7 @@ def test_open_env_read_params(tmp_path):
 # ── rebuild_lmdb ───────────────────────────────────────────────
 import shutil as _shutil
 
-from ipdb._sources._lmdb import rebuild_lmdb, initial_map_size, open_env_read
+from ipdb._sources._lmdb import rebuild_lmdb, initial_map_size
 
 
 def test_rebuild_build_query_and_sidecars(tmp_path):
