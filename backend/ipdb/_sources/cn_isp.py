@@ -28,10 +28,10 @@ class ChineseISPSource(Source):
     fields = ("country_code", "as_name", "is_isp", "ip_range")
     stale_days = 7
     reliability = 0.85
-    filename = "cn_isp"   # Source base sets _mmdb_path = data_dir/"cn_isp.mmdb"
+    filename = "cn_isp"   # Source base sets _lmdb_base = data_dir/"cn_isp.lmdb"
 
     def __init__(self, data_dir: Path):
-        super().__init__(data_dir)   # _data_dir, _path, _mmdb_path, _reader, _count, _loaded_at
+        super().__init__(data_dir)   # _data_dir, _path, _lmdb_base, _reader, _count, _loaded_at
         self._isp_dir = data_dir / "isp"
 
     @property
@@ -68,22 +68,23 @@ class ChineseISPSource(Source):
                 dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
 
     def load(self) -> int:
-        from ._mmdb import open_reader
-        if not self._mmdb_path.exists():
+        from ._lmdb import read_ptr, open_env_read, cleanup_stale, count_path, cov_path
+        cleanup_stale(self._lmdb_base)
+        epoch = read_ptr(self._lmdb_base)
+        if epoch is None:
             self._reader = None
             return 0
-        self._reader = open_reader(self._mmdb_path)
-        count_path = self._mmdb_path.with_suffix(".count")
-        cov_path = self._mmdb_path.with_suffix(".cov")
-        self._count = int(count_path.read_text().strip()) if count_path.exists() else 0
-        self._covered_ips = int(cov_path.read_text().strip()) if cov_path.exists() else 0
+        self._reader = open_env_read(
+            self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
+        cp, vp = count_path(self._lmdb_base), cov_path(self._lmdb_base)
+        self._count = int(cp.read_text().strip()) if cp.exists() else 0
+        self._covered_ips = int(vp.read_text().strip()) if vp.exists() else 0
         self._loaded_at = time.time()
         return self._count
 
     def rebuild(self) -> int:
         import ipaddress as _ipa
-        from ._lmdb import covered_ip_count
-        from ._mmdb import rebuild_mmdb
+        from ._lmdb import covered_ip_count, rebuild_lmdb
         old_reader = self._reader
 
         best: dict[str, dict] = {}
@@ -107,10 +108,9 @@ class ChineseISPSource(Source):
                     best[line] = {"country_code": country, "isp": label, "_net": line}
         try:
             cov = covered_ip_count(best.keys())
-            n = rebuild_mmdb(
-                ((k, v) for k, v in best.items()), self._mmdb_path,
-                reader_setter=lambda r: setattr(self, "_reader", r),
-                database_type="IP-Radar-cn-isp",
+            n = rebuild_lmdb(
+                ((k, v) for k, v in best.items()), self._lmdb_base,
+                reader_setter=lambda e: setattr(self, "_reader", e),
                 covered=cov,
             )
             self._covered_ips = cov
@@ -119,17 +119,29 @@ class ChineseISPSource(Source):
             return n
         finally:
             if old_reader is not None:
-                old_reader.close()
+                try:
+                    old_reader.close()
+                except Exception:
+                    pass          # lmdb env 二次 close/已失效:容忍
 
     def query(self, ip: str) -> dict:
         if self._reader is None:
             return {}
+        import ipaddress as _ipa
+        import lmdb as _lmdb
+        from ._lmdb import lookup, read_ptr, open_env_read
+        ip_int = int(_ipa.IPv4Address(ip))
         try:
-            node = self._reader.get(ip)
-        except (ValueError, OSError):
-            from ._mmdb import open_reader
-            self._reader = open_reader(self._mmdb_path)
-            node = self._reader.get(ip)
+            node = lookup(self._reader, ip_int)
+        except (_lmdb.Error, OSError):
+            # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
+            epoch = read_ptr(self._lmdb_base)
+            self._reader = (open_env_read(
+                self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
+                if epoch is not None else None)
+            if self._reader is None:
+                return {}
+            node = lookup(self._reader, ip_int)
         if node is None:
             return {}
         return {
