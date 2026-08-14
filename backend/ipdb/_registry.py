@@ -264,7 +264,7 @@ def sources_needing_rebuild() -> list[str]:
     this keys off needs_convert, so a freshly-downloaded file whose MMDB
     has not been rebuilt yet is flagged here.
     """
-    from ._sources._mmdb import needs_convert
+    from ._sources._lmdb import needs_convert
     out = []
     for s in _enabled_sources():
         if _archetype(s) != "offline":
@@ -296,7 +296,7 @@ def _needs_rebuild_of(source) -> bool:
     Single-source form of sources_needing_rebuild, using the same
     needs_convert check. Returns False for sources lacking _path/_mmdb_path
     (defensive; real offline sources always set them)."""
-    from ._sources._mmdb import needs_convert
+    from ._sources._lmdb import needs_convert
     raw_path = getattr(source, "_path", None)
     mmdb_path = getattr(source, "_mmdb_path", None)
     if raw_path is None or mmdb_path is None:

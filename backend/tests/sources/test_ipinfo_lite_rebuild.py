@@ -44,7 +44,7 @@ def test_ipinfo_lite_mmdb_path_points_at_ptr(tmp_path):
     """注册表重建判定靠 _mmdb_path + needs_convert 的 mtime 比较;
     试点把它重指向 ptr 文件,raw 更新后 ptr 旧 → 触发重建。"""
     from ipdb._sources.ipinfo_lite import IPinfoLiteSource
-    from ipdb._sources._mmdb import needs_convert
+    from ipdb._sources._lmdb import needs_convert
     s = IPinfoLiteSource(tmp_path)
     assert s._mmdb_path.name == "ipinfo_lite.csv.lmdb.ptr"
     (tmp_path / "ipinfo_lite.csv").write_text("network\n1.0.0.0/24\n")

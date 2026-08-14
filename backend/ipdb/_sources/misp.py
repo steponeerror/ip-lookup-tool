@@ -60,7 +60,7 @@ _MAX_THREAT_LEVEL = 2
 class MispSource(Source):
     # ── required for discovery + lifecycle ──
     name = "misp"
-    filename = "misp.json"           # → _path = data_dir/"misp.json", _mmdb_path = …/misp.json.mmdb
+    filename = "misp.json"           # → _path = data_dir/"misp.json", _mmdb_path = …/misp.json.lmdb.ptr (mtime 随重建刷新,与旧 .mmdb 同语义)
     fields = ("is_malicious",)
     stale_days = 1                   # re-pull the 7-day window daily
     reliability = 0.7

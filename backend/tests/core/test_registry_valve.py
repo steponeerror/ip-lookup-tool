@@ -8,8 +8,8 @@ def test_sources_needing_rebuild_uses_needs_convert(tmp_path, monkeypatch):
     # 构造一个 needs_convert=True 的源
     (tmp_path / "raw.txt").write_text("1.2.3.0/24\n")
     (tmp_path / "raw.txt.mmdb").write_bytes(b"")   # 空/旧 mmdb
-    import ipdb._sources._mmdb as mmdb
-    monkeypatch.setattr(mmdb, "needs_convert", lambda r, m: True)
+    import ipdb._sources._lmdb as lmdb_storage
+    monkeypatch.setattr(lmdb_storage, "needs_convert", lambda r, m: True)
     # monkeypatch _enabled_sources 返回一个假源
     class _S:
         name = "t"; _path = tmp_path / "raw.txt"

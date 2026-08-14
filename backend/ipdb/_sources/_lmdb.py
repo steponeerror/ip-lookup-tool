@@ -141,6 +141,13 @@ def read_ptr(base: Path) -> int | None:
         return None
 
 
+def needs_convert(raw_path: Path, ptr_like_path: Path) -> bool:
+    """True if the ptr is missing or older than the raw file."""
+    if not ptr_like_path.exists():
+        return True
+    return ptr_like_path.stat().st_mtime < raw_path.stat().st_mtime
+
+
 def next_epoch(base: Path) -> int:
     prefix = base.name + "."
     best = 0
