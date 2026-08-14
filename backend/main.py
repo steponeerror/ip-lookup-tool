@@ -152,6 +152,9 @@ async def _stream_lookup(expansion):
                     yield orjson.dumps({
                         "type": "row", "idx": start_idx + i,
                         "result": d}) + b"\n"
+    except Exception as e:
+        logging.getLogger(__name__).exception("stream lookup error")
+        yield orjson.dumps({"type": "error", "message": str(e)}) + b"\n"
 
     yield orjson.dumps({
         "type": "done", "invalid_lines": expansion.invalid,
@@ -166,6 +169,7 @@ def _cleanup_orphan_tmp(data_dir: Path) -> None:
     rebuild_mmdb's ``*.mmdb.new.{pid}`` (no .tmp suffix).
     """
     orphans = list(data_dir.glob("*.mmdb.*.tmp")) + list(data_dir.glob("*.mmdb.new.*"))
+    orphans += list(data_dir.glob("*.mmdb.count.new.*")) + list(data_dir.glob("*.mmdb.cov.new.*"))
     for tmp in orphans:
         try:
             tmp.unlink()
@@ -267,12 +271,12 @@ def _startup_warm():
     ones in the background (non-blocking — the whole point of the warm branch)."""
     from ipdb._registry import sources_needing_rebuild
     load_db()
+    _ensure_valve_sampler()
     needs_rebuild = sources_needing_rebuild()
     stale = stale_source_names()
     merge = list(dict.fromkeys(needs_rebuild + stale))
     if merge:
         manager.enqueue_stale(merge)
-    _ensure_valve_sampler()
 
 
 def _startup():
@@ -311,6 +315,8 @@ async def lifespan(app: FastAPI):
     finally:
         if _scheduler_stop is not None:
             _scheduler_stop.set()
+        if _valve_stop is not None:
+            _valve_stop.set()
         if pool is not None:
             pool.shutdown(wait=False)
         _batch_pool.set_pool(None)

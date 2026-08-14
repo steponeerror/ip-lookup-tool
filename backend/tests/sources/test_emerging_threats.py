@@ -11,7 +11,7 @@ class TestEmergingThreats:
     def test_config(self):
         assert EmergingThreatsSource.fields == ("is_malicious",)
         assert EmergingThreatsSource.authoritative_for == ["is_malicious"]
-        assert EmergingThreatsSource.reliability == 0.90
+        assert EmergingThreatsSource.reliability == 0.85
 
     def test_loads_ips_and_cidrs(self, tmp_path):
         (tmp_path / "emerging-block-ips.txt").write_text(

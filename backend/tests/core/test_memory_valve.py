@@ -108,3 +108,44 @@ def test_sampler_critical_halt(monkeypatch):
     time.sleep(0.2)
     stop.set()
     assert v.target_capacity == 0
+
+
+def test_hold_band_recovers_from_zero(monkeypatch):
+    """target=0 (CRITICAL) 后内存恢复到 25-40% hold band,target 应恢复到 ≥1。
+
+    没有 floor 时,target 卡在 0 直到内存降到 <25%(→1)或升到 ≥40%(→slow +1)，
+    导致 30% 可用内存时 rebuild 全部停摆。
+    """
+    _set_mem(monkeypatch, available_gb=2.8, total_gb=8.0)   # 35% — hold band
+    v = MemoryValve(ceiling=3)
+    v.target_capacity = 0   # 模拟刚从 CRITICAL 恢复
+    v.update_from_sample()
+    assert v.target_capacity >= 1, \
+        f"hold band should recover target from 0, got {v.target_capacity}"
+
+
+def test_sampler_survives_psutil_exception(monkeypatch):
+    """psutil.virtual_memory() 抛异常时,采样线程不应死亡。
+
+    无 try/except 时,一次异常 = 线程退出 = valve 永久冻结在最后 target 值。
+    """
+    import time
+    call_count = [0]
+
+    def _flaky_virtual_memory():
+        call_count[0] += 1
+        raise PermissionError("simulated /proc failure")
+
+    monkeypatch.setattr("ipdb._memory_valve.psutil.virtual_memory",
+                        _flaky_virtual_memory)
+    v = MemoryValve(ceiling=2)
+    v.target_capacity = 1   # 初始值
+    cv = threading.Condition()
+    stop = threading.Event()
+    v.start_sampler(cv, stop, interval=0.05)
+    time.sleep(0.3)   # 多个采样周期
+    stop.set()
+    assert call_count[0] >= 3, \
+        f"sampler thread died after first exception (only {call_count[0]} calls)"
+    assert v.target_capacity == 1, \
+        f"target should stay at last value, got {v.target_capacity}"

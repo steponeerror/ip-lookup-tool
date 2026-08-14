@@ -19,6 +19,7 @@ class IPtoASNSource(Source):
     url = _TSV_URL
     fields = ("country_code", "asn", "as_name", "ip_range")
     stale_days = 7
+    reliability = 0.90
     single_evidence = True   # one evidence per CIDR → stream load() (OOM guard)
     rebuild_weight = "heavy"
     rebuild_peak_gb = 1.6

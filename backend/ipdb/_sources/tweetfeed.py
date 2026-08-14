@@ -41,7 +41,7 @@ class TweetFeedSource(Source):
     classification_type = "other"   # default; overridden per-row in harvest
     verdict = "malicious"
     stale_days = 1
-    reliability = 0.55              # crowd-sourced researcher reports — not authoritative
+    reliability = 0.45              # crowd-sourced researcher reports — not authoritative
     authoritative_for = []
 
     def harvest(self):

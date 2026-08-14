@@ -72,7 +72,7 @@ class URLhausSource(Source):
     classification_type = "malware-distribution"   # default; per-row overrides
     verdict = "malicious"
     stale_days = 1
-    reliability = 0.70            # abuse.ch — curated/confirmed malware URLs
+    reliability = 0.55            # abuse.ch — curated/confirmed malware URLs
     authoritative_for = []
 
     def harvest(self):

@@ -15,6 +15,7 @@ class IPinfoLiteSource:
     name = "ipinfo_lite"
     fields = ("country_code", "asn", "as_name", "ip_range")
     stale_days = 7
+    reliability = 0.95
     rebuild_weight = "heavy"
     rebuild_peak_gb = 3.0
 

@@ -67,6 +67,8 @@ class MemoryValve:
                     self._high_count = 0
             else:
                 self._high_count = 0
+                if self.target_capacity < 1:
+                    self.target_capacity = 1
             if self.target_capacity != prev:
                 logger.info("memory valve: avail %.0f%%, target %d→%d (cap %d)",
                             ratio * 100, prev, self.target_capacity, self.ceiling)
@@ -77,7 +79,10 @@ class MemoryValve:
         def _loop():
             while not stop_event.is_set():
                 prev = self.target_capacity
-                self.update_from_sample()
+                try:
+                    self.update_from_sample()
+                except Exception:
+                    logger.exception("memory valve sampler error; keeping last target")
                 if self.target_capacity != prev:
                     with cv:
                         cv.notify_all()

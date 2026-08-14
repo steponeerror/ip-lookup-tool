@@ -424,3 +424,65 @@ def test_batch_done_ignores_throttled():
     with mgr._queue_cv:
         mgr._queue_cv.notify_all()
     _wait_states(mgr, lambda s: mgr._batches[bid].state == "done", timeout=3)
+
+
+class _TrackingValve:
+    """Minimal valve mock that counts on_start/on_finish calls."""
+    def __init__(self):
+        self.starts = 0
+        self.finishes = 0
+        self.target_capacity = 99
+    def can_run(self, weight, peak_gb): return True
+    def on_start(self, weight): self.starts += 1
+    def on_finish(self, weight): self.finishes += 1
+
+
+class _CrashSource(FakeSource):
+    """Source whose download raises SystemExit (BaseException, not Exception)."""
+    def download(self, token=None):
+        self.download_calls += 1
+        raise SystemExit(0)
+
+
+def test_on_finish_called_when_run_task_raises():
+    """_run_task 抛 BaseException 时,on_finish 仍须被调用。
+
+    无 try/finally 时,SystemExit 跳过 on_finish → heavy_busy 永久 True。
+    """
+    valve = _TrackingValve()
+    src = _CrashSource("crash")
+    by_name = {"crash": src}
+    locks = {}
+    mgr = UpdateManager(
+        resolve_source=lambda n: by_name.get(n),
+        lock_for=lambda n: locks.setdefault(n, threading.Lock()),
+        concurrency=1, valve=valve,
+    )
+    mgr.enqueue_one("crash")
+    time.sleep(0.5)
+    assert valve.starts >= 1, "on_start should have been called"
+    assert valve.finishes >= 1, \
+        "on_finish must be called even after BaseException from _run_task"
+
+
+def test_batch_overlap_returns_existing():
+    """enqueue_batch 已有活跃 batch 时返回已有 batch_id,不创建新的。"""
+    mgr, _ = _make_manager([FakeSource("a"), FakeSource("b")])
+    bid1 = mgr.enqueue_batch(["a", "b"])
+    bid2 = mgr.enqueue_batch(["a", "b"])
+    assert bid1 == bid2, "second enqueue_batch should reuse active batch"
+
+
+def test_done_batches_bounded():
+    """enqueue_batch 清除超过 10 个的 done batch,防止无界增长。"""
+    mgr, _ = _make_manager([FakeSource("a")])
+    for _ in range(15):
+        bid = mgr.enqueue_batch(["a"])
+        _wait_states(mgr, lambda s: all(
+            tk["state"] in ("done", "failed", "cancelled") for tk in s["tasks"]),
+            timeout=5)
+        mgr._active_batch = None  # allow next batch
+    done = [b for b in mgr._batches.values() if b.state == "done"]
+    # GC retains 10 + the just-completed batch = 11 max
+    assert len(done) <= 11, \
+        f"done batches should be bounded (~10+1), got {len(done)}"

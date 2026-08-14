@@ -65,7 +65,7 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
         )
 
     # 2. IPv4 Address SCO
-    ipv4 = IPv4Address(value=lr.ip)
+    ipv4 = IPv4Address(value=lr.ip, id=f"ipv4-addr--{uuid5(_NS, lr.ip)}")
 
     # 3. Location SDO (from country) and related-to relationship
     objs = [ipv4]

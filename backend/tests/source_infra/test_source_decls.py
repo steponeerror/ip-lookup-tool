@@ -15,9 +15,9 @@ from ipdb._sources.ipsum import IPsumSource
 # (source_cls, expected_type, expected_verdict, min_reliability)
 DECLS = [
     (ThreatFoxSource, "c2-server", "malicious", 0.85),
-    (OtxSource, "scanner", "malicious", 0.75),
+    (OtxSource, "scanner", "malicious", 0.55),
     (SpamhausSource, "blacklist", "malicious", 0.90),
-    (EmergingThreatsSource, "blacklist", "malicious", 0.90),
+    (EmergingThreatsSource, "blacklist", "malicious", 0.85),
     (BlocklistDeSource, "blacklist", "malicious", 0.65),
     (IP2ProxySource, "proxy", "suspicious", 0.80),
     (TorExitSource, "tor", "suspicious", 0.95),

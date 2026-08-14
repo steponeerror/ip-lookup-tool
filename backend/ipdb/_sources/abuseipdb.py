@@ -40,7 +40,7 @@ class AbuseIPDBSource(IpListSource):
 
     # ── tuning ──
     stale_days = 1                  # daily refresh; free-tier quota = 5/day
-    reliability = 0.75
+    reliability = 0.65
     authoritative_for = ["is_malicious"]
 
     def __init__(self, data_dir, confidence_minimum=None, limit=10000):

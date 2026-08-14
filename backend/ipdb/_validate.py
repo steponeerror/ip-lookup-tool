@@ -48,4 +48,15 @@ def validate_source(source) -> list[str]:
             problems.append(
                 f"rebuild_peak_gb {peak} set but rebuild_weight is {weight!r}; "
                 f"peak precheck only fires when rebuild_weight=='heavy'")
+
+    # reliability drift: class attr must match SOURCE_RELIABILITY dict so the
+    # classification path (reads attr) and scalar path (reads dict) agree.
+    from ._merge import SOURCE_RELIABILITY
+    if source.name in SOURCE_RELIABILITY:
+        dict_val = SOURCE_RELIABILITY[source.name]
+        attr_val = getattr(source, "reliability", 0.5)
+        if attr_val != dict_val:
+            problems.append(
+                f"reliability drift: class attr={attr_val} but "
+                f"SOURCE_RELIABILITY[{source.name!r}]={dict_val}")
     return problems

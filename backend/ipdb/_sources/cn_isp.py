@@ -27,6 +27,7 @@ class ChineseISPSource(Source):
     name = "cn_isp"
     fields = ("country_code", "as_name", "is_isp", "ip_range")
     stale_days = 7
+    reliability = 0.85
     filename = "cn_isp"   # Source base sets _mmdb_path = data_dir/"cn_isp.mmdb"
 
     def __init__(self, data_dir: Path):

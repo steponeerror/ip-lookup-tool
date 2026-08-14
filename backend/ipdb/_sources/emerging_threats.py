@@ -17,5 +17,5 @@ class EmergingThreatsSource(IpListSource):
     classification_type = "blacklist"
     verdict = "malicious"
     stale_days = 1
-    reliability = 0.90
+    reliability = 0.85
     authoritative_for = ["is_malicious"]

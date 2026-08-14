@@ -149,6 +149,13 @@ class UpdateManager:
     # --- batch control (Task 4) / pause / cancel / bus: added in later tasks ---
     def enqueue_batch(self, source_names: list[str]) -> str:
         with self._lock:
+            # Reject overlap: reuse the active batch if one is still running.
+            if self._active_batch:
+                return self._active_batch
+            # Bounded retention: evict terminal batches beyond the 10 most recent.
+            done = [bid for bid, b in self._batches.items() if b.state == "done"]
+            for bid in done[:-10]:
+                del self._batches[bid]
             batch = Batch(id=uuid.uuid4().hex[:12])
             self._batches[batch.id] = batch
             self._active_batch = batch.id
@@ -345,13 +352,15 @@ class UpdateManager:
                         self._set_state(task, "queued")
                     self._valve.on_start(weight)
                 del self._queue[chosen_idx]
-            self._run_task(task)
-            if self._valve is not None:
-                src = self._resolve(task.source_name)
-                weight = getattr(src, "rebuild_weight", "normal") if src else "normal"
-                self._valve.on_finish(weight)
-                with self._queue_cv:
-                    self._queue_cv.notify_all()
+            try:
+                self._run_task(task)
+            finally:
+                if self._valve is not None:
+                    src = self._resolve(task.source_name)
+                    weight = getattr(src, "rebuild_weight", "normal") if src else "normal"
+                    self._valve.on_finish(weight)
+                    with self._queue_cv:
+                        self._queue_cv.notify_all()
 
     def _set_state(self, task: Task, state: str, error: str | None = None):
         task.state = state

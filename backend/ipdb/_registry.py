@@ -123,6 +123,8 @@ _strategies = {
     "ip_range": RangeSpecificity(),
 }
 
+_LOOKUP_SLOTS = SCALAR_SLOTS | {"is_isp"}
+
 # Asset attributes collected into LookupResult.attributes (pure陈述, no scoring).
 # Schema-driven via ASSET_SLOTS (imported from ._evidence) — sources emitting
 # keys not in ASSET_SLOTS fold into `extra` via route_record.
@@ -368,7 +370,7 @@ def lookup(ip: str) -> LookupResult:
         items = raw if isinstance(raw, list) else [raw]
         for item in items:
             item = route_record(item)          # map-first: unknown → extra
-            for key in SCALAR_SLOTS | {"is_isp"}:
+            for key in _LOOKUP_SLOTS:
                 if key in item:
                     field_values[key][source.name] = item[key]
             if "classification_type" in item:

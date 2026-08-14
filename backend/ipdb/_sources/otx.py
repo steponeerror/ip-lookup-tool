@@ -74,7 +74,7 @@ class OtxSource(Source):
     classification_type = "scanner"
     verdict = "malicious"
     stale_days = 1
-    reliability = 0.75
+    reliability = 0.55
     authoritative_for = []
 
     def __init__(self, data_dir):

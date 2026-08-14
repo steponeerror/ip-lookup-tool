@@ -65,7 +65,7 @@ class TestClassify:
 class TestOtxSourceConfig:
     def test_config(self):
         assert OtxSource.fields == ("is_malicious",)
-        assert OtxSource.reliability == 0.75
+        assert OtxSource.reliability == 0.55
         # OTX is correlation/pulse-based — not authoritative.
         assert OtxSource.authoritative_for == []
 
@@ -101,7 +101,7 @@ class TestOtxHarvest:
         assert ev0.verdict == "malicious"
         assert ev0.native_categories == ["smtp"]
         assert ev0.extra == {}                # native_type moved to native_categories
-        # reliability is left None so lookup falls back to the source's 0.75.
+        # reliability is left None so lookup falls back to the source's 0.55.
         assert ev0.reliability is None
 
         # Row 1: CIDR brute-force over SSH
