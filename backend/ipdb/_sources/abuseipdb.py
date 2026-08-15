@@ -1,9 +1,10 @@
 """AbuseIPDB blacklist — IpListSource subclass.
 
 AbuseIPDB's `/api/v2/blacklist` endpoint (https://docs.abuseipdb.com/) returns
-the most-reported IPs. With `Accept: text/plain` it yields a newline-separated
-list, filtered to `abuseConfidenceScore >= confidenceMinimum` (default 100, i.e.
-confirmed abusers). Requires an API key — register at abuseipdb.com and set
+the most-reported IPs. With `Accept: application/json` it yields
+`{"data": [{"ipAddress": ..., "lastReportedAt": ...}, ...]}`, filtered to
+`abuseConfidenceScore >= confidenceMinimum` (default 100, i.e. confirmed
+abusers). Requires an API key — register at abuseipdb.com and set
 ABUSEIPDB_API_KEY in .env.
 
 Downloaded once per day (stale_days=1). The blacklist endpoint's free-tier daily
@@ -13,11 +14,16 @@ is why the source is a download+load (offline) source, not a query-on-demand API
 Auth: the API key is sent in the `Key` header (recommended over the query-string
 form to keep it out of server logs). download() is overridden solely to add that
 header and the confidenceMinimum/limit params; the fetch itself routes through
-the shared `download_file` helper (token-aware, atomic) and then parse_raw
-rewrites `_path` with the parsed entries.
+the shared `download_file` helper (token-aware, atomic) and validates the
+response parses as JSON before committing the file. rebuild() is overridden to
+parse the JSON rows and carry each row's `lastReportedAt` into the stored
+Evidence's `last_seen` (per-row values — the base class's single shared
+insert_data cannot express this).
 """
+import json
 import logging
 import os
+import time
 
 from ._base import IpListSource
 from ._download import download_file, CancelToken
@@ -69,18 +75,65 @@ class AbuseIPDBSource(IpListSource):
         try:
             download_file(url, self._path, token=token, headers={
                 "Key": self._key,
-                "Accept": "text/plain",
+                "Accept": "application/json",
                 "User-Agent": "ip-lookup-tool/1.0",
             })
             raw = self._path.read_bytes()
             if not raw.strip():
                 raise RuntimeError(f"Empty response from {self.url}")
-            entries = self.parse_raw(raw)
-            if not entries:
-                raise RuntimeError(f"No entries parsed from {self.name} response")
-            with open(self._path, "w", encoding="utf-8") as f:
-                f.write("\n".join(entries) + "\n")
-            logger.info(f"Downloaded {self.name} ({len(entries)} entries)")
+            try:
+                json.loads(raw)
+            except ValueError as e:
+                raise RuntimeError(f"Malformed JSON from {self.name}: {e}")
+            logger.info(f"Downloaded {self.name}")
         except Exception:
             self._path.unlink(missing_ok=True)
             raise
+
+    def rebuild(self) -> int:
+        """重建 LMDB。JSON 内容 → per-row Evidence（last_seen 逐 IP 不同，
+        基类单一 insert_data 不支持，故覆写）。"""
+        import ipaddress as _ipa
+        from ._lmdb import covered_ip_count, rebuild_lmdb
+        from .._evidence import Evidence
+        if not self._path.exists():
+            return 0
+        old_reader = self._reader
+        try:
+            data = json.loads(self._path.read_bytes())
+        except ValueError:
+            return 0                      # download 已校验；此处容错
+        records = []
+        covered = []
+        for item in (data.get("data") or []):
+            ip = (item.get("ipAddress") or "").strip()
+            last = (item.get("lastReportedAt") or "").strip()
+            if not ip:
+                continue
+            try:
+                net = _ipa.IPv4Network(f"{ip}/32", strict=False)
+            except (_ipa.AddressValueError, ValueError):
+                continue
+            ev = Evidence(
+                classification_type=self.classification_type,
+                verdict=self.verdict,
+                reliability=self.reliability,
+                last_seen=last or None,
+            ).to_dict()
+            records.append((str(net), [ev]))
+            covered.append(str(net))
+        try:
+            cov = covered_ip_count(covered)
+            n = rebuild_lmdb(iter(records), self._lmdb_base,
+                             reader_setter=lambda e: setattr(self, "_reader", e),
+                             covered=cov)
+            self._count = n
+            self._covered_ips = cov
+            self._loaded_at = time.time()
+            return n
+        finally:
+            if old_reader is not None:
+                try:
+                    old_reader.close()
+                except Exception:
+                    pass          # lmdb env 二次 close/已失效:容忍
