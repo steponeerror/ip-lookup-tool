@@ -82,9 +82,11 @@ class AbuseIPDBSource(IpListSource):
             if not raw.strip():
                 raise RuntimeError(f"Empty response from {self.url}")
             try:
-                json.loads(raw)
+                payload = json.loads(raw)
             except ValueError as e:
                 raise RuntimeError(f"Malformed JSON from {self.name}: {e}")
+            if not (isinstance(payload, dict) and payload.get("data")):
+                raise RuntimeError(f"{self.name}: empty or missing 'data' in response")
             logger.info(f"Downloaded {self.name}")
         except Exception:
             self._path.unlink(missing_ok=True)
@@ -103,6 +105,8 @@ class AbuseIPDBSource(IpListSource):
             data = json.loads(self._path.read_bytes())
         except ValueError:
             return 0                      # download 已校验；此处容错
+        if not isinstance(data, dict):
+            return 0                      # 顶层非 dict（错误 envelope 等）: 同样容错
         records = []
         covered = []
         for item in (data.get("data") or []):

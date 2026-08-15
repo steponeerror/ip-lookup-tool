@@ -9,6 +9,27 @@ def _write_json_fixture(path, rows):
     path.write_text(json.dumps({"meta": {}, "data": rows}))
 
 
+class _Resp:
+    """urlopen mock: 真正走完 download_file 的 chunk 循环（headers + 流式 read）。"""
+
+    def __init__(self, b):
+        self._b = b
+        self._done = False
+        self.headers = {"Content-Length": str(len(b))}
+
+    def read(self, n=-1):
+        if self._done:
+            return b""
+        self._done = True
+        return self._b
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
 def test_abuseipdb_loads_json_blacklist(tmp_path):
     """JSON /blacklist output: data[].ipAddress rows, empty rows skipped."""
     _write_json_fixture(tmp_path / "abuseipdb.txt", [
@@ -83,23 +104,23 @@ def test_abuseipdb_json_rebuild_stores_last_seen(tmp_path):
 
 def test_abuseipdb_download_rejects_malformed_json(tmp_path, monkeypatch):
     """download 校验 JSON 可解析，失败清理半写文件并抛错。"""
-    class _Resp:
-        def __init__(self, b):
-            self._b = b
-
-        def read(self, n=-1):
-            return self._b
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
     monkeypatch.setattr("ipdb._sources._download.urllib.request.urlopen",
                         lambda req, timeout=120: _Resp(b"not-json{"))
     monkeypatch.setenv("ABUSEIPDB_API_KEY", "k")
     s = AbuseIPDBSource(data_dir=tmp_path)
     with pytest.raises(Exception):
         s.download()
+    assert not (tmp_path / "abuseipdb.txt").exists()
+
+
+def test_abuseipdb_download_rejects_empty_data(tmp_path, monkeypatch):
+    """download 校验有数据：200-OK 但 data 空/缺席 → 抛错并清理文件，
+    避免空文件落地 → 不 stale → 全天不重下载 → rebuild 清空权威源。"""
+    monkeypatch.setattr("ipdb._sources._download.urllib.request.urlopen",
+                        lambda req, timeout=120: _Resp(b'{"meta": {}, "data": []}'))
+    monkeypatch.setenv("ABUSEIPDB_API_KEY", "k")
+    s = AbuseIPDBSource(data_dir=tmp_path)
+    with pytest.raises(RuntimeError) as ei:
+        s.download()
+    assert "data" in str(ei.value)
     assert not (tmp_path / "abuseipdb.txt").exists()
