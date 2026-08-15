@@ -11,6 +11,8 @@ REST pagination state machine in ``download()`` is preserved verbatim, while
 ``harvest()`` is the single CSV parser (replacing the former ``parse_row``).
 ``download()`` checks the optional CancelToken at the top of each page
 iteration so a long-running pagination can be cancelled between pages.
+The CSV's 4th column carries the pulse ``modified`` timestamp, which feeds
+``first_seen`` (enables time decay on lookup).
 """
 
 import csv
@@ -130,8 +132,8 @@ class OtxSource(Source):
             "Accept": "application/json",
         }
 
-        # indicator -> {(ctype, protocol)}
-        collected: dict[str, set[tuple[str, str]]] = {}
+        # indicator -> {(ctype, protocol, modified)}
+        collected: dict[str, set[tuple[str, str, str]]] = {}
         first = True
 
         while True:
@@ -156,6 +158,7 @@ class OtxSource(Source):
                 for pulse in pulses:
                     proto = _extract_protocol(pulse.get("name"))
                     ctype = _classify(proto)
+                    modified = str(pulse.get("modified") or "")
                     for ind in (pulse.get("indicators") or []):
                         itype = ind.get("type")
                         if itype not in ("IPv4", "IPv6", "CIDR", "IPv4CIDR"):
@@ -163,7 +166,8 @@ class OtxSource(Source):
                         value = ind.get("indicator", "").strip()
                         if not value:
                             continue
-                        collected.setdefault(value, set()).add((ctype, proto or ""))
+                        collected.setdefault(value, set()).add(
+                            (ctype, proto or "", modified))
 
                 page += 1
 
@@ -186,8 +190,8 @@ class OtxSource(Source):
         with open(self._path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             for indicator in sorted(collected):
-                for ctype, protocol in sorted(collected[indicator]):
-                    writer.writerow([indicator, ctype, protocol])
+                for ctype, protocol, modified in sorted(collected[indicator]):
+                    writer.writerow([indicator, ctype, protocol, modified])
 
         # Persist cursor for next incremental fetch
         today = time.strftime("%Y-%m-%d")
@@ -222,10 +226,12 @@ class OtxSource(Source):
     def harvest(self):
         """Yield (ip_or_cidr, Evidence) per CSV row written by download().
 
-        Each row is ``[indicator, classification_type, protocol]``. The
-        protocol is carried in ``native_categories`` (matches the read path).
-        ``reliability`` is left as None so lookup falls back to the source's
-        class-level 0.75.
+        Each row is ``[indicator, classification_type, protocol, modified]``
+        (4th column = pulse modified timestamp, feeds ``first_seen`` for time
+        decay; older 3-column CSVs without the timestamp still parse and
+        simply leave ``first_seen`` unset). The protocol is carried in
+        ``native_categories`` (matches the read path). ``reliability`` is
+        left as None so lookup falls back to the source's class-level 0.55.
         """
         with open(self._path, "r", newline="", encoding="utf-8") as f:
             for row in csv.reader(f):
@@ -234,11 +240,13 @@ class OtxSource(Source):
                 ip_or_cidr = row[0].strip()
                 ctype = row[1].strip()
                 protocol = row[2].strip() if len(row) > 2 else ""
+                modified = row[3].strip() if len(row) > 3 else ""
                 if not ip_or_cidr or not ctype:
                     continue
                 native_categories = [protocol] if protocol else []
                 yield ip_or_cidr, Evidence(
                     classification_type=ctype,
                     verdict="malicious",
+                    first_seen=modified or None,
                     native_categories=native_categories,
                 )

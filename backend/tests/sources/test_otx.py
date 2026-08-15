@@ -145,3 +145,25 @@ class TestOtxHarvest:
         # The no-protocol row yields no extra (no empty native_type entry).
         ev_no_proto = rows[1][1]
         assert ev_no_proto.extra == {}
+
+
+def test_harvest_reads_modified_timestamp_as_first_seen(tmp_path):
+    """4 列 CSV：第 4 列 modified → first_seen（接入时间衰减）。"""
+    (tmp_path / "otx_ips.csv").write_text(
+        "1.2.3.4,scanner,smtp,2026-08-14T12:00:00.000\n"
+        "5.6.7.8,brute-force,ssh,2026-08-15T01:02:03.000\n"
+    )
+    s = OtxSource(data_dir=tmp_path)
+    s.rebuild()
+    assert s.query("1.2.3.4")[0]["first_seen"] == "2026-08-14T12:00:00.000"
+    assert s.query("5.6.7.8")[0]["first_seen"] == "2026-08-15T01:02:03.000"
+
+
+def test_harvest_old_three_column_csv_still_works(tmp_path):
+    """旧 3 列 CSV（无时间戳）兼容：不填 first_seen。"""
+    (tmp_path / "otx_ips.csv").write_text("1.2.3.4,scanner,smtp\n")
+    s = OtxSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("1.2.3.4")[0]
+    assert rec["classification_type"] == "scanner"
+    assert "first_seen" not in rec
