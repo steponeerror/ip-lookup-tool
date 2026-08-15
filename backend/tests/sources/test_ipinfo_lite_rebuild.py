@@ -49,3 +49,33 @@ def test_ipinfo_lite_mmdb_path_points_at_ptr(tmp_path):
     assert s._mmdb_path.name == "ipinfo_lite.csv.lmdb.ptr"
     (tmp_path / "ipinfo_lite.csv").write_text("network\n1.0.0.0/24\n")
     assert needs_convert(tmp_path / "ipinfo_lite.csv", s._mmdb_path) is True
+
+
+def test_ipinfo_lite_query_returns_three_new_keys(tmp_path):
+    from ipdb._sources.ipinfo_lite import IPinfoLiteSource
+    header = ("network,country,country_code,continent,continent_code,"
+              "asn,as_name,as_domain\n")
+    row = '1.0.0.0/24,Australia,AU,Oceania,OC,AS13335,"Cloudflare, Inc.",cloudflare.com\n'
+    (tmp_path / "ipinfo_lite.csv").write_text(header + row)
+    s = IPinfoLiteSource(data_dir=tmp_path)
+    s.rebuild()
+    r = s.query("1.0.0.1")
+    assert r["country_code"] == "AU"
+    assert r["continent_code"] == "OC"
+    assert r["country_name"] == "Australia"
+    assert r["as_domain"] == "cloudflare.com"
+    s._reader.close()
+
+
+def test_ipinfo_lite_empty_geo_columns_omit_keys(tmp_path):
+    from ipdb._sources.ipinfo_lite import IPinfoLiteSource
+    header = ("network,country,country_code,continent,continent_code,"
+              "asn,as_name,as_domain\n")
+    row = "1.0.1.0/24,,CN,,,AS13335,,\n"
+    (tmp_path / "ipinfo_lite.csv").write_text(header + row)
+    s = IPinfoLiteSource(data_dir=tmp_path)
+    s.rebuild()
+    r = s.query("1.0.1.5")
+    for k in ("continent_code", "country_name", "as_domain"):
+        assert k not in r
+    s._reader.close()

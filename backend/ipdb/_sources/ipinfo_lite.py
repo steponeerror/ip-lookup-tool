@@ -102,6 +102,8 @@ class IPinfoLiteSource:
                         continue
                     network, country_code, asn, as_name, as_domain = (
                         row[0], row[2], row[5], row[6], row[7])
+                    country_name = row[1].strip() if len(row) > 1 else ""
+                    continent_code = row[4].strip() if len(row) > 4 else ""
                     try:
                         _ipa.IPv4Network(network, strict=False)
                     except (_ipa.AddressValueError, ValueError):
@@ -118,13 +120,20 @@ class IPinfoLiteSource:
                             asn_val = int(asn); has_asn = True
                         except ValueError:
                             pass
-                    yield network, {
+                    val = {
                         "country_code": country_code,
                         "asn": asn_val,
                         "as_name": as_name or as_domain or "N/A",
                         "has_asn": has_asn,
                         "_net": network,
                     }
+                    if continent_code:
+                        val["continent_code"] = continent_code
+                    if country_name:
+                        val["country_name"] = country_name
+                    if as_domain:
+                        val["as_domain"] = as_domain
+                    yield network, val
 
         def _cidrs():
             with open(self._path, "r", encoding="utf-8") as f:
@@ -173,6 +182,9 @@ class IPinfoLiteSource:
         if node["has_asn"]:
             result["asn"] = node["asn"]
             result["as_name"] = node["as_name"]
+        for k in ("continent_code", "country_name", "as_domain"):
+            if k in node:
+                result[k] = node[k]
         return result
 
     def health(self):
