@@ -124,8 +124,9 @@ Is it a static file you download once and load into LMDB?
 │  │     → CsvSource               (ipsum, f3csystems)
 │  └─ Gray zone: any of — filter rows / conditional field routing / 1→many
 │      (range→CIDR) / nested archive (ZIP/gzip) / multi-file / REST state
-│      machine / per-row classification / per-row timestamps / .mmdb binary
-│      input?
+│      machine / per-row classification with non-trivial mapping (priority
+│      fallback, tag filtering — plain per-row columns fit CsvSource §2) /
+│      .mmdb binary input?
 │        → Source subclass         (threatfox, ip2proxy, otx, iptoasn, misp…)
 │          implement download() + harvest() -> (cidr_str, Evidence) pairs;
 │          inherit rebuild() (LMDB write: per-CIDR accumulate + full-evidence
@@ -216,7 +217,7 @@ set — discovery will pick it up automatically on next load.
 
 - write a representative sample file to `tmp_path`
 - `s = YourSource(data_dir=tmp_path)`
-- assert `s.rebuild()` returns the expected **distinct-CIDR count** — `rebuild()` returns the number of different CIDR keys, while `health().record_count` carries the total **evidence rows** (two rows on one CIDR = 2 rows, 1 key). Assert both where they differ. (A **fresh instance's** `load()` re-opens the same env — don't call `load()` on the instance that just rebuilt: it would open a second env handle, convention 7.)
+- assert `s.rebuild()`'s return and `health().record_count` — but read the fine print, it differs by base: **CsvSource** — `rebuild()` returns distinct CIDR keys, `record_count` carries total evidence rows (two rows on one CIDR = 2 rows, 1 key; assert both); **Source subclass** — both equal the distinct-CIDR key count (the accumulator dedups); **IpListSource** — one record per non-comment line with no dedup, so duplicate lines inflate the count (dedupe your data file or your expectation). (A **fresh instance's** `load()` re-opens the same env — don't call `load()` on the instance that just rebuilt: it would open a second env handle, convention 7.)
 - assert `s.query("<ip>")` returns the expected shape — including the routing
   you declared in Phase 1 (`native_categories` present for typed feeds; **no
   `extra.native_type`**)
@@ -235,11 +236,16 @@ Then run, from `backend/`:
 .venv/bin/python -m pytest -q                                     # full suite — expect the same pass/fail as before
 ```
 
-The full suite has **known unrelated failures**: `tests/core/test_quota_thread_safety.py`
-×3 (a 950-vs-1000 daily-cap drift bug, not rate-limiting) and a scheduler
-status-endpoint flake ×2. They reproduce on a clean tree — don't chase them.
-Re-run the suite before your change to confirm the current baseline; make sure
-you didn't add a new failure.
+The full suite has **known unrelated failures that drift run to run**:
+`tests/core/test_quota_thread_safety.py` ×3 (a 950-vs-1000 daily-cap drift
+bug, not rate-limiting), a scheduler status-endpoint flake ×2,
+`test_spa_fallback` ×2 (needs built frontend assets — always fails in a
+fresh worktree), and a load-sensitive cluster (`test_api_tasks` batch,
+stream/batch pool, lookup-error) that flakes under parallel load and passes
+on re-run. Don't trust hardcoded counts: take a fresh baseline on your tree
+before your change, diff after, and re-run once before chasing anything —
+only a failure that is new vs your baseline AND survives a single-test
+re-run is yours.
 
 Finally, sanity-check the lifecycle by hand:
 

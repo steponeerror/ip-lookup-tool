@@ -154,7 +154,11 @@ No current CsvSource does per-row classification — all three (`ipsum`,
 `f3csystems`, `proxyscrape`) carry a fixed class attribute. The skeleton below
 is fully supported (`parse_row`'s classification_type is honored per row by the
 base rebuild), and the live exemplars of per-row classification are
-harvest-based: `threatfox.py` and `urlhaus.py` (§3).
+harvest-based: `threatfox.py` and `urlhaus.py` (§3). If your feed is a
+fixed-shape CSV whose rows carry plain per-row categories or timestamps,
+THIS CsvSource path is the right one — the SKILL.md decision tree's gray
+zone is for per-row logic the fixed CSV shape can't express (filtering,
+1→many, archives, priority fallbacks).
 
 When each row carries its own category (a `threat` / `threat_type` column),
 normalize per row and preserve the raw value per the three-way rule:
