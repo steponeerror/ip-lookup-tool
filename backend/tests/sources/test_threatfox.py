@@ -36,7 +36,7 @@ class TestThreatFoxParseRow:
         assert parsed["malware_name"] == "win.vidar"
         assert parsed["confidence"] == 75
         assert parsed["native_categories"] == ["payload_delivery"]
-        assert parsed["extra"] == {}                     # native_type → native_categories
+        assert parsed["extra"] == {"port": "80", "malware_printable": "Vidar"}
 
     def test_parse_row_preserves_native_type(self, tmp_path):
         src = _make_source(tmp_path)
@@ -177,3 +177,39 @@ def test_threatfox_harvest_per_row_classification(tmp_path):
     assert rec[0]["confidence"] == 85
     assert rec[0]["native_categories"] == ["botnet_cc"]
     assert "native_type" not in rec[0].get("extra", {})
+
+
+def test_parse_row_keeps_port_and_printable_and_last_seen(tmp_path):
+    src = ThreatFoxSource(data_dir=tmp_path)
+    row = ["2026-06-14", "1", "9.9.9.9:443", "ip:port", "botnet_cc", "trickbot",
+           "", "TrickBot", "2026-06-20", "90",
+           "True", "ref1", "init,loader", "0", "rep1"]
+    parsed = src.parse_row(row)
+    assert parsed["extra"]["port"] == "443"
+    assert parsed["extra"]["malware_printable"] == "TrickBot"
+    assert parsed["last_seen"] == "2026-06-20"
+    assert parsed["tags"] == ["init", "loader"]
+
+
+def test_parse_row_optional_fields_absent_when_empty(tmp_path):
+    """last_seen 空、无 tags、无端口、printable=None → 键缺席，不存空值。"""
+    src = ThreatFoxSource(data_dir=tmp_path)
+    row = ["2026-06-14", "2", "1.2.3.4", "ip:port", "botnet_cc", "trickbot",
+           "", "None", "", "90"]
+    parsed = src.parse_row(row)
+    assert "last_seen" not in parsed
+    assert "tags" not in parsed
+    assert parsed["extra"] == {}
+
+
+def test_harvest_routes_new_fields_to_evidence(tmp_path):
+    lines = ["#hdr"] * 9 + ['"2026-01-01","1","5.6.7.8:8080","ip:port","botnet_cc","win.vidar","","Vidar","2026-01-02","85","True","ref","init","0","rep"']
+    (tmp_path / "threatfox.csv").write_text("\n".join(lines) + "\n")
+    s = ThreatFoxSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("5.6.7.8")[0]
+    assert rec["last_seen"] == "2026-01-02"
+    assert rec["tags"] == ["init"]
+    assert rec["extra"]["port"] == "8080"
+    assert rec["extra"]["malware_printable"] == "Vidar"
+    assert rec["native_categories"] == ["botnet_cc"]        # 不动（F2）

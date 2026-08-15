@@ -14,6 +14,13 @@ helper (token-aware, mid-stream cancel), then extracts the inner CSV onto
 classification via `normalize(raw_type, THREATFOX_MAP)`. `parse_row()` is
 retained as a legacy helper because existing column-mapping tests depend
 on it.
+
+New field routing (source-info-exhaustion P0): `last_seen_utc` (col 8) →
+canonical `last_seen` when non-empty; tags (col 12, comma-separated) →
+canonical `tags` filtered of empties/"None"; the port suffix of `ioc_value`
+and `malware_printable` (col 7) ride in `extra` as `port` /
+`malware_printable`. `threat_type` stays routed to `native_categories`
+unchanged.
 """
 import csv
 import io
@@ -86,7 +93,9 @@ class ThreatFoxSource(Source):
                     malware_name=parsed["malware_name"],
                     confidence=parsed["confidence"],
                     first_seen=parsed["first_seen"],
+                    last_seen=parsed.get("last_seen"),
                     native_categories=parsed.get("native_categories", []),
+                    tags=parsed.get("tags", []),
                     extra=parsed["extra"],
                 )
 
@@ -97,12 +106,18 @@ class ThreatFoxSource(Source):
         if _clean(row[3]) != "ip:port":   # ioc_type
             return None
         ioc_value = _clean(row[2])         # ioc_value, e.g. "1.2.3.4:80"
-        ip = ioc_value.split(":")[0].strip()
+        parts = ioc_value.split(":")
+        ip = parts[0].strip()
+        port = parts[1].strip() if len(parts) > 1 else ""
+
+        def _cell(i: int) -> str:
+            return _clean(row[i]) if len(row) > i else ""
+
         try:
             confidence_pct = int(_clean(row[9]))   # confidence_level
         except (ValueError, IndexError):
             confidence_pct = 50
-        return {
+        out = {
             "_ip": ip,
             "classification_type": normalize(_clean(row[4]), THREATFOX_MAP),
             "verdict": "malicious",
@@ -110,5 +125,19 @@ class ThreatFoxSource(Source):
             "confidence": confidence_pct,
             "first_seen": _clean(row[0]),         # first_seen_utc
             "native_categories": [_clean(row[4])],   # raw threat_type promoted
-            "extra": {},
         }
+        last_seen = _cell(8)
+        if last_seen:
+            out["last_seen"] = last_seen
+        tags = [t.strip() for t in _cell(12).split(",")
+                if t.strip() and t.strip().lower() != "none"]
+        if tags:
+            out["tags"] = tags
+        extra: dict = {}
+        if port:
+            extra["port"] = port
+        printable = _cell(7)
+        if printable and printable.lower() != "none":
+            extra["malware_printable"] = printable
+        out["extra"] = extra
+        return out
