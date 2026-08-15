@@ -102,3 +102,28 @@ def test_ip2proxy_download_extracts_zip_to_path_then_loads(tmp_path, monkeypatch
     assert n > 0, "rebuild() harvested nothing from the extracted CSV"
     rec = s.query("1.0.0.0")                            # 16777216 = 1.0.0.0
     assert rec and rec[0]["is_proxy"] is True
+
+
+def test_ip2proxy_routes_country_and_raw_type(tmp_path):
+    from ipdb._sources.ip2proxy import IP2ProxySource
+    header = "proxy_from,proxy_to,proxy_type,country_code,country_name\n"
+    rows = '"16782178","16782178","PUB","JP","Japan"\n'
+    (tmp_path / "ip2proxy_px2.csv").write_text(header + rows)
+    s = IP2ProxySource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("1.0.19.98")[0]                       # 16782178 = 1.0.19.98
+    assert rec["country_code"] == "JP"
+    assert rec["extra"]["country_name"] == "Japan"
+    assert rec["extra"]["proxy_type"] == "PUB"
+
+
+def test_ip2proxy_country_columns_absent_ok(tmp_path):
+    """旧 3 列形态（无 country 列）兼容。"""
+    from ipdb._sources.ip2proxy import IP2ProxySource
+    header = "proxy_from,proxy_to,proxy_type\n"
+    rows = '"16782178","16782178","PUB"\n'
+    (tmp_path / "ip2proxy_px2.csv").write_text(header + rows)
+    s = IP2ProxySource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("1.0.19.98")[0]                       # 16782178 = 1.0.19.98
+    assert "country_code" not in rec

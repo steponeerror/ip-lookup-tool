@@ -94,6 +94,8 @@ class IP2ProxySource(Source):
                     continue
                 raw_start, raw_end, proxy_type = (
                     row[0].strip(), row[1].strip(), row[2].strip())
+                country_code = row[3].strip() if len(row) > 3 else ""
+                country_name = row[4].strip() if len(row) > 4 else ""
                 start_ip = _int_to_ip(raw_start) or raw_start
                 end_ip = _int_to_ip(raw_end) or raw_end
                 try:
@@ -104,6 +106,13 @@ class IP2ProxySource(Source):
                 ev = _proxy_evidence(proxy_type)
                 if ev is None:
                     continue
+                if country_code:
+                    ev.country_code = country_code.upper()
+                if country_name or proxy_type:
+                    ev.extra = dict(ev.extra or {})
+                    if country_name:
+                        ev.extra["country_name"] = country_name
+                    ev.extra["proxy_type"] = proxy_type
                 for cidr in ipaddress.summarize_address_range(sa, ea):
                     yield str(cidr), ev
 
