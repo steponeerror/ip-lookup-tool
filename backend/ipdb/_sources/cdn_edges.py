@@ -7,7 +7,7 @@ collapsed into one `service="cdn"` asset stream; the provider identity rides
 `native_types` (-> AssetStatement.native_type), so a lookup of an edge IP
 surfaces `attributes["service"] = (cdn, "CloudFront")`.
 
-The tool is IPv4-only (see _mmdb.write_mmdb ip_version=4); v6 is excluded
+The tool is IPv4-only; v6 is excluded
 structurally (only each feed's v4 list is read) plus a v4-CIDR regex guard at
 this system boundary. download() fetches all three and writes a combined
 `cdn_edges.csv` (cidr,provider) intermediate; harvest() maps it to Evidence.

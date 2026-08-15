@@ -21,7 +21,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Callable, Iterator
 
 import lmdb
 import netaddr
@@ -234,10 +234,11 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                  map_size: int | None = None) -> int:
     """Stream-build a fresh epoch env, then atomically swap via ptr.
 
-    Commit order (mirror of rebuild_mmdb's invariant): rename closed env
-    dir → sidecars (staged+fsynced, os.replace) → ptr LAST → in-memory
-    reader_setter. The ptr only ever names a fully-built, synced env.
-    Old-env close is the caller's job (finally), same as rebuild_mmdb.
+    Commit order (crash invariant): rename closed env dir → sidecars (staged
+    + fsynced, os.replace) → ptr LAST → in-memory reader_setter. The ptr only
+    ever names a fully-built, synced env; a crash mid-commit at worst leaves
+    newer sidecars with an older (still-complete) env, never a torn one.
+    Old-env close is the caller's job (finally in the owning load()).
     """
     import shutil
     epoch = next_epoch(base)
@@ -334,28 +335,3 @@ def covered_ip_count(cidr_strs, *, ip_version: int = 4) -> int:
             host_bits = 0
         total += 1 << host_bits
     return total
-
-
-def covered_ips_cached(cov_path: Path, raw_paths: list[Path],
-                        enumerate_cidrs: Callable[[], Iterable[str]], *,
-                        ip_version: int = 4) -> int:
-    """Return a source's covered_ips, backed by a ``.cov`` sidecar cache.
-
-    Serves the cached integer when ``cov_path`` exists and is at least as new
-    as the newest existing ``raw_paths`` mtime. Otherwise recomputes via
-    ``enumerate_cidrs()`` (a zero-arg callable yielding CIDR strings) and
-    writes ``cov_path``. The owning ``load()`` writes ``cov_path`` itself in
-    its rebuild branch (exact-distinct), so this only re-enumerates in the
-    rare stale-but-fresh case (e.g. first run after upgrade). Never
-    touches the 存储.
-    """
-    raw_newest = max(
-        (p.stat().st_mtime for p in raw_paths if p.exists()), default=0.0)
-    if cov_path.exists() and cov_path.stat().st_mtime >= raw_newest:
-        try:
-            return int(cov_path.read_text().strip())
-        except (ValueError, OSError):
-            pass                         # corrupt/empty — fall through
-    n = covered_ip_count(enumerate_cidrs(), ip_version=ip_version)
-    cov_path.write_text(str(n))
-    return n

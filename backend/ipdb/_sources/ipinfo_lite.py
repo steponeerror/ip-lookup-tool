@@ -26,7 +26,8 @@ class IPinfoLiteSource:
         self._lmdb_base = data_dir / "ipinfo_lite.csv.lmdb"
         # registry 的 needs_convert 比较对象:ptr 文件(mtime 随重建刷新)
         self._mmdb_path = ptr_path_for(self._lmdb_base)
-        self._reader: Optional["maxminddb.Reader"] = None
+        # _reader 实为 lmdb readonly env(open_env_read 产物),非 maxminddb.Reader
+        self._reader: Optional[object] = None
         self._count: int = 0
         self._covered_ips: int = 0
         self._loaded_at: float = 0.0
