@@ -5,8 +5,9 @@ https://github.com/proxyscrape/free-proxy-list
 
 Each row is one proxy IP with a protocol (http/socks4/socks5). The protocol is
 preserved verbatim in _native_types.is_proxy; classification is the
-controlled-vocab "proxy" for every row. Metadata beyond country_code is dropped
-intentionally — add canonical-slot routing (asn/isp/port/...) later if needed.
+controlled-vocab "proxy" for every row. Field routing: country_code/city/asn/isp
+go to canonical slots (asn's "AS" prefix stripped to int); anonymity/port go to
+extra; missing columns or empty values leave the key absent (ragged-row safe).
 """
 from ._base import CsvSource
 
@@ -43,4 +44,26 @@ class ProxyScrapeSource(CsvSource):
             country_code = row[4].strip().upper()
             if country_code:
                 evidence["country_code"] = country_code
+        if len(row) > 5:
+            city = row[5].strip()
+            if city:
+                evidence["city"] = city
+        if len(row) > 6:
+            anonymity = row[6].strip()
+            if anonymity:
+                evidence.setdefault("extra", {})["anonymity"] = anonymity
+        if len(row) > 9:
+            asn_raw = row[9].strip()
+            if asn_raw.startswith("AS"):
+                try:
+                    evidence["asn"] = int(asn_raw[2:])
+                except ValueError:
+                    pass
+        if len(row) > 10:
+            isp = row[10].strip()
+            if isp:
+                evidence["isp"] = isp
+        port = row[2].strip() if len(row) > 2 else ""
+        if port:
+            evidence.setdefault("extra", {})["port"] = port
         return evidence

@@ -22,3 +22,33 @@ def test_proxyscrape_loads_csv_and_queries_proxy(tmp_path):
     assert "native_type" not in (http_rec.get("extra") or {})
     assert http_rec["_native_types"] == {"is_proxy": "HTTP"}
     assert s.query("1.2.3.4") == {}  # not in the list
+
+
+_ROW = ("socks5,149.62.186.244,1080,Italy,IT,Milan,elite,true,91.93,"
+        "AS47242,Host SpA,84.84,1786682944.958542")
+
+
+def test_proxyscrape_row_routes_new_fields(tmp_path):
+    (tmp_path / "proxyscrape.csv").write_text(
+        "protocol,ip,port,country,country_code,city,anonymity,ssl,"
+        "uptime_percent,asn,isp,latency_ms,last_checked\n" + _ROW + "\n")
+    s = ProxyScrapeSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("149.62.186.244")[0]
+    assert rec["asn"] == 47242                     # AS 前缀转 int
+    assert rec["isp"] == "Host SpA"
+    assert rec["city"] == "Milan"
+    assert rec["country_code"] == "IT"             # 现状保持
+    assert rec["extra"]["anonymity"] == "elite"
+    assert rec["extra"]["port"] == "1080"
+
+
+def test_proxyscrape_optional_fields_absent(tmp_path):
+    """列缺失/空值 → 键缺席（ragged 行容错）。"""
+    (tmp_path / "proxyscrape.csv").write_text(
+        "protocol,ip,port\nhttp,1.2.3.4,8080\n")
+    s = ProxyScrapeSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("1.2.3.4")[0]
+    for k in ("asn", "isp", "city"):
+        assert k not in rec
