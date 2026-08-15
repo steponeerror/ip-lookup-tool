@@ -87,9 +87,10 @@ class FireholBlocklistSource(IpListSource):
         # iterating each netset, deduping identical CIDRs across lists by
         # overwriting (records is a list; rebuild_lmdb txn.put's them in
         # order, later puts for the same start key overwrite earlier ones —
-        # semantically identical to the MMDB-era insert_network overwrite,
-        # fine for threat lists where evidence shape is identical across
-        # lists).
+        # only same-CIDR equivalence is guaranteed; same-start-different-length
+        # CIDRs would silently drop the earlier entry. That case relies on the
+        # zero-collision audit (scripts/audit_lmdb_invariants.py, verified
+        # zero for this source).
         records: list[tuple[str, list[dict]]] = []
         for list_name in self._lists:
             p = self._path / f"{list_name}.netset"
