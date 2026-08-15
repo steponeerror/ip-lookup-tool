@@ -62,8 +62,8 @@ class ReportedIPSource(Source):
         from REPORTEDIP_MAP (future 59+) map to ``other`` and are preserved as
         their own group's ``native_categories``. ``confidence`` →
         ``Evidence.confidence`` (kept as ``native_confidence`` by fusion);
-        ``last_reported`` → ``first_seen`` (drives decay). IPv6 rows are dropped
-        (system is IPv4-only).
+        ``last_reported`` → ``first_seen``/``last_seen`` (same value; first_seen
+        drives decay). IPv6 rows are dropped (system is IPv4-only).
         """
         with open(self._path, "r", encoding="utf-8") as f:
             for row in csv.DictReader(f):
@@ -90,5 +90,6 @@ class ReportedIPSource(Source):
                         verdict="malicious",
                         confidence=confidence,
                         first_seen=first_seen,
+                        last_seen=first_seen,
                         native_categories=_resolve_thematic(codes),
                     )

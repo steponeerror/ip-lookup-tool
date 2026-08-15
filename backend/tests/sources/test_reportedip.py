@@ -78,3 +78,14 @@ def test_reportedip_ipv6_dropped(tmp_path: Path):
     ips = [ip for ip, _ in s.harvest()]
     assert "2a06:6440:0:2c94::1" not in ips                 # dropped at harvest
     assert "1.4.221.22" in ips                               # IPv4 kept
+
+
+def test_reportedip_last_reported_fills_last_seen(tmp_path):
+    header = "ip,confidence,categories,last_reported\n"
+    row = '1.4.221.22,100,"18;31","2026-07-02 11:18:40"\n'
+    (tmp_path / "reportedip.csv").write_text(header + row)
+    s = ReportedIPSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("1.4.221.22")[0]
+    assert rec["first_seen"] == "2026-07-02T11:18:40"
+    assert rec["last_seen"] == "2026-07-02T11:18:40"

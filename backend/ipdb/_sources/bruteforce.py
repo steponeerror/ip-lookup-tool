@@ -8,12 +8,12 @@ Format (tab-separated, ``#`` comment header):
     195.178.110.137\t\t# 2026-07-22 00:59:47\t\t30\t2836349
 
 IP is the corroboration axis; ``first_seen`` (recency) drives time-decay and
-``report_count`` is preserved in ``extra``. No auth, ~hourly cadence.
+``reporter_count`` carries the community report count. No auth, ~hourly
+cadence.
 
   http://danger.rulez.sk/projects/bruteforceblocker/blist.php
 """
 import ipaddress
-from typing import Any
 
 from .._source_base import Source
 from .._evidence import Evidence
@@ -44,13 +44,13 @@ class BruteforceSource(Source):
                     continue
                 toks = rest.split()
                 first_seen = (toks[0] + "T" + toks[1]) if len(toks) >= 2 else None
-                extra: dict[str, Any] = {}
+                report_count: int | None = None
                 if len(toks) >= 3 and toks[2].isdigit():
-                    extra["report_count"] = int(toks[2])
+                    report_count = int(toks[2])
                 yield ip, Evidence(
                     classification_type=self.classification_type,
                     verdict=self.verdict,
                     first_seen=first_seen,
                     reliability=self.reliability,
-                    extra=extra,
+                    reporter_count=report_count,
                 )
