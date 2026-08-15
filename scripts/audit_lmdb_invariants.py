@@ -6,8 +6,8 @@
 救回。密集 /32 源的 miss 同样会触发 exhaustion 告警，无法区分真 miss 与丢
 命中——本脚本直接审计源数据，是唯一独立判定手段。
 
-对 `--data` 目录下每个源（每个 LMDB 表一个源；firehol/、isp/ 目录各自合并
-为单源，与对应 harvester 的跨文件合并一致）：
+对 `--data` 目录下每个源（每个 LMDB 表一个源；firehol/、isp/、blocklist_de/
+目录各自合并为单源，与对应 harvester 的跨文件合并一致）：
 
   1. same-start 碰撞：按 start_int 分组，组内出现 >1 种 prefixlen 即碰撞
      （后写覆盖丢数据）→ FAIL
@@ -237,8 +237,8 @@ def _iter_misp(path: Path):
 
 
 def _iter_dir_plain(dir_path: Path):
-    """目录合并源（firehol/、isp/）：所有数据文件顺序拼接成一个流，
-    与 harvester 的跨文件合并写同一 LMDB 表一致。"""
+    """目录合并源（firehol/、isp/、blocklist_de/）：所有数据文件顺序拼接成
+    一个流，与 harvester 的跨文件合并写同一 LMDB 表一致。"""
     for p in sorted(dir_path.iterdir()):
         if p.is_file() and not p.name.startswith("."):
             yield from _iter_plain_lines(p)
@@ -351,11 +351,12 @@ def main() -> int:
         print(f"error: data dir not found: {data_dir}", file=sys.stderr)
         return 2
 
-    # 源列表：文件 + firehol/、isp/ 目录（各合并为单源）；跳过派生产物/状态
+    # 源列表：文件 + firehol/、isp/、blocklist_de/ 目录（各合并为单源）；
+    # 跳过派生产物/状态
     entries = []
     for p in sorted(data_dir.iterdir()):
         if p.is_dir():
-            if p.name in ("firehol", "isp"):
+            if p.name in ("firehol", "isp", "blocklist_de"):
                 entries.append(p)
             continue
         if not _is_skipped(p.name):

@@ -7,6 +7,7 @@ brute-force > botnet > spam > scanner > blacklist 裁决 classification_type，
 全部认领子列表名保留在 native_categories。
 """
 import logging
+import shutil
 import time
 from pathlib import Path
 
@@ -48,11 +49,17 @@ class BlocklistDeSource(IpListSource):
         return "lists.blocklist.de"
 
     def _cleanup_legacy(self) -> None:
-        """删除旧单文件时代的 blocklist_de.txt 及其 LMDB sidecar。"""
+        """删除旧单文件时代的 blocklist_de.txt 及其 LMDB sidecar。
+
+        sidecar 形态两种：LMDB epoch 目录（blocklist_de.txt.lmdb.N/）用
+        rmtree；ptr/count/cov 等文件形态 sidecar 用 unlink。"""
         legacy = self._path.parent / "blocklist_de.txt"
         legacy.unlink(missing_ok=True)
         for side in self._path.parent.glob("blocklist_de.txt.lmdb.*"):
-            side.unlink(missing_ok=True)
+            if side.is_dir():
+                shutil.rmtree(side, ignore_errors=True)
+            else:
+                side.unlink(missing_ok=True)
 
     def download(self, token: CancelToken | None = None) -> None:
         self._path.mkdir(parents=True, exist_ok=True)

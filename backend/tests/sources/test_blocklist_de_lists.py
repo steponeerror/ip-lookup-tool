@@ -20,11 +20,15 @@ def test_download_cleans_legacy_single_file(tmp_path: Path):
     legacy.write_text("1.2.3.4\n")
     sidecar = tmp_path / "blocklist_de.txt.lmdb.1"
     sidecar.write_text("x")
+    epoch_dir = tmp_path / "blocklist_de.txt.lmdb.2"   # LMDB epoch 目录形态
+    epoch_dir.mkdir()
+    (epoch_dir / "data.mdb").write_text("x")
     s = BlocklistDeSource(data_dir=tmp_path)
     s._path.mkdir(parents=True, exist_ok=True)
     s._cleanup_legacy()
     assert not legacy.exists()
     assert not sidecar.exists()
+    assert not epoch_dir.exists()
 
 
 def test_health_uses_max_mtime(tmp_path: Path):
