@@ -4,11 +4,17 @@ abuse.ch URLhaus is a malware-distribution URL feed. Columns (after a ``#``
 comment block): ``id, dateadded, url, url_status, last_online, threat, tags,
 urlhaus_link, reporter``. Rows whose ``url`` host is a **domain** are dropped
 (this is an IP tool — only IP-literal hosts are kept, ~45% of rows). The
-``tags`` column is a comma-separated mix of malware-family names and file/arch
-noise (``32-bit,elf,mips,Mozi``); IoT-botnet families (mirai/Mozi/hajime) map
+``threat`` column is the upstream's explicit classification field and takes
+priority over ``tags`` mapping; unmappable threat values (e.g., malware_download)
+fall back to ``tags`` for classification. The ``tags`` column is a
+comma-separated mix of malware-family names and file/arch noise
+(``32-bit,elf,mips,Mozi``); IoT-botnet families (mirai/Mozi/hajime) map
 to the ``botnet`` dead slot, every other row falls to ``malware-distribution``
-(the base classification — every URLhaus URL serves malware). Raw tags,
-reporter, and url_status are preserved in ``extra``.
+(the base classification — every URLhaus URL serves malware). Native tags
+are extracted from tags, filtered for arch noise, exclude the matched
+malware family (already in ``malware_name``), and stored in the ``tags``
+slot (migrated from ``extra.tags_raw``). Reporter and url_status are
+preserved in ``extra``; the ``threat`` raw value is stored in ``native_categories``.
 
 Domain-feed caveat (FLAG, user-approved): URLhaus URLs expire fast (taken down
 within hours/days), so the extracted IP set churns; mitigated by ``stale_days=1``
@@ -21,7 +27,7 @@ from urllib.parse import urlparse
 
 from .._source_base import Source
 from .._evidence import Evidence
-from .._classification import normalize, URLHAUS_MAP
+from .._classification import normalize, URLHAUS_MAP, URLHAUS_THREAT_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +83,12 @@ class URLhausSource(Source):
 
     def harvest(self):
         """Yield (ip, Evidence) per IP-host row. Domain-host rows are dropped
-        (noise for an IP tool). Tags → classification via ``_classify``; raw
-        tags + reporter + url_status preserved in ``extra``. Native categories
-        are extracted from tags, filtered for arch noise, and exclude the
-        matched malware family (already in ``malware_name``)."""
+        (noise for an IP tool). The ``threat`` column takes priority over ``tags``
+        for classification; unmappable threat values fall back to ``tags``.
+        Native tags are extracted from ``tags``, filtered for arch noise,
+        exclude the matched malware family, and stored in the ``tags`` slot.
+        The raw ``threat`` value is stored in ``native_categories``; reporter
+        and url_status are preserved in ``extra``."""
         with open(self._path, "r", encoding="utf-8") as f:
             for row in csv.reader(f):
                 if not row or row[0].startswith("#"):     # comment / header block
@@ -90,22 +98,30 @@ class URLhausSource(Source):
                 ip = _host_ip(row[2].strip().strip('"'))
                 if ip is None:
                     continue                               # domain host → filter
+                threat = row[5].strip().strip('"')
                 tags_raw = row[6].strip().strip('"')
-                ctype, malware_name = _classify(tags_raw)
+                tag_ctype, malware_name = _classify(tags_raw)
+                # threat 是上游显式定性字段，优先于 tags 映射；
+                # malware_download 等无可映射值时走 tags 兜底。
+                ctype = tag_ctype
+                if threat:
+                    threat_ctype = normalize(threat, URLHAUS_THREAT_MAP)
+                    if threat_ctype != "other":
+                        ctype = threat_ctype
                 # Split tags, filter noise, exclude matched family
                 tags = [t.strip() for t in (tags_raw or "").split(",")
                         if t.strip() and t.strip().lower() != "none"]
                 meaningful = [t for t in tags if t.lower() not in URLHAUS_ARCH_NOISE]
-                native_categories = [t for t in meaningful if t != (malware_name or "")]  # matched family → malware_name
+                native_tags = [t for t in meaningful if t != (malware_name or "")]
                 yield ip, Evidence(
                     classification_type=ctype,
                     verdict="malicious",
                     first_seen=row[1].strip().strip('"').replace(" ", "T"),
                     last_seen=row[4].strip().strip('"').replace(" ", "T"),  # recency
                     malware_name=malware_name,            # mirai/Mozi/hajime
-                    native_categories=native_categories,
+                    native_categories=[threat] if threat else [],
+                    tags=native_tags,
                     extra={
-                        "tags_raw": tags_raw,
                         "reporter": row[8].strip().strip('"'),
                         "url_status": row[3].strip().strip('"'),
                     },
