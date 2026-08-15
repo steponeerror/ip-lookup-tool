@@ -553,7 +553,7 @@ Also copy from the real models:
   delete the old file AND its LMDB sidecars on download (sidecars come in two
   shapes: epoch **directories** `<name>.lmdb.N/` → `shutil.rmtree`; pointer/
   count/cov **files** → `unlink`).
-- **After implementing, run `python scripts/audit_lmdb_invariants.py`** —
+- **After implementing, run `python scripts/audit_lmdb_invariants.py` from the repo root** —
   directory sources are the known conflict surface for same-start/nested CIDRs.
 
 ## 4. ApiSource — query-per-IP REST API (greenfield)

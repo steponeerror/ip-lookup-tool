@@ -161,6 +161,8 @@ fill in.
 
 ## Phase 3 — Implement
 
+Before writing any code, take a full-suite baseline (Phase 4 explains the drift-aware diff you'll need it for).
+
 1. **Create `backend/ipdb/_sources/<name>.py`** (filename stem matches the
    `name` attribute — house style; every existing source does).
 2. **Define the required class attributes** (see the archetype skeleton). At
@@ -223,7 +225,7 @@ set — discovery will pick it up automatically on next load.
   `extra.native_type`**)
 - assert a row you intend to drop is dropped (below threshold, wrong type)
 - ☐ **Central-dict registration** (Phase 3 step 6): `grep "<name>" backend/ipdb/_registry.py backend/ipdb/_merge.py` shows a hit in `SOURCE_CATEGORIES` (all sources) and `SOURCE_RELIABILITY`.
-- ☐ **Directory sources must also run** `python scripts/audit_lmdb_invariants.py` (same-start/nesting CIDR conflicts).
+- ☐ **Directory sources must also run** `python scripts/audit_lmdb_invariants.py` **from the repo root** (it lives in `scripts/`, not `backend/`; same-start/nesting CIDR conflicts).
 - ☐ **LMDB test hygiene (convention 7):** never hold two source instances open
   on the same LMDB base in one process — close the old reader
   (`s._reader.close()`) or drop the instance before constructing the next.
@@ -241,8 +243,9 @@ The full suite has **known unrelated failures that drift run to run**:
 bug, not rate-limiting), a scheduler status-endpoint flake ×2,
 `test_spa_fallback` ×2 (needs built frontend assets — always fails in a
 fresh worktree), and a load-sensitive cluster (`test_api_tasks` batch,
-stream/batch pool, lookup-error) that flakes under parallel load and passes
-on re-run. Don't trust hardcoded counts: take a fresh baseline on your tree
+stream/batch pool, lookup-error, main-routes) that flakes under parallel
+load and often passes on re-run — if it persists, don't chase it by hand:
+prove it pre-existing with the baseline diff below. Don't trust hardcoded counts: take a fresh baseline on your tree
 before your change, diff after, and re-run once before chasing anything —
 only a failure that is new vs your baseline AND survives a single-test
 re-run is yours.
