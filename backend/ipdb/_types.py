@@ -104,6 +104,7 @@ class LookupResult:
     """Complete IP lookup result."""
     ip: str
     country: MergedField
+    city: MergedField
     asn: MergedField
     as_name: MergedField
     ip_range: MergedField
@@ -117,6 +118,7 @@ class LookupResult:
         return {
             "ip": self.ip,
             "country": _field_to_dict(self.country),
+            "city": _field_to_dict(self.city),
             "asn": _field_to_dict(self.asn),
             "as_name": _field_to_dict(self.as_name),
             "ip_range": _field_to_dict(self.ip_range),

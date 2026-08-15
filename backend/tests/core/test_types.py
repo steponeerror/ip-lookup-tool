@@ -65,6 +65,7 @@ class TestLookupResultToDict:
         r = LookupResult(
             ip="1.2.3.4",
             country=country_mf,
+            city=_mf("N/A"),
             asn=asn_mf,
             as_name=as_name_mf,
             ip_range=range_mf,
@@ -88,6 +89,7 @@ class TestLookupResultToDict:
         r = LookupResult(
             ip="bad",
             country=MergedField("N/A", 0, "voting", []),
+            city=MergedField("N/A", 0, "voting", []),
             asn=MergedField(0, 0, "voting", []),
             as_name=MergedField("N/A", 0, "voting", []),
             ip_range=MergedField("N/A", 0, "voting", []),
@@ -122,14 +124,14 @@ def test_asset_statement_native_type_defaults_none():
 
 def test_lookup_result_attributes_defaults_empty():
     r = LookupResult(
-        ip="1.2.3.4", country=_mf("N/A"), asn=_mf(0), as_name=_mf("N/A"),
+        ip="1.2.3.4", country=_mf("N/A"), city=_mf("N/A"), asn=_mf(0), as_name=_mf("N/A"),
         ip_range=_mf("N/A"), is_isp=False, classifications={})
     assert r.attributes == {}
 
 
 def test_to_dict_serializes_attributes():
     r = LookupResult(
-        ip="1.2.3.4", country=_mf("US"), asn=_mf(13335), as_name=_mf("Cloudflare"),
+        ip="1.2.3.4", country=_mf("US"), city=_mf("N/A"), asn=_mf(13335), as_name=_mf("Cloudflare"),
         ip_range=_mf("1.2.3.0/24"), is_isp=False, classifications={},
         attributes={
             "is_proxy": [AssetStatement(source="ip2proxy", value=True, native_type="VPN")],
@@ -144,6 +146,22 @@ def test_to_dict_serializes_attributes():
 
 def test_to_dict_attributes_empty_when_unset():
     r = LookupResult(
-        ip="1.2.3.4", country=_mf("US"), asn=_mf(0), as_name=_mf("N/A"),
+        ip="1.2.3.4", country=_mf("US"), city=_mf("N/A"), asn=_mf(0), as_name=_mf("N/A"),
         ip_range=_mf("N/A"), is_isp=False, classifications={})
     assert r.to_dict()["attributes"] == {}
+
+
+def test_lookup_result_to_dict_contains_city():
+    from ipdb._types import LookupResult, MergedField
+    r = LookupResult(
+        ip="1.2.3.4",
+        country=MergedField("US", 80, "voting", []),
+        city=MergedField("Milan", 50, "voting", []),
+        asn=MergedField(13335, 80, "voting", []),
+        as_name=MergedField("Cloudflare", 80, "voting", []),
+        ip_range=MergedField("1.0.0.0/24", 50, "voting", []),
+        is_isp=False,
+        classifications={},
+    )
+    d = r.to_dict()
+    assert d["city"]["value"] == "Milan"

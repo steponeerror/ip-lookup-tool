@@ -34,7 +34,7 @@ def test_route_record_keeps_known_folds_unknown_into_extra():
 
 def test_schema_tiers_disjoint_and_complete():
     assert CORE_FIELDS.isdisjoint(CANONICAL_SLOTS)
-    assert CANONICAL_SLOTS == (frozenset({"country_code","asn","as_name","ip_range","isp",
+    assert CANONICAL_SLOTS == (frozenset({"country_code","asn","as_name","ip_range","isp","city",
         "native_categories","comment","tags","reporter_count","last_seen",
         "is_proxy","is_hosting","is_tor","is_vpn","carrier","service"}))
     assert ALL_KNOWN == CORE_FIELDS | CANONICAL_SLOTS

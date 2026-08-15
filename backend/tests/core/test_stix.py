@@ -15,6 +15,7 @@ def _result():
         country=MergedField("US", 85, "voting", [
             SourceAttribution("ipinfo_lite", "US", 0.95, False),
         ]),
+        city=MergedField("N/A", 0, "voting", []),
         asn=MergedField(15169, 85, "voting", [
             SourceAttribution("iptoasn", 15169, 0.90, False),
         ]),
@@ -65,6 +66,7 @@ def test_stix_surfaces_extra_details_malware_names_verdict_conflict():
     lr = LookupResult(
         ip="1.2.3.4",
         country=MergedField("N/A", 0, "voting", []),
+        city=MergedField("N/A", 0, "voting", []),
         asn=MergedField(0, 0, "voting", []),
         as_name=MergedField("N/A", 0, "voting", []),
         ip_range=MergedField("N/A", 0, "voting", []),

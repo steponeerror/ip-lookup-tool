@@ -117,6 +117,7 @@ class TestLookupPipelineIntegration:
         # Use real strategies (not fakes) so merge code runs for real
         monkeypatch.setattr(reg, "_strategies", {
             "country_code": FactualVoting(default="N/A"),
+            "city": FactualVoting(default="N/A"),
             "asn": FactualVoting(default=0),
             "as_name": FactualVoting(default="N/A"),
             "ip_range": RangeSpecificity(),
@@ -156,6 +157,7 @@ class TestLookupPipelineIntegration:
         monkeypatch.setattr(reg, "_sources", [scalar, tf])
         monkeypatch.setattr(reg, "_strategies", {
             "country_code": FactualVoting(default="N/A"),
+            "city": FactualVoting(default="N/A"),
             "asn": FactualVoting(default=0),
             "as_name": FactualVoting(default="N/A"),
             "ip_range": RangeSpecificity(),
@@ -182,6 +184,7 @@ class TestLookupPipelineIntegration:
         monkeypatch.setattr(reg, "_sources", [scalar, tf, px])
         monkeypatch.setattr(reg, "_strategies", {
             "country_code": FactualVoting(default="N/A"),
+            "city": FactualVoting(default="N/A"),
             "asn": FactualVoting(default=0),
             "as_name": FactualVoting(default="N/A"),
             "ip_range": RangeSpecificity(),
@@ -211,6 +214,7 @@ class TestLookupPipelineIntegration:
         monkeypatch.setattr(reg, "_sources", [scalar, tf, benign])
         monkeypatch.setattr(reg, "_strategies", {
             "country_code": FactualVoting(default="N/A"),
+            "city": FactualVoting(default="N/A"),
             "asn": FactualVoting(default=0),
             "as_name": FactualVoting(default="N/A"),
             "ip_range": RangeSpecificity(),
@@ -233,6 +237,7 @@ class TestLookupPipelineIntegration:
         monkeypatch.setattr(reg, "_sources", [scalar, asset])
         monkeypatch.setattr(reg, "_strategies", {
             "country_code": FactualVoting(default="N/A"),
+            "city": FactualVoting(default="N/A"),
             "asn": FactualVoting(default=0),
             "as_name": FactualVoting(default="N/A"),
             "ip_range": RangeSpecificity(),

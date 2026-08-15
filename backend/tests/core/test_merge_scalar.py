@@ -216,3 +216,21 @@ class TestRangeSpecificity:
             {"ip": "1.2.3.4"})
         assert result.value == "1.2.3.0/24"
         assert result.confidence == 85
+
+
+class TestCityMerge:
+    def test_single_source_city_direct_pick(self):
+        """唯一来源时 FactualVoting 退化为直取，带 attribution。"""
+        from ipdb._merge import FactualVoting
+        from ipdb._types import SourceAttribution  # 若类名不同以 _merge.py 实际为准
+        strategy = FactualVoting(default="N/A")
+        merged = strategy.merge({"proxyscrape": "Milan"}, {"ip": "1.2.3.4"})
+        assert merged.value == "Milan"
+        assert merged.confidence > 0
+        assert any(a.source == "proxyscrape" for a in merged.sources)
+
+    def test_city_absent_returns_default(self):
+        from ipdb._merge import FactualVoting
+        strategy = FactualVoting(default="N/A")
+        merged = strategy.merge({}, {"ip": "1.2.3.4"})
+        assert merged.value == "N/A"

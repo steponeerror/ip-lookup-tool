@@ -56,6 +56,7 @@ class TestLookupResultShape:
         monkeypatch.setattr(reg, "_sources", sources)
         monkeypatch.setattr(reg, "_strategies", {
             "country_code": FakeFactual(default="N/A"),
+            "city": FakeFactual(default="N/A"),
             "asn": FakeFactual(default=0),
             "as_name": FakeNaming(),
             "ip_range": FakeRange(),

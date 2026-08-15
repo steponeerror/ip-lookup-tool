@@ -68,6 +68,7 @@ def test_lookup_aggregates_attributes_from_multiple_sources(tmp_path, monkeypatc
     monkeypatch.setattr(reg, "_sources", [ip2p, tor, scalar])
     monkeypatch.setattr(reg, "_strategies", {
         "country_code": FactualVoting(default="N/A"),
+        "city": FactualVoting(default="N/A"),
         "asn": FactualVoting(default=0),
         "as_name": FactualVoting(default="N/A"),
         "ip_range": RangeSpecificity(),

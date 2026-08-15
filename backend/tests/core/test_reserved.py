@@ -59,6 +59,7 @@ def _make(ip="8.8.8.8", is_reserved_flag=False):
     return LookupResult(
         ip=ip,
         country=MergedField("US", 0, "voting", []),
+        city=MergedField("N/A", 0, "voting", []),
         asn=MergedField(0, 0, "voting", []),
         as_name=MergedField("X", 0, "voting", []),
         ip_range=MergedField("1.0.0.0/24", 0, "voting", []),

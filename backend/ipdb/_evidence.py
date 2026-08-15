@@ -9,6 +9,7 @@ the query path routes that dict via route_record() by ALL_KNOWN.
 Governance (same as _classification.CLASSIFICATION_TYPES): add a canonical slot
 with a short comment when a 2nd source needs it. Do NOT bloat the vocabulary
 for a single feed — use `extra` for one-offs.
+# city: 提前加槽（P1 用户拍板），GeoLite.mmdb 接入后双源投票
 """
 from dataclasses import dataclass, field, asdict
 from typing import Any, Optional
@@ -18,7 +19,7 @@ CORE_FIELDS = frozenset({
     "malware_name", "first_seen", "confidence",
 })
 
-SCALAR_SLOTS = frozenset({"country_code", "asn", "as_name", "ip_range", "isp"})
+SCALAR_SLOTS = frozenset({"country_code", "asn", "as_name", "ip_range", "isp", "city"})
 RICH_SLOTS = frozenset({"native_categories", "comment", "tags", "reporter_count", "last_seen"})
 ASSET_SLOTS = frozenset({"is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier",
                          "service"})  # service: public-infra role (dns/ntp/...) — string, like carrier
@@ -44,6 +45,7 @@ class Evidence:
     as_name: Optional[str] = None
     ip_range: Optional[str] = None
     isp: Optional[str] = None
+    city: Optional[str] = None
     # ── canonical rich slots ──
     native_categories: list = field(default_factory=list)
     comment: Optional[str] = None

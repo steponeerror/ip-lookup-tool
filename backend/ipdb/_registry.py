@@ -121,6 +121,7 @@ _strategies = {
     "asn": FactualVoting(default=0),
     "as_name": NamingAuthority(),
     "ip_range": RangeSpecificity(),
+    "city": FactualVoting(default="N/A"),
 }
 
 _LOOKUP_SLOTS = SCALAR_SLOTS | {"is_isp"}
@@ -395,6 +396,8 @@ def lookup(ip: str) -> LookupResult:
 
     country = _strategies["country_code"].merge(
         field_values.get("country_code", {}), context)
+    city = _strategies["city"].merge(
+        field_values.get("city", {}), context)
     asn = _strategies["asn"].merge(
         field_values.get("asn", {}), context)
     as_name = _strategies["as_name"].merge(
@@ -415,6 +418,7 @@ def lookup(ip: str) -> LookupResult:
     return LookupResult(
         ip=ip,
         country=country,
+        city=city,
         asn=asn,
         as_name=as_name,
         ip_range=ip_range,
@@ -428,6 +432,7 @@ def _error_result(ip: str) -> LookupResult:
     return LookupResult(
         ip=ip,
         country=MergedField("N/A", 0, "voting", []),
+        city=MergedField("N/A", 0, "voting", []),
         asn=MergedField(0, 0, "voting", []),
         as_name=MergedField("N/A", 0, "voting", []),
         ip_range=MergedField("N/A", 0, "voting", []),
@@ -442,6 +447,7 @@ def _reserved_result(ip: str) -> LookupResult:
     return LookupResult(
         ip=ip,
         country=MergedField("N/A", 0, "voting", []),
+        city=MergedField("N/A", 0, "voting", []),
         asn=MergedField(0, 0, "voting", []),
         as_name=MergedField("N/A", 0, "voting", []),
         ip_range=MergedField("N/A", 0, "voting", []),
