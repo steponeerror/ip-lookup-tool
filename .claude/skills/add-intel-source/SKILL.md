@@ -315,7 +315,7 @@ Most are enforced automatically:
 ## Pitfalls (real bugs from this repo's history)
 
 - **Emitting `extra.native_type`** — dead convention; use `native_categories` /
-  `native_types` (convention 1).
+  `native_types` (convention 1 / the three-way rule).
 - **Calling `rebuild()` from `load()` / `__init__`** — breaks the UpdateManager
   queue contract and can double-open the env (convention 7).
 - **Double-opening the env in tests** — two instances on one base → LMDB

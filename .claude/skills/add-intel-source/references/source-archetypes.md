@@ -243,8 +243,8 @@ prefer per-row construction in `harvest`).
 Class attr (default `False`). When `True`, `rebuild()` streams each
 `(cidr, [evidence])` straight into `rebuild_lmdb()` instead of accumulating a
 full dict — set it for geo/asset sources whose harvest yields each CIDR **at
-most once** with a single evidence (ip2proxy, iptoasn). `insert_network`
-overwrites idempotently, so a stray duplicate is harmless. **Multi-evidence
+most once** with a single evidence (ip2proxy, iptoasn). The LMDB write
+overwrites idempotently, and a stray duplicate is harmless. **Multi-evidence
 threat sources must leave it `False`** — they rely on the accumulator to group
 several evidence per CIDR. Accumulating a multi-million-CIDR source without it
 pushed ip2proxy to a 686 MB RSS peak.
@@ -490,7 +490,7 @@ class <FeedName>Source(IpListSource):
         import ipaddress as _ipa
         from ._lmdb import covered_ip_count, rebuild_lmdb
         from .._evidence import Evidence
-        from .._classification import LIST_MAP
+        from .._classification import <FEEDNAME>_MAP
         if not self._path.exists():
             return 0
         old_reader = self._reader
@@ -499,7 +499,7 @@ class <FeedName>Source(IpListSource):
             p = self._path / f"{list_name}.txt"
             if not p.exists():
                 continue
-            cls = LIST_MAP.get(list_name, self.classification_type)
+            cls = <FEEDNAME>_MAP.get(list_name, self.classification_type)
             with open(p, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()

@@ -171,5 +171,5 @@ where each non-category field lands in `Evidence`). See
 Before the controlled-vocab + `other` design, unmappable values were
 force-fit into existing terms. ip2proxy's `DCH` (datacenter/hosting) was labeled
 `proxy`, which is wrong and polluted the corroboration axis. The fix (commit
-`2b0729c`) was: unmappable → `other` on the axis, raw preserved in `extra`. When
-in doubt, prefer `other` over a clever guess.
+`2b0729c`) was: unmappable → `other` on the axis, raw preserved in its
+canonical home. When in doubt, prefer `other` over a clever guess.

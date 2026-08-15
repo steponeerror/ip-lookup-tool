@@ -25,7 +25,7 @@ It引用 `discover-intel-sources` / `add-intel-source`(不加源实现,不复述
 
 **到此处停下,offer 用户评估/调优**(eval 重且有 OOM 风险:全量 rebuild 大源 LMDB 同样吃 RSS——ip2proxy 累积模式峰值 686MB,WSL 内存约束不变,故默认不自动跑;用户要「评估影响 / 优化池子」时才进 4-5):
 
-4. **evaluate**(可选)— `download` 后 `python -m ipdb._eval <source>`。见 `references/eval-harness.md`。
+4. **evaluate**(可选)— `download + rebuild` 后 `python -m ipdb._eval <source>`。见 `references/eval-harness.md`。
 5. **tune**(可选)— verdict → action(全 lever 表 + 数值分档)。见 `references/verdict-action.md`;权威源查第三方实测(见 `references/third-party-calibration.md`)。
 
 ## 停止加源信号(到边际则转优化)
