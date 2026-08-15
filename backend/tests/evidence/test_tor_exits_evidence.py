@@ -31,3 +31,24 @@ def test_tor_exits_get_insert_data_is_evidence_contract(tmp_path: Path):
         classification_type="tor", verdict="suspicious", reliability=0.95,
         is_tor=True, native_types={"is_tor": "TOR"},
     ).to_dict()
+
+
+def test_tor_exits_last_seen_from_timestamp(tmp_path):
+    (tmp_path / "tor-exit-addresses.txt").write_text(
+        "171.25.193.25,2026-08-14T17:38:01\n"      # 已归一化的 ip,ts 形态
+        "80.67.167.81\n"                            # 无 ts 行（容错）
+    )
+    s = TorExitSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("171.25.193.25")[0]
+    assert rec["last_seen"] == "2026-08-14T17:38:01"
+    assert rec["is_tor"] is True
+    assert "last_seen" not in s.query("80.67.167.81")[0]
+
+
+def test_tor_exits_parse_raw_keeps_timestamp():
+    raw = (b"Published 2026-08-14 17:00:00\n"
+           b"ExitAddress 171.25.193.25 2026-08-14 17:38:01\n")
+    from ipdb._sources.tor_exits import TorExitSource
+    entries = TorExitSource.__new__(TorExitSource).parse_raw(raw)
+    assert "171.25.193.25,2026-08-14T17:38:01" in entries
