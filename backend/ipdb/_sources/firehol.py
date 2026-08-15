@@ -75,23 +75,20 @@ class FireholBlocklistSource(IpListSource):
         than the newest netset, the rebuild is a no-op but still opens the
         reader and refreshes sidecars — so callers that enqueue firehol after
         a partial state (env exists, sidecars missing) self-heal.
+
+        Per-list attribution (2026-08-15): 每列表独立 Evidence 带 tags=
+        [列表名]；同 CIDR 双列表命中合并 tags（dict 累积，消除旧实现
+        L2 put 覆盖 L1 的顺序问题）。同起止不同长度 CIDR 仍依赖审计脚本
+        零冲突（scripts/audit_lmdb_invariants.py）。
         """
         import ipaddress as _ipa
         from ._lmdb import covered_ip_count, rebuild_lmdb
+        from .._evidence import Evidence
         if not self._path.exists():
             return 0
         old_reader = self._reader
-        insert_data = self.get_insert_data()
 
-        # Preserve multi-file cache-invalidity logic: accumulate records by
-        # iterating each netset, deduping identical CIDRs across lists by
-        # overwriting (records is a list; rebuild_lmdb txn.put's them in
-        # order, later puts for the same start key overwrite earlier ones —
-        # only same-CIDR equivalence is guaranteed; same-start-different-length
-        # CIDRs would silently drop the earlier entry. That case relies on the
-        # zero-collision audit (scripts/audit_lmdb_invariants.py, verified
-        # zero for this source).
-        records: list[tuple[str, list[dict]]] = []
+        acc: dict[str, dict] = {}
         for list_name in self._lists:
             p = self._path / f"{list_name}.netset"
             if not p.exists():
@@ -102,24 +99,24 @@ class FireholBlocklistSource(IpListSource):
                     if not line or line.startswith("#"):
                         continue
                     try:
-                        net = _ipa.IPv4Network(line, strict=False)
+                        net = str(_ipa.IPv4Network(line, strict=False))
                     except (_ipa.AddressValueError, ValueError):
                         continue
-                    records.append((str(net), [insert_data]))
+                    if net in acc:
+                        for t in (list_name,):
+                            if t not in acc[net]["tags"]:
+                                acc[net]["tags"].append(t)
+                    else:
+                        acc[net] = Evidence(
+                            classification_type=self.classification_type,
+                            verdict=self.verdict,
+                            reliability=self.reliability,
+                            tags=[list_name],
+                        ).to_dict()
+        records = [(cidr, [ev]) for cidr, ev in acc.items()]
 
         def _enum():
-            for list_name in self._lists:
-                p = self._path / f"{list_name}.netset"
-                if not p.exists():
-                    continue
-                for line in p.read_text().splitlines():
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    try:
-                        yield str(_ipa.IPv4Network(line, strict=False))
-                    except (_ipa.AddressValueError, ValueError):
-                        continue
+            return iter(acc.keys())
 
         try:
             cov = covered_ip_count(_enum())
