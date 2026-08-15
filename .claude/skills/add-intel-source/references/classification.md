@@ -20,9 +20,10 @@ Every evidence observation carries **two** category signals:
 1. **`classification_type`** — a value from the **controlled vocabulary** below.
    This is the corroboration axis: two sources that both say `c2-server` for the
    same IP reinforce each other in fusion. Must be normalized, never raw.
-2. **`extra["native_type"]`** — the source's **raw, unmodified** category string,
-   preserved verbatim. This is where unmappable or exotic values survive so
-   nothing is lost.
+2. **`native_categories`** — the source's **raw, unmodified** category values,
+   preserved verbatim (a list). This is where unmappable or exotic values
+   survive so nothing is lost. Asset slots keep their per-slot native labels
+   in the `native_types` dict instead (e.g. `{"is_vpn": "VPN"}`).
 
 Keeping these separate is the whole point: the controlled axis stays comparable
 across sources, while the raw signal is never destroyed.
@@ -72,7 +73,7 @@ map, or your map points at a vocabulary term that doesn't exist. Both are safe.
 
 **Crucial:** raw native values are NOT passed through `normalize` as a fallback.
 If a value is unmappable, it becomes `other` on the axis — and you separately
-preserve the raw value in `extra["native_type"]` (convention 1). This is what
+preserve the raw value in `native_categories` (the three-way rule). This is what
 keeps the vocabulary from bloating on every edge case.
 
 ## Adding a per-source map
@@ -107,8 +108,8 @@ MISP_CATEGORY_MAP = { ... }  # MISP category → IntelMQ (severity-driven; see m
 
 Rules for building a map:
 - Map to an **existing** vocabulary term. Don't invent a new term just to
-  represent one feed's quirky value — that's what `other` + `extra.native_type`
-  are for.
+  represent one feed's quirky value — that's what `other` +
+  `native_categories` are for.
 - It's fine to map many native values to the same term (e.g. `smtp`/`ftp`/`ssh`
   all → `brute-force`).
 - If a native value has no honest mapping, **omit it**. `normalize` returns
@@ -138,8 +139,10 @@ def _classify(raw_tags: str) -> str:
     return BASE_SLOT          # see below — prefer a base over "other"
 ```
 
-- Preserve the **full raw string** in `extra.native_type` (Convention 1) — the
-  unpicked tokens are still signal, just not the axis label.
+- Preserve the tokens in **`tags`** (noise-filtered) and any native category
+  values in **`native_categories`** — the unpicked tokens are still signal,
+  just not the axis label. (URLhaus precedent: the `threat` column owns
+  `native_categories`; `tags` carries the filtered tag list.)
 - A **base classification** beats `other` when the feed has one. URLhaus URLs
   all serve malware, so rows whose tags don't map fall to `malware-distribution`,
   not `other` → `other`% stays near 0. Use this pattern whenever a feed has a
