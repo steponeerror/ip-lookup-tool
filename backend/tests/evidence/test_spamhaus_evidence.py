@@ -12,3 +12,18 @@ def test_spamhaus_record_is_evidence_shaped(tmp_path: Path):
     assert rec["classification_type"] == "blacklist"
     assert rec["verdict"] == "malicious"
     assert "native_type" not in (rec.get("extra") or {})
+
+
+def test_spamhaus_sbl_id_preserved(tmp_path: Path):
+    (tmp_path / "spamhaus_drop.txt").write_text(
+        "; Spamhaus DROP List header\n"
+        "1.2.3.0/24 ; SBL256894\n"
+        "5.6.7.0/24\n"
+    )
+    s = SpamhausSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("1.2.3.4")[0]
+    assert rec["extra"]["sbl_id"] == "SBL256894"
+    assert rec["classification_type"] == "blacklist"
+    other = s.query("5.6.7.4")[0]
+    assert "extra" not in other or "sbl_id" not in (other.get("extra") or {})
