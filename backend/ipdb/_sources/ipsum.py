@@ -23,6 +23,9 @@ class IPsumSource(CsvSource):
         if not row:
             return None
         # IPsum format: <ip>,<appearances>
+        out = {"_ip": row[0].strip(),
+               "classification_type": self.classification_type,
+               "verdict": self.verdict}
         if len(row) > 1:
             try:
                 appearances = int(row[1].strip())
@@ -30,6 +33,5 @@ class IPsumSource(CsvSource):
                 return None
             if appearances < self._min_count:
                 return None
-        return {"_ip": row[0].strip(),
-                "classification_type": self.classification_type,
-                "verdict": self.verdict}
+            out["reporter_count"] = appearances
+        return out
