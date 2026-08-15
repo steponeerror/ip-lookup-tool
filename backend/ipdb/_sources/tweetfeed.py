@@ -5,8 +5,8 @@ X/Twitter. Columns (no header): ``date, author, type, value, tag, link`` where
 ``type`` ∈ {ip, domain, url, md5, sha256}. Only ``type == "ip"`` rows are kept
 (this is an IP tool — other types are filtered as noise). The ``tag`` field is a
 space-separated hashtag list (e.g. ``"#C2 #CobaltStrike"``) mapped per-row via
-``TWEETFEED_MAP``; the raw tag and the reporter handle are preserved in
-``extra`` (Convention 1 + the preserve-signal Principle).
+``TWEETFEED_MAP``; the hashtag list is preserved in ``tags`` (space-split) and
+the reporter handle in ``extra`` (Convention 1 + the preserve-signal Principle).
 """
 import csv
 import logging
@@ -22,8 +22,8 @@ def _classify_tag(raw_tag: str) -> str:
     """First mappable hashtag wins; empty / all-unmappable → ``other``.
 
     Convention 2 (don't force-fit): an unmappable tag (#ransomware, #APT…) falls
-    to ``other`` with the raw tag preserved in ``native_categories``. An *empty*
-    tag is an uncategorized-but-flagged IP → also ``other`` (the IP's signal is
+    to ``other`` with the raw tag preserved in ``tags``. An *empty* tag is an
+    uncategorized-but-flagged IP → also ``other`` (the IP's signal is
     preserved; it is not dropped).
     """
     for tag in (raw_tag or "").split():
@@ -47,7 +47,8 @@ class TweetFeedSource(Source):
     def harvest(self):
         """Yield (ip, Evidence) per IP-type row. Non-IP rows (domain/url/hash)
         are dropped — noise for an IP tool. Tag → classification via
-        ``_classify_tag``; raw tag + reporter preserved in ``extra``."""
+        ``_classify_tag``; hashtag list in ``tags`` + reporter preserved in
+        ``extra``."""
         with open(self._path, "r", encoding="utf-8") as f:
             for row in csv.reader(f):
                 if len(row) < 5:
@@ -58,13 +59,14 @@ class TweetFeedSource(Source):
                 raw_tag = row[4].strip()
                 first_seen = row[0].strip().replace(" ", "T")  # → ISO for decay parse
                 tweet_url = row[5].strip() if len(row) > 5 else ""
+                tags = raw_tag.split() if raw_tag else []
                 yield ip, Evidence(
                     classification_type=_classify_tag(raw_tag),
                     verdict="malicious",
                     first_seen=first_seen,
-                    native_categories=[raw_tag],   # whole raw tag as ONE element
+                    tags=tags,
                     extra={
                         "reporter": row[1].strip(),
-                        "tweet_url": tweet_url,       # provenance back to the source report
+                        "tweet_url": tweet_url,
                     },
                 )

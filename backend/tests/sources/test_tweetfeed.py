@@ -1,8 +1,8 @@
 """TweetFeed (Source subclass) — per-row hashtag classification + Principle.
 
 Covers: non-IP rows filtered (noise), per-row classification via TWEETFEED_MAP,
-multi-hashtag handling, empty/unmappable → other, native_type + reporter
-preserved (Convention 1 + preserve-signal).
+multi-hashtag handling, empty/unmappable → other, tags split by space +
+reporter preserved (Convention 1 + preserve-signal).
 """
 from pathlib import Path
 
@@ -24,7 +24,7 @@ def test_tweetfeed_filters_nonip_and_classifies_per_row(tmp_path: Path):
 
     phish = s.query("172.67.166.60")[0]
     assert phish["classification_type"] == "phishing"
-    assert phish["native_categories"] == ["#phishing"]          # native value promoted
+    assert phish["tags"] == ["#phishing"]                    # hashtags in tags slot
     assert "native_type" not in phish.get("extra", {})
     assert phish["extra"]["reporter"] == "catnap707"        # preserve-signal
     assert phish["extra"]["tweet_url"] == "https://x.com/2" # enriched: provenance
@@ -32,7 +32,7 @@ def test_tweetfeed_filters_nonip_and_classifies_per_row(tmp_path: Path):
 
     c2 = s.query("1.2.3.4")[0]
     assert c2["classification_type"] == "c2-server"         # multi-hashtag, first mapped wins
-    assert c2["native_categories"] == ["#C2 #CobaltStrike"]   # whole raw tag as ONE element
+    assert c2["tags"] == ["#C2", "#CobaltStrike"]         # space-split hashtag list
     assert "native_type" not in c2.get("extra", {})
 
     empty = s.query("5.6.7.8")[0]
@@ -40,7 +40,7 @@ def test_tweetfeed_filters_nonip_and_classifies_per_row(tmp_path: Path):
 
     unmap = s.query("9.10.11.12")[0]
     assert unmap["classification_type"] == "other"          # unmappable → other
-    assert unmap["native_categories"] == ["#ransomware"]   # raw still preserved (whole tag)
+    assert unmap["tags"] == ["#ransomware"]   # raw still preserved
     assert "native_type" not in unmap.get("extra", {})
 
 
@@ -55,3 +55,15 @@ def test_tweetfeed_nonip_rows_filtered(tmp_path: Path):
     s = TweetFeedSource(data_dir=tmp_path)
     assert s.rebuild() == 1                        # only the IP row survives
     assert s.query("203.0.113.55")
+
+
+def test_tweetfeed_tags_slot_split_by_space(tmp_path):
+    header = "date,author,type,ioc,tags,link\n"
+    row = ("2025-08-15 00:00:11,urldna_bot,ip,1.2.3.4,"
+           "#scam #phishing,https://x.com/s/1\n")
+    (tmp_path / "tweetfeed.csv").write_text(header + row)
+    s = TweetFeedSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("1.2.3.4")[0]
+    assert rec["tags"] == ["#scam", "#phishing"]
+    assert "native_categories" not in rec      # 迁移后缺席
