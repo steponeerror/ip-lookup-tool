@@ -8,9 +8,11 @@
 from ipdb._registry import _sources
 s = next(x for x in _sources if x.name == "<source>")
 s.download()        # 显式前置
-s.load()
+s.rebuild()         # LMDB 唯一写入口(load 此时无 env 只会返回 0)
 print(s.health())   # 确认 record_count > 0、is_stale=False
 ```
+
+大源(数百万 CIDR)rebuild 前留意 RSS:单证据 geo/asset 源已走 `single_evidence` 流式;若新增累积型大源,在 WSL 内单进程 rebuild 仍可能吃数百 MB。
 
 然后 eval:`python -m ipdb._eval <source>`(从 `backend/` cwd)。
 
