@@ -36,13 +36,19 @@ THREATFOX_MAP = {
     "url": "malware-distribution",
 }
 
-# blocklist_de attack-type code -> IntelMQ. VERIFY codes against
-# https://www.blocklist.de/en/export.html before relying on them (Task 7).
+# blocklist_de 子列表文件名 -> IntelMQ（2026-08-15 已激活，键=子列表文件名）。
+# 源按文件名分发到对应 attack-type（ssh/bruteforcelogin/ftp/imap/sip → brute-force；
+# mail → spam；bots/ircbot → botnet；apache → scanner）。strongips/all 无类型信息，
+# 不进表，由源代码兜底 blacklist（见 Task 6 实现）。
 BLOCKLIST_DE_MAP = {
     "ssh": "brute-force",
+    "bruteforcelogin": "brute-force",
+    "ftp": "brute-force",
+    "imap": "brute-force",
+    "sip": "brute-force",
     "mail": "spam",
     "bots": "botnet",
-    "bruteforcelogin": "brute-force",
+    "ircbot": "botnet",
     "apache": "scanner",
 }
 
@@ -121,6 +127,12 @@ URLHAUS_MAP = {
     "mirai": "botnet",
     "mozi": "botnet",
     "hajime": "botnet",
+}
+
+# urlhaus `threat` 列（row[5]）原值 → IntelMQ。threat 是上游显式定性字段，
+# 优先于 tags 映射；malware_download 无可映射值，落 tags 兜底链路。
+URLHAUS_THREAT_MAP = {
+    "credential_phishing": "phishing",
 }
 
 # dataplane.org signal → IntelMQ. sshpwauth/telnetlogin are credential
