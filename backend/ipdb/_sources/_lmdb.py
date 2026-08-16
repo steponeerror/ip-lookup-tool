@@ -18,7 +18,6 @@ to this module MUST be audited to have ZERO same-start collisions.
 """
 import functools
 import ipaddress
-import json
 import logging
 import os
 from pathlib import Path
@@ -26,6 +25,7 @@ from typing import Any, Callable, Iterator
 
 import lmdb
 import netaddr
+import orjson
 
 DEFAULT_MAP_SIZE = 512 * 1024 * 1024   # first-build default; grown on demand
 BYTES_PER_RECORD_EST = 512             # initial estimate from .count sidecar
@@ -54,11 +54,11 @@ def encode_key(start_int: int) -> bytes:
 
 
 def encode_value(end_int: int, evidence: Any) -> bytes:
-    return json.dumps([end_int, evidence], separators=(",", ":")).encode()
+    return orjson.dumps([end_int, evidence])
 
 
 def decode_value(raw: bytes) -> tuple[int, Any]:
-    end, evidence = json.loads(raw)
+    end, evidence = orjson.loads(raw)
     return int(end), evidence
 
 
