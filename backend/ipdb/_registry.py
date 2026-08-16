@@ -137,6 +137,7 @@ SOURCE_CATEGORIES = {
     "ipinfo_lite": "geo_asn",
     "iptoasn": "geo_asn",
     "cn_isp": "geo_asn",
+    "geolite_city": "geo_asn",
     "threatfox": "threat",
     "otx": "threat",
     "spamhaus": "threat",

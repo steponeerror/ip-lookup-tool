@@ -60,6 +60,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "ipinfo_lite": 0.95,
     "iptoasn":     0.90,
     "cn_isp":      0.85,
+    "geolite_city": 0.85,
     "ip2proxy":    0.80,
     "tor_exits":   0.95,
     "x4bnet_vpn":  0.70,
