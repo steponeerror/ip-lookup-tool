@@ -125,6 +125,7 @@ class FireholBlocklistSource(IpListSource):
             cov = covered_ip_count(_enum())
             n = rebuild_lmdb(records, self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
+                             flag_setter=lambda v: setattr(self, "_disjoint", v),
                              covered=cov)
             self._covered_ips = cov
             self._count = n

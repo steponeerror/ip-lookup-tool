@@ -269,7 +269,8 @@ def _write_staged(path: Path, text: str) -> Path:
 
 def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                  count: int | None = None, covered: int | None = None,
-                 map_size: int | None = None) -> int:
+                 map_size: int | None = None,
+                 flag_setter: Callable[[bool], None] | None = None) -> int:
     """Stream-build a fresh epoch env, then atomically swap via ptr.
 
     Commit order (crash invariant): rename closed env dir → sidecars (staged
@@ -277,6 +278,10 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     ever names a fully-built, synced env; a crash mid-commit at worst leaves
     newer sidecars with an older (still-complete) env, never a torn one.
     Old-env close is the caller's job (finally in the owning load()).
+
+    flag_setter:成功提交后把本 epoch 判定的 disjoint 值同步回调用方的内存
+    副本(rebuild 后无 load 重读;不回调则内存 flag 停留在旧 epoch 值,
+    disjoint 快路径在嵌套数据上静默漏报父段命中直到进程重启)。
     """
     import shutil
     epoch = next_epoch(base)
@@ -343,6 +348,8 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
 
     new_env = open_env_read(target)
     reader_setter(new_env)
+    if flag_setter is not None:                 # ptr+sidecar 已提交 → race-free
+        flag_setter(disjoint)
     # best-effort prune older epochs
     if base.parent.exists():
         for child in base.parent.iterdir():

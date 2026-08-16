@@ -148,6 +148,7 @@ class IpListSource:
             cov = covered_ip_count(covered)
             n = rebuild_lmdb(iter(records), self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
+                             flag_setter=lambda v: setattr(self, "_disjoint", v),
                              covered=cov)
             self._count = n
             self._covered_ips = cov
@@ -266,6 +267,7 @@ class CsvSource(IpListSource):
             cnt = sum(len(v) for v in acc.values())
             n = rebuild_lmdb(((k, v) for k, v in acc.items()), self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
+                             flag_setter=lambda v: setattr(self, "_disjoint", v),
                              count=cnt, covered=cov)
             self._count = cnt
             self._covered_ips = cov

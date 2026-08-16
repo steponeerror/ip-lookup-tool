@@ -52,3 +52,37 @@ def test_sidecar_missing_or_corrupt_is_conservative(tmp_path):
     assert read_disjoint_flag(base, epoch) is False
     disjoint_path(base).write_text("garbage")
     assert read_disjoint_flag(base, epoch) is False
+
+
+def test_rebuild_refreshes_in_memory_disjoint_flag(tmp_path):
+    """终审 C1 回归: load(disjoint) → rebuild(nested) 后,内存 flag 必须跟随新 epoch,
+    否则 disjoint 快路径在嵌套数据上静默漏报父段命中直到进程重启。
+
+    走真实 IpListSource.rebuild() 站点(非直调 rebuild_lmdb):同时钉住
+    基类调用方传 flag_setter 的接线;漏传则本测试退化为修复前的陈旧 flag 行为。
+    生产触发链:进程启动 load() 读 sidecar → RefreshScheduler 进程内 rebuild()
+    (无后续 load)→ query()。
+    注:首个 epoch 由 rebuild_lmdb 直建(reader_setter 不持句柄)而非先 s.rebuild()
+    ——load() 与 rebuild() 各开一次同 epoch env 会触 LMDB "already open in this
+    process";生产中 load() 先于进程内 rebuild,无此叠加。"""
+    from ipdb._sources._base import IpListSource
+    from ipdb._sources._lmdb import rebuild_lmdb
+
+    class _S(IpListSource):
+        name, filename, url, fields = "t", "t.csv", "http://x", ("country_code",)
+
+    s = _S(tmp_path)
+    (tmp_path / "t.csv").write_text("10.0.0.0/24\n20.0.0.0/24\n")   # 不相交
+    rebuild_lmdb(iter([("10.0.0.0/24", [{"country_code": True}]),
+                       ("20.0.0.0/24", [{"country_code": True}])]),
+                 s._lmdb_base, reader_setter=lambda e: None)        # 盘上 disjoint epoch
+    s.load()                                    # 生产形态:启动时 load 读 sidecar
+    assert s._disjoint is True
+    (tmp_path / "t.csv").write_text("10.0.0.0/8\n10.1.0.0/16\n")   # 嵌套换代
+    s.rebuild()                                 # 进程内 refresh:无后续 load
+    assert s._disjoint is False                 # ← 修复前这里 True(陈旧)
+    # 10.255.0.9 仅父 /8 覆盖(被 10.1.0.0/16 起点遮蔽):陈旧 disjoint=True 时
+    # 首候选 10.1.0.0 不覆盖即判 miss → query() 返回 {}(静默漏报);
+    # 命中时 IpListSource 存的是 [evidence](list 包一层)
+    assert s.query("10.255.0.9") == [{"country_code": True}]
+

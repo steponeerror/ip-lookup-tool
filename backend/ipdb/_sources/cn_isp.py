@@ -114,6 +114,7 @@ class ChineseISPSource(Source):
             n = rebuild_lmdb(
                 ((k, v) for k, v in best.items()), self._lmdb_base,
                 reader_setter=lambda e: setattr(self, "_reader", e),
+                flag_setter=lambda v: setattr(self, "_disjoint", v),
                 covered=cov,
             )
             self._covered_ips = cov
