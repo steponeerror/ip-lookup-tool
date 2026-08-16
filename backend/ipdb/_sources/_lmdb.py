@@ -373,3 +373,38 @@ def covered_ip_count(cidr_strs, *, ip_version: int = 4) -> int:
             host_bits = 0
         total += 1 << host_bits
     return total
+
+
+def backfill_disjoint(data_dir: Path) -> None:
+    """旧库一次性补齐 .disjoint 标记。写前重读 ptr:epoch 已变则跳过(竞态保护)。"""
+    bases = sorted({Path(str(p).rsplit(".", 1)[0])
+                    for p in data_dir.glob("*.lmdb.*") if p.is_dir()
+                    if not p.name.endswith(".new") and ".new." not in p.name})
+    for base in bases:
+        epoch = read_ptr(base)
+        if epoch is None:
+            print(f"{base.name}: no-env")
+            continue
+        if read_disjoint_flag(base, epoch):
+            print(f"{base.name}: skipped-valid")
+            continue
+        env = open_env_read(base.parent / f"{base.name}.{epoch}")
+        flag = detect_disjoint(env)
+        env.close()
+        if read_ptr(base) != epoch:                   # 扫描期间 rebuild 过 → 丢弃
+            print(f"{base.name}: skipped-race")
+            continue
+        disjoint_path(base).write_text(f"{epoch} {1 if flag else 0}\n")
+        print(f"{base.name}: {1 if flag else 0} (written)")
+
+
+def _cli(argv: list[str]) -> None:
+    if argv and argv[0] == "backfill-disjoint":
+        d = Path(argv[1]) if len(argv) > 1 else Path("data")
+        backfill_disjoint(d)
+        return
+
+
+if __name__ == "__main__":
+    import sys
+    _cli(sys.argv[1:])
