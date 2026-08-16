@@ -21,7 +21,7 @@ def test_disjoint_flag_equals_full_backscan_on_entire_space(tmp_path, records, n
     env = _env(tmp_path, records, name)
     if not detect_disjoint(env):
         pytest.skip("nested 库不走快路径,等价性由 test_nested_lookup_unchanged 覆盖")
-    for ip_int in range(0, 21 * 256 * 256, 4093):     # 大步长扫全空间
+    for ip_int in range(0, 21 * 256**3, 4093):     # 大步长扫全空间(覆盖 10.x/20.x fixture 段)
         assert lookup(env, ip_int, disjoint=True) == lookup(env, ip_int)
 
 def test_nested_lookup_unchanged_by_flag_default(tmp_path):
@@ -31,3 +31,5 @@ def test_nested_lookup_unchanged_by_flag_default(tmp_path):
     assert lookup(env, int.from_bytes(b"\x0a\x01\xff\x09", "big"))["v"] == "mid"
     assert lookup(env, int.from_bytes(b"\x0a\xff\x00\x09", "big"))["v"] == "parent"
     assert lookup(env, int.from_bytes(b"\x0b\x00\x00\x01", "big")) is None
+    # 尾段命中:ip 落在最后一个 range 内(set_range False → prev 分支)
+    assert lookup(env, int.from_bytes(b"\x14\x00\xff\xff", "big"))["v"] == "other"
