@@ -166,13 +166,20 @@ def read_ptr(base: Path) -> int | None:
         return None
 
 
-def read_disjoint_flag(base: Path, current_epoch: int) -> bool:
-    """epoch 绑定:sidecar 描述的 epoch ≠ 当前 ptr → 保守嵌套(正确性要求,见 spec §3.1)。"""
+def parse_disjoint_sidecar(base: Path, current_epoch: int) -> bool | None:
+    """epoch 绑定解析:None = 缺失/损坏/epoch 失配(不可信);否则 True/False 为 flag 值。"""
     try:
         epoch_s, flag_s = disjoint_path(base).read_text().split()
-        return int(epoch_s) == current_epoch and flag_s == "1"
+        if int(epoch_s) != current_epoch:
+            return None
+        return flag_s == "1"
     except (OSError, ValueError):
-        return False
+        return None
+
+
+def read_disjoint_flag(base: Path, current_epoch: int) -> bool:
+    """epoch 绑定:sidecar 描述的 epoch ≠ 当前 ptr → 保守嵌套(正确性要求,见 spec §3.1)。"""
+    return parse_disjoint_sidecar(base, current_epoch) is True
 
 
 def needs_convert(raw_path: Path, ptr_like_path: Path) -> bool:
@@ -385,7 +392,7 @@ def backfill_disjoint(data_dir: Path) -> None:
         if epoch is None:
             print(f"{base.name}: no-env")
             continue
-        if read_disjoint_flag(base, epoch):
+        if parse_disjoint_sidecar(base, epoch) is not None:
             print(f"{base.name}: skipped-valid")
             continue
         env = open_env_read(base.parent / f"{base.name}.{epoch}")
