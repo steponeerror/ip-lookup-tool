@@ -127,10 +127,9 @@ class ChineseISPSource(Source):
     def query(self, ip: str) -> dict:
         if self._reader is None:
             return {}
-        import ipaddress as _ipa
         import lmdb as _lmdb
-        from ._lmdb import lookup, read_ptr, open_env_read
-        ip_int = int(_ipa.IPv4Address(ip))
+        from ._lmdb import ip_to_int, lookup, read_ptr, open_env_read
+        ip_int = ip_to_int(ip)
         try:
             node = lookup(self._reader, ip_int)
         except (_lmdb.Error, OSError):

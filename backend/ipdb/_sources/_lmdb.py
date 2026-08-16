@@ -16,6 +16,7 @@ the later write overwrites the earlier one, and the overlaid range's parent
 segment is permanently lost with no backscan rescue — every source migrated
 to this module MUST be audited to have ZERO same-start collisions.
 """
+import functools
 import ipaddress
 import json
 import logging
@@ -40,6 +41,12 @@ MAX_BACKSCAN_STEPS = 16
 _exhaustion_warned = False
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=4096)
+def ip_to_int(ip: str) -> int:
+    """Query-path shared parse: 同一 IP 的 ~28 次源查询只解析一次。纯函数,无失效语义。"""
+    return int(ipaddress.IPv4Address(ip))
 
 
 def encode_key(start_int: int) -> bytes:
