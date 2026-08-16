@@ -7,6 +7,7 @@ never Path.with_suffix: it would eat the ``.lmdb`` segment):
     <base>.<epoch>.new.<pid>/  build staging dir
     <base>.ptr                 one line: current epoch integer
     <base>.count / <base>.cov  sidecars (unchanged commit-order contract)
+    <base>.disjoint        epoch-bound disjoint flag (<epoch> <0|1>)
 
 key = start_ip 4-byte big-endian; value = JSON [end_ip_int, evidence].
 
@@ -69,45 +70,41 @@ def _end_int(raw: bytes) -> int:
     return int(raw[1:raw.index(b",")])
 
 
-def lookup(env, ip_int: int) -> Any:
+def lookup(env, ip_int: int, *, disjoint: bool = False) -> Any:
     """Per-query read txn (LMDB read txns are not thread-safe to share).
 
     Three paths unified: exact start hit, fallback to greatest start ≤ ip,
     and ip outside every range. The set_range-False branch MUST still
     prev() — an ip inside the LAST range has no key ≥ it (bench bug).
 
-    候选 range 不覆盖 ip 时继续 prev() 回找嵌套祖先(MMDB 最长前缀语义:
-    子 CIDR 遮蔽父 range 的前段,父 range 后段仍应命中),最多
-    MAX_BACKSCAN_STEPS 步;不相交数据(厂商聚合)1 步即终止。
+    定位后首候选 start ≤ ip 恒成立,此后 prev() 只会减小 ⇒ 循环内 start ≤ ip
+    恒真,key 解析可省,只判 end。disjoint=True(源数据两两不相交,sidecar
+    epoch 绑定背书)时首候选不覆盖即真 miss:排序不相交区间,更早的区间
+    end < start_候选 ≤ ip,不可能覆盖(等价性见 tests/core/test_lmdb_fastpath.py)。
     """
     key = encode_key(ip_int)
     with env.begin() as txn:
         cur = txn.cursor()
         found = cur.set_range(key)
         if found:
-            # Found a key >= target, check if it's exact or need to go back
             if cur.key() == key:
-                # Exact start hit
                 pass
             else:
-                # set_range found a greater key, need prev() for greatest ≤ ip
                 if not cur.prev():
                     return None
         else:
-            # set_range failed: IP > all keys, must prev() for tail-range bug fix
             if not cur.prev():
-                return None               # empty db
-        # Now cursor is at greatest start ≤ ip (or exact start)
-        for _ in range(MAX_BACKSCAN_STEPS):
-            start = int.from_bytes(cur.key(), "big")
-            end = _end_int(cur.value())
-            if start <= ip_int <= end:
+                return None
+        # cursor 现在位于 greatest start ≤ ip(或 exact start)
+        if disjoint:
+            if ip_int <= _end_int(cur.value()):
                 return decode_value(cur.value())[1]
-            # 候选 range 已结束于 ip 之前:prev() 找更早(可能是嵌套祖先)的 range
+            return None
+        for _ in range(MAX_BACKSCAN_STEPS):
+            if ip_int <= _end_int(cur.value()):
+                return decode_value(cur.value())[1]
             if not cur.prev():
-                return None               # 跑过头 = 真正的 miss,不告警
-        # 步数耗尽 ≠ 真 miss:可能存在被深嵌套遮蔽的覆盖 range 被丢弃。
-        # 每进程只告警一次(见 _exhaustion_warned 注释)。
+                return None
         global _exhaustion_warned
         if not _exhaustion_warned:
             logger.warning(

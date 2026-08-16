@@ -68,12 +68,15 @@ class ChineseISPSource(Source):
                 dest.unlink(missing_ok=True)       # don't leave stale to be mixed in
 
     def load(self) -> int:
-        from ._lmdb import read_ptr, open_env_read, cleanup_stale, count_path, cov_path
+        from ._lmdb import (read_ptr, open_env_read, cleanup_stale, count_path,
+                            cov_path, read_disjoint_flag)
         cleanup_stale(self._lmdb_base)
         epoch = read_ptr(self._lmdb_base)
         if epoch is None:
             self._reader = None
+            self._disjoint = False
             return 0
+        self._disjoint = read_disjoint_flag(self._lmdb_base, epoch)
         self._reader = open_env_read(
             self._lmdb_base.parent / f"{self._lmdb_base.name}.{epoch}")
         cp, vp = count_path(self._lmdb_base), cov_path(self._lmdb_base)
@@ -128,10 +131,11 @@ class ChineseISPSource(Source):
         if self._reader is None:
             return {}
         import lmdb as _lmdb
-        from ._lmdb import ip_to_int, lookup, read_ptr, open_env_read
+        from ._lmdb import (
+            ip_to_int, lookup, read_ptr, open_env_read, read_disjoint_flag)
         ip_int = ip_to_int(ip)
         try:
-            node = lookup(self._reader, ip_int)
+            node = lookup(self._reader, ip_int, disjoint=self._disjoint)
         except (_lmdb.Error, OSError):
             # 撞上刚 close 的旧 env:读 ptr 重开重试一次(与 MMDB 时代同模式)
             epoch = read_ptr(self._lmdb_base)
@@ -140,7 +144,8 @@ class ChineseISPSource(Source):
                 if epoch is not None else None)
             if self._reader is None:
                 return {}
-            node = lookup(self._reader, ip_int)
+            self._disjoint = read_disjoint_flag(self._lmdb_base, epoch)
+            node = lookup(self._reader, ip_int, disjoint=self._disjoint)
         if node is None:
             return {}
         return {
