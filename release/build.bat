@@ -50,7 +50,7 @@ REM --- Install project dependencies ---
 echo.
 echo [INSTALL] Installing project dependencies...
 REM First install packages with pre-built wheels
-"%PYTHON_DIR%\python.exe" -m pip install fastapi uvicorn[standard] python-multipart python-dotenv cabby lmdb==2.3.0 maxminddb>=2.0 -q
+"%PYTHON_DIR%\python.exe" -m pip install fastapi uvicorn[standard] python-multipart python-dotenv cabby lmdb==2.3.0 "maxminddb>=2.0" -q
 
 echo.
 echo ========================================
