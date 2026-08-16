@@ -146,3 +146,22 @@ def test_perf_layout_route():
     assert set(body) >= {"host", "current", "predicted", "tunables", "warnings"}
     assert "cores" in body["host"] and "ram_avail_mb" in body["host"]
     assert set(body["current"]) >= {"n_workers", "m_pool", "source"}
+
+
+def test_lookup_single_runs_via_to_thread(monkeypatch):
+    """to_thread 生效证明:lookup 调用确实经过 asyncio.to_thread 分发。
+    (不能靠线程名判定:TestClient 的 portal 线程本身就非 pytest 主线程。)"""
+    import asyncio
+    import main as main_mod
+    from ipdb import load_db
+    load_db()
+    called_via = []
+    orig_to_thread = asyncio.to_thread
+    async def spy_to_thread(fn, *a, **kw):
+        called_via.append(fn is main_mod.lookup)
+        return await orig_to_thread(fn, *a, **kw)
+    monkeypatch.setattr(asyncio, "to_thread", spy_to_thread)
+    client = TestClient(main_mod.app)
+    r = client.get("/api/lookup/8.8.8.8")
+    assert r.status_code == 200
+    assert called_via == [True]

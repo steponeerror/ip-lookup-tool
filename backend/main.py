@@ -447,7 +447,7 @@ async def update_db_resume():
 @app.get("/api/lookup/{ip}")
 async def lookup_single(ip: str):
     """Single IP lookup — same shape as POST /api/query results[0]."""
-    result = lookup(ip)
+    result = await asyncio.to_thread(lookup, ip)
     return result.to_dict()
 
 
@@ -456,7 +456,7 @@ async def lookup_stix(ip: str):
     """Single IP STIX 2.1 Bundle export."""
     from ipdb._stix_export import to_stix_bundle
 
-    result = lookup(ip)
+    result = await asyncio.to_thread(lookup, ip)
     if result.error:
         raise HTTPException(400, result.error)
     if result.is_reserved:
