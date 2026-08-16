@@ -13,8 +13,6 @@ registered_country is deliberately never read (registration ≠ location).
 Data: MaxMind GeoLite2 (GeoLite2 EULA / CC BY 4.0), rehosted by
 github.com/P3TERX/GeoLite.mmdb, refreshed every 2-4 days.
 """
-from pathlib import Path
-
 from .._evidence import Evidence
 from .._source_base import Source
 
