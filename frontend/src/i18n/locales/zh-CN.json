@@ -65,6 +65,7 @@
   "column.threat": "威胁标签",
 
   "ipDetail.country": "国家",
+  "ipDetail.city": "城市",
   "ipDetail.org": "机构 / ISP",
   "ipDetail.range": "网段",
   "ipDetail.threatDetails": "威胁明细",

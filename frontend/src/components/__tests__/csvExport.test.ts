@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { aggregateThreatDepth, buildCsvContent, buildCsvRow } from "../csvExport";
+import { aggregateThreatDepth, buildCsvContent, buildCsvRow, CSV_HEADER } from "../csvExport";
 import type { LookupResult } from "../../api";
 
 const mf = (value: string) => ({
@@ -8,7 +8,7 @@ const mf = (value: string) => ({
 });
 
 const r: LookupResult = {
-  ip: "8.8.8.8", country: mf("US"), asn: mf("15169"), as_name: mf("Google"),
+  ip: "8.8.8.8", country: mf("US"), city: mf("Mountain View"), asn: mf("15169"), as_name: mf("Google"),
   ip_range: mf("8.8.8.0/24"), is_isp: true,
   classifications: {
     c2_server: {
@@ -127,5 +127,11 @@ describe("buildCsvRow", () => {
     expect(buildCsvRow(r)).toBe(buildCsvRow(r));
     buildCsvRow(other); // call with different input in between
     expect(buildCsvRow(r)).toBe(buildCsvContent([r]).split("\n")[1]);
+  });
+
+  it("appends city columns at tail", () => {
+    expect(CSV_HEADER.trimEnd().endsWith("city,city_confidence")).toBe(true);
+    const row = buildCsvRow(r);
+    expect(row.trimEnd().endsWith(",Mountain View,95")).toBe(true);
   });
 });

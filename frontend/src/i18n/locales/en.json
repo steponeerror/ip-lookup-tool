@@ -65,6 +65,7 @@
   "column.threat": "Threat",
 
   "ipDetail.country": "Country",
+  "ipDetail.city": "City",
   "ipDetail.org": "Org / ISP",
   "ipDetail.range": "Range",
   "ipDetail.threatDetails": "Threat details",

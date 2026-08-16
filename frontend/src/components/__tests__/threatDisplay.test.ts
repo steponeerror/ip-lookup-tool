@@ -14,7 +14,7 @@ const mf = (value: string, confidence = 95) => ({
 
 const dirty: LookupResult = {
   ip: "1.1.1.1",
-  country: mf("US"), asn: mf("1"), as_name: mf("X"), ip_range: mf("1.0.0.0/24"),
+  country: mf("US"), city: mf("Mountain View"), asn: mf("1"), as_name: mf("X"), ip_range: mf("1.0.0.0/24"),
   is_isp: false,
   classifications: {
     scanner: { type: "scanner", verdict: "suspicious", detected: true, confidence: 50,

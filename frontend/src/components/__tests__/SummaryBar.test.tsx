@@ -10,7 +10,7 @@ const mf = <T,>(value: T, confidence = 95) => ({
 });
 
 const reserved: LookupResult = {
-  ip: "10.0.0.1", country: mf("N/A", 0), asn: mf(0, 0),
+  ip: "10.0.0.1", country: mf("N/A", 0), city: mf("N/A", 0), asn: mf(0, 0),
   as_name: mf("N/A", 0), ip_range: mf("N/A", 0), is_isp: false,
   classifications: {}, is_reserved: true,
 };

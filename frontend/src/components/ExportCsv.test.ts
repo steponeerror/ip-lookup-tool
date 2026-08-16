@@ -5,6 +5,7 @@ import { buildCsvContent } from "./csvExport";
 const sampleResult: LookupResult = {
   ip: "1.2.3.4",
   country: { value: "中国", confidence: 100, algorithm: "authority", sources: [] },
+  city: { value: "北京", confidence: 100, algorithm: "authority", sources: [] },
   asn: { value: 12345, confidence: 100, algorithm: "authority", sources: [] },
   as_name: { value: "测试ISP", confidence: 100, algorithm: "authority", sources: [] },
   ip_range: { value: "1.2.3.0/24", confidence: 100, algorithm: "authority", sources: [] },
