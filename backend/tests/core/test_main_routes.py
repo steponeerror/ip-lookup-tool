@@ -165,3 +165,24 @@ def test_lookup_single_runs_via_to_thread(monkeypatch):
     r = client.get("/api/lookup/8.8.8.8")
     assert r.status_code == 200
     assert called_via == [True]
+
+
+def test_lookup_stix_runs_via_to_thread(monkeypatch):
+    """终审 #4:stix 端点的 lookup 同样经 asyncio.to_thread 分发。
+    断言只看分发不看响应体:stix2 未装时端点 501(装了 200),分发已在
+    to_stix_bundle 之前完成;reserved IP(如 10.x)在 lookup 之后 400,
+    同样先经过 to_thread — 用 8.8.8.8 保证 lookup 本身成功。"""
+    import asyncio
+    import main as main_mod
+    from ipdb import load_db
+    load_db()
+    called_via = []
+    orig_to_thread = asyncio.to_thread
+    async def spy_to_thread(fn, *a, **kw):
+        called_via.append(fn is main_mod.lookup)
+        return await orig_to_thread(fn, *a, **kw)
+    monkeypatch.setattr(asyncio, "to_thread", spy_to_thread)
+    client = TestClient(main_mod.app)
+    r = client.get("/api/lookup/8.8.8.8/stix")
+    assert r.status_code in (200, 501)   # 200=stix2 已装;501=未装(分发不涉响应体)
+    assert called_via == [True]

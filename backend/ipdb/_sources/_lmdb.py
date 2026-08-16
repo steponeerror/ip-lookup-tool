@@ -65,7 +65,7 @@ def decode_value(raw: bytes) -> tuple[int, Any]:
 
 def _end_int(raw: bytes) -> int:
     """Backscan 快路径:value 布局固定为 ``[end, evidence]`` 且 end 是无符号
-    整数,首个 ``,`` 前的数字即 end — 免去每步 json.loads(嵌套回退时一步
+    整数,首个 ``,`` 前的数字即 end — 免去每步 JSON 解码(嵌套回退时一步
     一解码曾把 miss p50 从 ~3µs 拖到 ~40µs)。"""
     return int(raw[1:raw.index(b",")])
 
@@ -169,6 +169,8 @@ def parse_disjoint_sidecar(base: Path, current_epoch: int) -> bool | None:
         epoch_s, flag_s = disjoint_path(base).read_text().split()
         if int(epoch_s) != current_epoch:
             return None
+        if flag_s not in ("0", "1"):
+            return None                 # 非 0/1 token(如 "3 2"):不可信,非 False
         return flag_s == "1"
     except (OSError, ValueError):
         return None

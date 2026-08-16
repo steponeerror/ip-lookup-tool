@@ -54,6 +54,18 @@ def test_sidecar_missing_or_corrupt_is_conservative(tmp_path):
     assert read_disjoint_flag(base, epoch) is False
 
 
+def test_sidecar_invalid_flag_token_is_untrusted(tmp_path):
+    # 终审 C2:flag 位非 0/1(如 "3 2")不是可信 False — parse 返回 None,
+    # read_disjoint_flag 保守按嵌套(False)处理
+    from ipdb._sources._lmdb import parse_disjoint_sidecar
+    base, _ = _build(tmp_path, DISJOINT)
+    epoch = read_ptr(base)
+    assert epoch is not None
+    disjoint_path(base).write_text(f"{epoch} 2")
+    assert parse_disjoint_sidecar(base, epoch) is None
+    assert read_disjoint_flag(base, epoch) is False
+
+
 def test_rebuild_refreshes_in_memory_disjoint_flag(tmp_path):
     """终审 C1 回归: load(disjoint) → rebuild(nested) 后,内存 flag 必须跟随新 epoch,
     否则 disjoint 快路径在嵌套数据上静默漏报父段命中直到进程重启。
