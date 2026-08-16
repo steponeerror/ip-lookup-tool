@@ -41,8 +41,16 @@ contract, and the merge maps — read them alongside this skill when implementin
    - **`rebuild()` is the ONLY write path.** It parses the data file into
      `(cidr, [evidence])` records and calls `rebuild_lmdb()`, which writes a
      brand-new epoch directory, atomically swaps the pointer file, and hands the
-     source the new read-only env via `reader_setter`. Rebuild runs through the
-     UpdateManager queue — never call it from `load()` or `__init__`.
+     source the new read-only env via `reader_setter`. It also refreshes the
+     source's in-memory disjoint fast-path flag via `flag_setter` — a
+     `rebuild_lmdb()` call that omits
+     `flag_setter=lambda v: setattr(self, "_disjoint", v)` leaves a stale
+     flag when the data shape flips disjoint→nested, and the fast path then
+     silently misses parent-covered hits until process restart (real defect,
+     final review of the query-pipeline project). If you override
+     `rebuild()`, copy the `flag_setter` line verbatim alongside
+     `reader_setter`. Rebuild runs through the UpdateManager queue — never
+     call it from `load()` or `__init__`.
    - **`load()` is pure mmap.** It opens whatever env the pointer names (returns
      0 if none exists), reads the sidecar count/cov files, and never parses or
      rebuilds. Cold start with no env → count 0 until the scheduler rebuilds.
@@ -228,6 +236,11 @@ set — discovery will pick it up automatically on next load.
 - ☐ **LMDB test hygiene (convention 7):** never hold two source instances open
   on the same LMDB base in one process — close the old reader
   (`s._reader.close()`) or drop the instance before constructing the next.
+- if your source overrides `rebuild()`, grep your file for `flag_setter` —
+  the `rebuild_lmdb(...)` call must carry
+  `flag_setter=lambda v: setattr(self, "_disjoint", v)` next to
+  `reader_setter`; a missing line reproduces the stale-flag silent-miss
+  defect on the first data-shape flip.
 
 Then run, from `backend/`:
 

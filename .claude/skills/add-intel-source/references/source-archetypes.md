@@ -235,7 +235,7 @@ template.
 | Method | What the base does |
 |---|---|
 | `load()` | **Pure mmap**: opens the env the pointer names (0 if none), reads sidecar count/cov. Never parses, never rebuilds. |
-| `rebuild()` | **The only write path.** Runs `harvest()`, groups evidence per CIDR (full-evidence dedup) — or streams, if `single_evidence` — and calls `rebuild_lmdb()`: new epoch dir → pointer swap → new readonly env via `reader_setter`. Closes the old reader in `finally`. |
+| `rebuild()` | **The only write path.** Runs `harvest()`, groups evidence per CIDR (full-evidence dedup) — or streams, if `single_evidence` — and calls `rebuild_lmdb()`: new epoch dir → pointer swap → new readonly env via `reader_setter` → in-memory disjoint flag via `flag_setter`. Closes the old reader in `finally`. Overrides must pass `flag_setter` too (stale-flag = silent parent misses). |
 | `query(ip)` | Env read; on a closed-env hit, re-reads the pointer, reopens, retries once. |
 | `health()` | `SourceHealth` with `is_stale` from the data file's `st_mtime` (convention 4). |
 | `_http_get(url, *, headers, timeout, retries)` | **GET-only** staticmethod. Retries with exponential backoff, `User-Agent`, auth headers. **POST / JSON-body feeds must hand-roll HTTP** (see `misp.py`). |
@@ -382,8 +382,11 @@ existing `IpListSource` and don't want to switch bases (P1 precedent:
 `abuseipdb.py` parses its JSON blacklisted-IP list).
 
 The override re-implements the base's parse loop by hand and therefore owns
-three things the base normally handles: per-row `Evidence` construction, the
-`records` list for `rebuild_lmdb()`, and closing the old reader in `finally`.
+four things the base normally handles: per-row `Evidence` construction, the
+`records` list for `rebuild_lmdb()`, closing the old reader in `finally`,
+and syncing the in-memory disjoint flag via
+`rebuild_lmdb(..., flag_setter=...)` (omit it and a disjoint→nested data
+flip silently misses parent-covered hits until restart).
 
 ```python
 def rebuild(self) -> int:
@@ -420,6 +423,7 @@ def rebuild(self) -> int:
         cov = covered_ip_count(covered)
         n = rebuild_lmdb(iter(records), self._lmdb_base,
                          reader_setter=lambda e: setattr(self, "_reader", e),
+                         flag_setter=lambda v: setattr(self, "_disjoint", v),
                          covered=cov)
         self._count = n
         self._covered_ips = cov
@@ -534,6 +538,7 @@ class <FeedName>Source(IpListSource):
             cov = covered_ip_count(iter(acc.keys()))
             n = rebuild_lmdb(records, self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
+                             flag_setter=lambda v: setattr(self, "_disjoint", v),
                              covered=cov)
             self._covered_ips = cov
             self._count = n
