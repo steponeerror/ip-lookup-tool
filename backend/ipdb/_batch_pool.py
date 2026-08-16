@@ -137,11 +137,23 @@ def _init_worker():
     _registry.load_db()
 
 
-def _work_chunk(ips: list[str]) -> list[dict]:
-    """Worker: lookup + to_dict for a chunk of IPs. Returns plain dicts (no
-    dataclass crosses the process boundary)."""
+def _dedup_lookup(ips: list[str]) -> list[dict]:
+    """Chunk 级去重:唯一 IP 只走一次全管线,结果按输入顺序展开。
+    返回长度 == 输入长度(协议不变,main.py 三条路径零改动)。"""
     from ipdb import _registry
-    return [_registry.lookup(ip).to_dict() for ip in ips]
+    unique: list[str] = []
+    seen: dict[str, int] = {}
+    for ip in ips:
+        if ip not in seen:
+            seen[ip] = len(unique)
+            unique.append(ip)
+    results = [_registry.lookup(ip).to_dict() for ip in unique]
+    return [results[seen[ip]] for ip in ips]
+
+
+def _work_chunk(ips: list[str]) -> list[dict]:
+    """Worker: lookup + to_dict for a chunk of IPs (deduped). Returns plain dicts."""
+    return _dedup_lookup(ips)
 
 
 # ── Module-level pool handle (managed by lifespan) ──
@@ -158,8 +170,7 @@ def get_pool() -> ProcessPoolExecutor | None:
 
 
 def _inline(ips: list[str]) -> list[dict]:
-    from ipdb import _registry
-    return [_registry.lookup(ip).to_dict() for ip in ips]
+    return _dedup_lookup(ips)
 
 
 def fan_out_lookup(ips: list[str]) -> list[dict]:
