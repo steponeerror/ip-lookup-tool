@@ -361,6 +361,7 @@ def lookup(ip: str) -> LookupResult:
     field_values: dict[str, dict[str, Any]] = defaultdict(dict)
     observations = []
     attributes: dict[str, list] = defaultdict(list)
+    city_zh_map: dict[str, str] = {}
     for source in _enabled_sources():
         try:
             raw = source.query(ip)
@@ -375,6 +376,10 @@ def lookup(ip: str) -> LookupResult:
             for key in _LOOKUP_SLOTS:
                 if key in item:
                     field_values[key][source.name] = item[key]
+            if "city" in item:
+                zh = (item.get("extra") or {}).get("city_zh")
+                if zh:
+                    city_zh_map[source.name] = zh
             if "classification_type" in item:
                 observations.append(to_observation(
                     source.name, item,
@@ -416,10 +421,21 @@ def lookup(ip: str) -> LookupResult:
         ctype: _assess_classification(grp) for ctype, grp in groups.items()
     }
 
+    # city_zh: display-only; among sources whose value == winning city value,
+    # highest reliability then smallest source name; else None (spec 2026-08-16).
+    city_zh = None
+    if city.value not in (None, "N/A") and city_zh_map:
+        winners = [s for s in city.sources
+                   if s.value == city.value and s.source in city_zh_map]
+        if winners:
+            best = sorted(winners, key=lambda s: (-s.reliability, s.source))[0]
+            city_zh = city_zh_map[best.source]
+
     return LookupResult(
         ip=ip,
         country=country,
         city=city,
+        city_zh=city_zh,
         asn=asn,
         as_name=as_name,
         ip_range=ip_range,
