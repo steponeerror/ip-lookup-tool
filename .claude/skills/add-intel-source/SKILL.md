@@ -132,9 +132,8 @@ Is it a static file you download once and load into LMDB?
 │          inherit rebuild() (LMDB write: per-CIDR accumulate + full-evidence
 │          dedup, or single_evidence streaming) / load() (pure mmap) /
 │          query() (env with reopen-retry) / health() / _http_get().
-│          (.mmdb input note: the maxminddb dependency was removed in the
-│           LMDB migration — an .mmdb-distributed feed re-opens that decision;
-│           GeoLite.mmdb is the pending first case.)
+│          (.mmdb input note: read it with maxminddb>=2.0 — re-added as a
+│           read-only dep; mmap-iterate in harvest(). First case: geolite_city.py.)
 └─ NO — query-per-IP REST API (no bulk download)?
       → ApiSource                   (defined in _base.py; no source uses it yet,
                                       so it's the greenfield path for new APIs)
@@ -237,6 +236,8 @@ Then run, from `backend/`:
 .venv/bin/python -m pytest tests/source_infra/ -q                 # it registers + has the right shape
 .venv/bin/python -m pytest -q                                     # full suite — expect the same pass/fail as before
 ```
+
+(In a git worktree, use the main checkout's interpreter absolute path — the venv does not travel with worktrees.)
 
 The full suite has **known unrelated failures that drift run to run**:
 `tests/core/test_quota_thread_safety.py` ×3 (a 950-vs-1000 daily-cap drift

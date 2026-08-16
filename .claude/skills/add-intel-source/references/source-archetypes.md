@@ -225,8 +225,10 @@ Real examples: `iptoasn.py` (gzip + range→CIDR + `single_evidence`),
 see §3b), `ip2proxy.py` (ZIP + range→CIDR + asset slots + `single_evidence`),
 `threatfox.py` (ZIP + per-row classification), `otx.py` (REST state machine),
 `misp.py` (REST + severity-driven reliability), `tweetfeed.py` / `urlhaus.py`
-(per-row tags + category priority). **Read `iptoasn.py` end-to-end before
-writing one of these** — it's the canonical minimal template.
+(per-row tags + category priority), `geolite_city.py` (.mmdb input via
+maxminddb iteration — see the gray-zone table row). **Read `iptoasn.py`
+end-to-end before writing one of these** — it's the canonical minimal
+template.
 
 ### What you inherit from `Source` (do NOT reimplement)
 
@@ -635,6 +637,6 @@ not implemented; YAGNI until enough simple sources accrue.
 | REST state machine (cursor/pagination) | `otx.py`, `misp.py` |
 | Multi-file load (one source, several files) | `cn_isp.py` (adjacent to §3c) |
 | Per-row evidence (timestamps/counts per row) | `otx.py`, `reportedip.py` |
-| `.mmdb` binary input | pending first case (GeoLite.mmdb); maxminddb dep was removed — re-opens that decision |
+| `.mmdb` binary input | `geolite_city.py` — maxminddb>=2.0 read-only dep; mmap iteration in `harvest()`; single_evidence streaming |
 
 If none of these apply, stay on `IpListSource` / `CsvSource`.
