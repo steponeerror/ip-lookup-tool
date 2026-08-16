@@ -119,6 +119,20 @@ def lookup(env, ip_int: int) -> Any:
         return None
 
 
+def detect_disjoint(env) -> bool:
+    """O(n) key 序扫描,O(1) 内存。排序区间两两不相交 ⇔ 所有相邻对 next_start > prev_end。"""
+    with env.begin() as txn:
+        cur = txn.cursor()
+        prev_end = -1
+        ok = cur.first()
+        while ok:
+            if int.from_bytes(cur.key(), "big") <= prev_end:
+                return False
+            prev_end = _end_int(cur.value())
+            ok = cur.next()
+    return True
+
+
 # ── ptr/epoch helpers ──────────────────────────────────────────
 
 
@@ -134,6 +148,10 @@ def cov_path(base: Path) -> Path:
     return base.parent / (base.name + ".cov")
 
 
+def disjoint_path(base: Path) -> Path:
+    return Path(f"{base}.disjoint")     # 与 count_path/cov_path 同构,STRING concat
+
+
 def env_dir(base: Path, epoch: int) -> Path:
     return base.parent / f"{base.name}.{epoch}"
 
@@ -146,6 +164,15 @@ def read_ptr(base: Path) -> int | None:
         return int(p.read_text().strip())
     except ValueError:
         return None
+
+
+def read_disjoint_flag(base: Path, current_epoch: int) -> bool:
+    """epoch 绑定:sidecar 描述的 epoch ≠ 当前 ptr → 保守嵌套(正确性要求,见 spec §3.1)。"""
+    try:
+        epoch_s, flag_s = disjoint_path(base).read_text().split()
+        return int(epoch_s) == current_epoch and flag_s == "1"
+    except (OSError, ValueError):
+        return False
 
 
 def needs_convert(raw_path: Path, ptr_like_path: Path) -> bool:
@@ -285,6 +312,7 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
             _flush()
     _flush()
     env.sync(True)
+    disjoint = detect_disjoint(env)    # sync 后 close 前判定:句柄在手免重开
     env.close()                        # closed BEFORE rename — Windows-safe
     os.rename(staging, target)
 
@@ -295,6 +323,9 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         staged.append((_write_staged(count_path(base), str(count)), count_path(base)))
         if covered is not None:
             staged.append((_write_staged(cov_path(base), str(covered)), cov_path(base)))
+        staged.append((_write_staged(
+            disjoint_path(base), f"{epoch} {1 if disjoint else 0}"),
+            disjoint_path(base)))
         for s, final in staged:                      # sidecars commit first
             os.replace(s, final)
         p_staged = _write_staged(ptr_path(base), str(epoch))
