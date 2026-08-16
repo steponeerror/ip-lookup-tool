@@ -1,6 +1,5 @@
 """Merge strategies, PCR6 evidence fusion, source attribution, and enrichment."""
 
-from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
@@ -139,17 +138,6 @@ def _apply_coverage_penalty(confidence: int, participating: int, expected: int) 
     return confidence
 
 
-def _majority_confidence(top_count: int, total: int) -> int:
-    """Factual majority confidence: 50–70 based on agreement fraction.
-
-    Formula: 50 + (top_count - 1) / (total - 1) * 20
-    One-source case returns 50 via caller, not this function.
-    """
-    if total <= 1:
-        return 50
-    return round(50 + (top_count - 1) / (total - 1) * 20)
-
-
 # ── Scalar merge strategies (return MergedField) ──
 
 class FactualVoting:
@@ -169,13 +157,27 @@ class FactualVoting:
             return MergedField(self.default, 0, "voting", attributions)
         if len(valid) == 1:
             return MergedField(valid[0].value, 50, "voting", attributions)
-        values = [a.value for a in valid]
-        if all(v == values[0] for v in values[1:]):
-            return MergedField(values[0], 85, "voting", attributions)
-        counts = Counter(values)
-        top_val, top_count = counts.most_common(1)[0]
-        conf = _majority_confidence(top_count, len(valid))
-        return MergedField(top_val, conf, "voting", attributions)
+        # Weighted voting (spec 2026-08-16): vote weight = reliability.
+        # Winner = highest Σ weight; ties (compare after round(·,9) — different
+        # multisets that are mathematically equal differ by float ulp residue)
+        # break by higher max single reliability, then lexicographically
+        # smallest member source name. Confidence = winner's share of total
+        # weight, half-up (int(x+0.5): Python round() is banker's rounding).
+        groups: dict[Any, list[SourceAttribution]] = {}
+        for a in valid:
+            groups.setdefault(a.value, []).append(a)
+        ranked = sorted(
+            groups.items(),
+            key=lambda kv: (
+                -round(sum(a.reliability for a in kv[1]), 9),
+                -max(a.reliability for a in kv[1]),
+                min(a.source for a in kv[1]),
+            ),
+        )
+        best_val, best_members = ranked[0]
+        total = sum(a.reliability for a in valid)
+        conf = int(sum(a.reliability for a in best_members) / total * 100 + 0.5)
+        return MergedField(best_val, conf, "voting", attributions)
 
 
 class NamingAuthority:

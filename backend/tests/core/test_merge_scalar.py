@@ -83,57 +83,108 @@ def test_apply_coverage_penalty_zero_expected():
 
 
 class TestFactualVoting:
-    """Returns MergedField. Controlled via monkeypatched SOURCE_RELIABILITY."""
+    """Returns MergedField. Controlled via monkeypatched SOURCE_RELIABILITY.
+
+    Weighted voting (spec 2026-08-16): vote weight = reliability; winner =
+    highest Σ reliability (ties: higher max single rel, then lexicographically
+    smallest source name); confidence = half-up(Σwin/Σall*100); single=50.
+    """
 
     def test_no_sources(self):
         fv = FactualVoting(default="N/A")
         result = fv.merge({}, {})
         assert result == MergedField("N/A", 0, "voting", [])
 
-    def test_single_source(self, monkeypatch):
-        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
-                            {"ipinfo_lite": 0.95})
+    def test_single_source_confidence_50(self, monkeypatch):
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"ipinfo_lite": 0.95})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default="N/A")
         result = fv.merge({"ipinfo_lite": "CN"}, {"ip": "1.2.3.4"})
         assert result.value == "CN"
         assert result.confidence == 50
 
-    def test_all_agree(self, monkeypatch):
+    def test_all_agree_two_sources_100(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
                             {"ipinfo_lite": 0.95, "iptoasn": 0.90})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default="N/A")
-        result = fv.merge(
-            {"ipinfo_lite": "CN", "iptoasn": "CN"}, {})
+        result = fv.merge({"ipinfo_lite": "CN", "iptoasn": "CN"}, {})
         assert result.value == "CN"
-        assert result.confidence == 85
+        assert result.confidence == 100
 
-    def test_majority_2_of_3(self, monkeypatch):
-        """2/3 majority: conf = 50 + (2-1)/(3-1)*20 = 50+10=60"""
+    def test_all_agree_six_sources_100(self, monkeypatch):
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
+                            {f"s{i}": 0.8 for i in range(1, 7)})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        fv = FactualVoting(default="N/A")
+        result = fv.merge({f"s{i}": "CN" for i in range(1, 7)}, {})
+        assert result.value == "CN"
+        assert result.confidence == 100
+
+    def test_majority_2_of_3_equal_rel_67(self, monkeypatch):
+        """ΣCN=1.6, Σall=2.4 → 1.6/2.4=66.67 → half-up 67"""
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
                             {"s1": 0.80, "s2": 0.80, "s3": 0.80})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default="N/A")
-        result = fv.merge(
-            {"s1": "CN", "s2": "CN", "s3": "US"}, {})
+        result = fv.merge({"s1": "CN", "s2": "CN", "s3": "US"}, {})
         assert result.value == "CN"
-        assert result.confidence == 60
+        assert result.confidence == 67
 
-    def test_asn_all_agree(self, monkeypatch):
+    def test_weight_beats_headcount(self, monkeypatch):
+        """US 0.95 一票 (Σ0.95) 胜 CN 两票 (0.45+0.45=0.90)；conf=0.95/1.85=51.35→51"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
+                            {"heavy": 0.95, "light1": 0.45, "light2": 0.45})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        fv = FactualVoting(default="N/A")
+        result = fv.merge(
+            {"heavy": "US", "light1": "CN", "light2": "CN"}, {})
+        assert result.value == "US"
+        assert result.confidence == 51
+
+    def test_tie_math_equal_multisets_breaks_by_max_rel(self, monkeypatch):
+        """0.95+0.85 vs 0.90+0.90: raw float 1.7999999999999998 ≠ 1.8 —
+        round(Σ,9) makes them tie; group A max single rel 0.95 > 0.90 wins.
+        conf = 1.8/3.6 = 50."""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
+                            {"a1": 0.95, "a2": 0.85, "b1": 0.90, "b2": 0.90})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        fv = FactualVoting(default="N/A")
+        result = fv.merge({"a1": "JP", "a2": "JP", "b1": "SG", "b2": "SG"}, {})
+        assert result.value == "JP"
+        assert result.confidence == 50
+
+    def test_tie_full_breaks_by_source_name(self, monkeypatch):
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
+                            {"aaa": 0.80, "zzz": 0.80})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        fv = FactualVoting(default="N/A")
+        result = fv.merge({"zzz": "US", "aaa": "CN"}, {})
+        assert result.value == "CN"          # aaa < zzz 字典序
+        assert result.confidence == 50
+
+    def test_half_up_rounding(self, monkeypatch):
+        """ΣCN=1.25 (0.9+0.35), ΣUS=0.75 (0.45+0.30) → 62.5 → half-up 63"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
+                            {"c1": 0.90, "c2": 0.35, "u1": 0.45, "u2": 0.30})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        fv = FactualVoting(default="N/A")
+        result = fv.merge({"c1": "CN", "c2": "CN", "u1": "US", "u2": "US"}, {})
+        assert result.value == "CN"
+        assert result.confidence == 63
+
+    def test_asn_all_agree_100(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
                             {"iptoasn": 0.90, "ipinfo_lite": 0.95})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default=0)
-        result = fv.merge(
-            {"iptoasn": 4134, "ipinfo_lite": 4134}, {})
+        result = fv.merge({"iptoasn": 4134, "ipinfo_lite": 4134}, {})
         assert result.value == 4134
-        assert result.confidence == 85
+        assert result.confidence == 100
 
     def test_filters_empty_and_zero(self):
         fv = FactualVoting(default="N/A")
-        result = fv.merge(
-            {"s1": "", "s2": "N/A", "s3": "CN"}, {})
+        result = fv.merge({"s1": "", "s2": "N/A", "s3": "CN"}, {})
         assert result.value == "CN"
         assert result.confidence == 50
 
