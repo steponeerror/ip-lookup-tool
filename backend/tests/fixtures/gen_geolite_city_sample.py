@@ -33,5 +33,5 @@ w = MMDBWriter(ip_version=6, ipv4_compatible=True,
                description="Tiny fixture mirroring GeoLite2-City shape")
 for cidr, rec in RECORDS:
     w.insert_network(IPSet([cidr]), rec)
-w.to_db_file(Path(__file__).parent / "geolite_city_sample.mmdb")
+w.to_db_file(str(Path(__file__).parent / "geolite_city_sample.mmdb"))
 print("written")
