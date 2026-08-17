@@ -42,7 +42,7 @@ docker compose up -d --build
 ```
 
 Open http://127.0.0.1:8000. On first start the container downloads and builds
-all keyless feeds (~28 sources, including geo/city/ASN and the major
+all keyless feeds (25 of the 28 sources, including geo/city/ASN and the major
 blocklists) before serving — watch progress with `docker compose logs -f`.
 Subsequent starts load from the `ipradar-data` volume in seconds.
 
@@ -50,7 +50,7 @@ Optional API-keyed sources (ipinfo_lite / abuseipdb / otx, ipapi.is
 enrichment) — put keys in `.env.local` (gitignored, overrides `.env`):
 
 ```bash
-cp .env .env.local && edit .env.local   # fill keys; set IPAPI_IS_ENABLED=true if using ipapi.is
+cp .env .env.local   # then open .env.local in any editor, fill keys; set IPAPI_IS_ENABLED=true if using ipapi.is
 docker compose up -d
 ```
 
