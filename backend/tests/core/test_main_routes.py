@@ -186,3 +186,54 @@ def test_lookup_stix_runs_via_to_thread(monkeypatch):
     r = client.get("/api/lookup/8.8.8.8/stix")
     assert r.status_code in (200, 501)   # 200=stix2 已装;501=未装(分发不涉响应体)
     assert called_via == [True]
+
+
+class TestWarmingUpGate:
+    """Cold-start gate: query endpoints 503 + db-status warming_up field."""
+
+    @classmethod
+    def setup_class(cls):
+        import main
+        cls.client = TestClient(main.app)
+
+    def test_db_status_has_warming_up_field(self):
+        resp = self.client.get("/api/db-status")
+        assert resp.status_code == 200
+        assert "warming_up" in resp.json()
+
+    def test_query_endpoints_503_when_db_not_loaded(self):
+        """When _db_loaded() is False, all 4 query endpoints return 503."""
+        import main
+        with patch("ipdb._registry._db_loaded", return_value=False):
+            # /api/query/stream
+            r1 = self.client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
+            assert r1.status_code == 503
+            assert "warming up" in r1.json()["detail"].lower()
+            # /api/upload/stream
+            r2 = self.client.post("/api/upload/stream",
+                                  files={"file": ("ips.txt", b"8.8.8.8\n", "text/plain")})
+            assert r2.status_code == 503
+            # /api/lookup/{ip}
+            r3 = self.client.get("/api/lookup/8.8.8.8")
+            assert r3.status_code == 503
+            # /api/lookup/{ip}/stix
+            r4 = self.client.get("/api/lookup/8.8.8.8/stix")
+            assert r4.status_code == 503
+
+    def test_query_endpoints_pass_when_db_loaded(self):
+        """When _db_loaded() is True, query endpoints proceed past the gate."""
+        import main
+        # load_db so lookup() won't raise RuntimeError; patch _db_loaded True
+        from ipdb import load_db
+        load_db()
+        with patch("ipdb._registry._db_loaded", return_value=True):
+            r = self.client.get("/api/lookup/8.8.8.8")
+            assert r.status_code == 200
+
+    def test_non_query_endpoints_not_gated(self):
+        """db-status, tasks, sources, update-db remain reachable when warming."""
+        import main
+        with patch("ipdb._registry._db_loaded", return_value=False):
+            assert self.client.get("/api/db-status").status_code == 200
+            assert self.client.get("/api/tasks").status_code == 200
+            assert self.client.get("/api/sources").status_code == 200

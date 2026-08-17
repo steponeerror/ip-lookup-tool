@@ -7,7 +7,7 @@ from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 import orjson
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +31,7 @@ from ipdb import (
 )
 from ipdb import _batch_pool
 from ipdb._cidr import expand_inputs
+from ipdb import _registry as _ipdb_registry
 
 import os
 from pathlib import Path
@@ -43,6 +44,19 @@ ENRICH_CHUNK = 100
 
 class SourceEnabledPatch(BaseModel):
     enabled: bool
+
+
+def require_ready():
+    """Gate query endpoints during cold-start DB construction. Reuses the
+    registry's _db_loaded() guard (the same check lookup() performs internally)
+    so there is a single source of truth for "is the DB queryable" — no second
+    _DB_READY Event that could diverge from lookup()'s view.
+
+    Resolves _db_loaded via the registry module attribute at call time (not a
+    name bound at import) so a single patched reference reaches both this gate
+    and lookup()'s internal check identically."""
+    if not _ipdb_registry._db_loaded():
+        raise HTTPException(503, detail="database is warming up")
 
 
 async def _stream_lookup(expansion):
@@ -343,7 +357,7 @@ app.add_middleware(
 )
 
 
-@app.post("/api/query/stream")
+@app.post("/api/query/stream", dependencies=[Depends(require_ready)])
 async def query_ips_stream(body: dict):
     raw = body.get("ips", [])
     if not raw:
@@ -360,7 +374,7 @@ async def query_ips_stream(body: dict):
     )
 
 
-@app.post("/api/upload/stream")
+@app.post("/api/upload/stream", dependencies=[Depends(require_ready)])
 async def upload_file_stream(file: UploadFile = File(...)):
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
@@ -391,7 +405,9 @@ async def upload_file_stream(file: UploadFile = File(...)):
 
 @app.get("/api/db-status")
 async def db_status():
-    return get_status()
+    status = get_status()
+    status["warming_up"] = not _ipdb_registry._db_loaded()
+    return status
 
 
 @app.get("/api/scheduler/status")
@@ -444,14 +460,14 @@ async def update_db_resume():
     return {"ok": True}
 
 
-@app.get("/api/lookup/{ip}")
+@app.get("/api/lookup/{ip}", dependencies=[Depends(require_ready)])
 async def lookup_single(ip: str):
     """Single IP lookup — same shape as POST /api/query results[0]."""
     result = await asyncio.to_thread(lookup, ip)
     return result.to_dict()
 
 
-@app.get("/api/lookup/{ip}/stix")
+@app.get("/api/lookup/{ip}/stix", dependencies=[Depends(require_ready)])
 async def lookup_stix(ip: str):
     """Single IP STIX 2.1 Bundle export."""
     from ipdb._stix_export import to_stix_bundle
