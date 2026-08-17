@@ -110,7 +110,7 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 ### 开发模式 | Development
 
-**dev 模式**（前端 :5173 热更新，后端 API :8000）：
+**dev 模式**（前端 :5173 热更新，后端 API 走 :8000）：
 
 > **Dev mode** (frontend hot-reload on :5173, backend API on :8000):
 
@@ -118,9 +118,9 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 ./dev.sh
 ```
 
-**或手动分别启动：**
+**想分开跑也行：**
 
-> **Or run each side manually:**
+> **Or run each side yourself:**
 
 ```bash
 # backend
@@ -131,7 +131,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 cd frontend && npm run dev
 ```
 
-**类生产**（构建前端，全部服务走 :8000）：
+**类生产**（构建前端，一切都走 :8000）：
 
 > **Production-style** (builds frontend, serves everything on :8000):
 
@@ -141,9 +141,9 @@ cd frontend && npm run dev
 
 ## 使用 | Usage
 
-打开 http://127.0.0.1:8000 ，输入任意 IP 即得融合裁决、逐源证据表与地理/ASN 富化。API 直接可用：
+打开 http://127.0.0.1:8000 ，随手输一个 IP：裁决、逐源证据、地理/ASN 一起回来。API 也能直接用：
 
-> Open http://127.0.0.1:8000, type any IP, and get the fused verdict, per-source evidence, and geo/ASN enrichment. The API works directly:
+> Open http://127.0.0.1:8000 and type any IP: verdict, per-source evidence, and geo/ASN come back together. The API works directly too:
 
 ```bash
 # 核心查询 | core lookup
@@ -157,15 +157,15 @@ curl -s http://127.0.0.1:8000/api/db-status
 curl -s http://127.0.0.1:8000/api/sources
 ```
 
-其余管理端点（update-db / tasks / events 等）见代码；UI 上也能直接触发刷新。
+其余管理端点（update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。
 
-> Management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes directly too.
+> The other management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too.
 
 ## 用 AI 扩展数据源 | Extending Sources with AI
 
-仓库自带三个 Claude Code skills（`.claude/skills/`）。装了 [Claude Code](https://claude.com/claude-code) 的访客，一句自然语言就能驱动加源全流程：
+仓库还自带三个 Claude Code skills（`.claude/skills/`）——装了 [Claude Code](https://claude.com/claude-code) 的话，一句话就能让 AI 替你把源加上：
 
-> The repo ships three Claude Code skills (`.claude/skills/`). With [Claude Code](https://claude.com/claude-code) installed, one sentence of plain language drives the whole add-a-source workflow:
+> The repo also ships three Claude Code skills (`.claude/skills/`) — with [Claude Code](https://claude.com/claude-code) installed, one sentence lets AI wire the source in for you:
 
 | Skill | 什么时候用 When | 一句话示例 Example |
 |---|---|---|
@@ -173,19 +173,19 @@ curl -s http://127.0.0.1:8000/api/sources
 | `add-intel-source` | 已选定某个源，要完整接入 | “把 GreyNoise 加进来” |
 | `manage-intel-source` | 管理现有源：体检、更新、替换 | “看看各源的健康状况” |
 
-- **discover-intel-sources** —— 按你的约束（免费/密钥、数据类型、覆盖面）调研候选源，给出带评估的清单，帮你决定加哪个。
-- **add-intel-source** —— 把选定的源按仓库既有契约一次接到位：源文件、自动注册、分类映射、融合权重、回归测试。
-- **manage-intel-source** —— 跑完整的发现→接入→评估生命周期：体检现有源，替换低信号源。
+- **discover-intel-sources** —— 没想好加什么？说说你的要求（免费/密钥、数据类型、覆盖面），它去调研，带回一份带评估的候选清单。
+- **add-intel-source** —— 定了加谁就交给它：按仓库既有的接法一次到位——源文件、自动注册、分类映射、融合权重、回归测试。
+- **manage-intel-source** —— 发现→接入→评估，整个生命周期都管：给现有源做体检，把低信号的换掉。
 
-> - **discover-intel-sources** — researches candidate feeds under your constraints (free/keyed, data type, coverage) and returns an evaluated shortlist.
-> - **add-intel-source** — wires the chosen source in under the repo's established contract: source file, auto-registration, classification map, fusion weight, regression tests.
-> - **manage-intel-source** — runs the full discover→add→evaluate lifecycle: health-check existing sources, replace low-signal ones.
+> - **discover-intel-sources** — not sure what to add? State your constraints (free/keyed, data type, coverage); it does the research and comes back with an evaluated shortlist.
+> - **add-intel-source** — once you've picked one, hand it over: wired in one go under the repo's established pattern — source file, auto-registration, classification map, fusion weight, regression tests.
+> - **manage-intel-source** — owns the whole discover→add→evaluate lifecycle: health-checks existing sources, swaps out the low-signal ones.
 
 ## 数据源与致谢 | Data Sources & Acknowledgments
 
-以下每一份数据都属于其提供方——感谢它们的开放与持续维护。🔑 = 需要免费/付费密钥（填法见[快速开始](#快速开始--quick-start)）；`*` = 聚合源，荣誉归其上游列表的维护者。
+下面每一份数据都属于它的提供方——感谢它们一直开放、一直维护。🔑 = 要免费/付费密钥（去哪填见[快速开始](#快速开始--quick-start)）；`*` = 聚合源，荣誉归于上游列表的维护者。
 
-> Every dataset below belongs to its provider — thank you for keeping them open. 🔑 = requires an API key (see [Quick Start](#快速开始--quick-start) for where to put it); `*` = aggregator, where credit flows to the upstream list maintainers.
+> Every dataset below belongs to its provider — thank you for keeping them open and maintained. 🔑 = needs a free/paid API key (where to put it: [Quick Start](#快速开始--quick-start)); `*` = aggregator, credit flows to the upstream list maintainers.
 
 ### 威胁信誉 | Threat Reputation
 
@@ -242,9 +242,9 @@ cd frontend && npm test
 
 ## 许可证 | License
 
-AGPL-3.0 —— 见 [LICENSE](LICENSE)。各情报源保留各自的使用条款。
+AGPL-3.0，见 [LICENSE](LICENSE)；各情报源的使用条款各自保留。
 
-> AGPL-3.0 — see [LICENSE](LICENSE). Intelligence feeds keep their own terms.
+> AGPL-3.0, see [LICENSE](LICENSE); each intelligence feed keeps its own terms.
 
 ## 关于这份代码 | About This Code
 
