@@ -146,3 +146,24 @@ def test_stream_pool_broken_submit_phase(monkeypatch):
     assert len(rows) == 250
     assert set(r["idx"] for r in rows) == set(range(250))
     assert "error" not in events[-1]  # 正常完成无 error
+
+
+def test_stream_pool_wait_non_bpp_error_done(monkeypatch):
+    """等待循环非 BPP 异常: done 带 error 终态, 不静默截断。"""
+    from concurrent.futures import Future
+    from ipdb import _registry
+    _registry.load_db()
+    import ipdb._batch_pool as bp
+
+    class _BoomRuntime:
+        def submit(self, fn, *a, **kw):
+            fut = Future()
+            fut.set_exception(RuntimeError("simulated worker crash"))
+            return fut
+
+    monkeypatch.setattr(bp, "get_pool", lambda: _BoomRuntime())
+    ips = ["203.0.113.%d" % i for i in range(250)]
+    with TestClient(main.app) as client:
+        events = _drain_stream(client, ips)
+    assert events[-1]["type"] == "done"
+    assert events[-1].get("error") == "simulated worker crash"
