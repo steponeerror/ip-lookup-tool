@@ -468,3 +468,26 @@ def test_done_batches_bounded():
     # GC retains 10 + the just-completed batch = 11 max
     assert len(done) <= 11, \
         f"done batches should be bounded (~10+1), got {len(done)}"
+
+
+# --- wait_batch_settled (cold-start超时后等settle) ---
+
+def test_wait_batch_settled_returns_when_batch_done():
+    srcs = [FakeSource("a", host="h1", slow=0.1)]
+    mgr, _ = _make_manager(srcs)
+    bid = mgr.enqueue_batch(["a"])
+    mgr.wait_batch_settled(bid, timeout=5)
+    assert mgr._batches[bid].state == "done"
+
+
+def test_wait_batch_settled_returns_on_timeout_without_raising():
+    """超时不抛，调用方按 _db_loaded() 自行终判。"""
+    def hang(token=None):
+        time.sleep(5)
+    src = FakeSource("a", host="h")
+    src.download = hang
+    mgr, _ = _make_manager([src], concurrency=1)
+    bid = mgr.enqueue_batch(["a"])
+    mgr.wait_batch_settled(bid, timeout=0.3)
+    # 超时返回，batch 仍在 running，不抛异常
+    assert mgr._batches[bid].state != "done"

@@ -205,6 +205,21 @@ class UpdateManager:
             time.sleep(0.1)
         return bid
 
+    def wait_batch_settled(self, batch_id: str, timeout: float = 600) -> None:
+        """Block until `batch_id` reaches state "done" or `timeout` elapses.
+
+        Used by cold-start's background thread after run_batch_blocking times
+        out: the batch may still be running, and we wait for it to settle
+        before the caller re-checks _db_loaded() for the final ready verdict.
+        Does NOT raise on timeout — the caller decides via _db_loaded().
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            b = self._batches.get(batch_id)
+            if b is None or b.state == "done":
+                return
+            time.sleep(0.1)
+
     def _maybe_finish_batch(self):
         with self._lock:
             if not self._active_batch:
