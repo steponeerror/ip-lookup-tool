@@ -269,20 +269,23 @@ def _is_cold_start() -> bool:
                    for s in offline)
 
 
-def _do_cold_start():
-    """Cold start: synchronously download the first batch via run_batch_blocking.
-
-    Blocks lifespan startup until every enabled offline source has settled
-    (done/failed/cancelled). The server then serves from the freshly-written
-    data files. Skips the blocking call when there are no offline sources.
-    """
+def _cold_start_background():
+    """Background-thread cold start: download + build all offline sources
+    without blocking lifespan. Does NOT set any ready flag — require_ready
+    reuses _db_loaded(), which flips True once the first source's rebuild()
+    hot-swaps its reader (rebuild_lmdb's reader_setter). On total failure
+    (zero sources loaded) _db_loaded() stays False and the gate holds; the
+    frontend WarmupBanner shows a failure/retry state."""
     import psutil
-    from ipdb._registry import _enabled_sources, _archetype
-    names = [s.name for s in _enabled_sources() if _archetype(s) == "offline"]
     _ensure_valve_sampler()
-    if names:
-        total_gb = psutil.virtual_memory().total / 1e9
-        manager.run_batch_blocking(names, timeout=_cold_start_timeout(total_gb))
+    names = _offline_enabled_names()
+    if not names:
+        return  # 全在线源部署:_db_loaded() 恒 True,require_ready 直放行
+    total_gb = psutil.virtual_memory().total / 1e9
+    bid = manager.run_batch_blocking(names, timeout=_cold_start_timeout(total_gb))
+    # 超时返回后批次可能仍在跑;等 settle 后让 _db_loaded() 给终判。
+    # 不重排队列(防无限重试打配额源);任务级 30s socket 超时保证 settle 有界。
+    manager.wait_batch_settled(bid)
 
 
 def _startup_warm():
@@ -300,7 +303,8 @@ def _startup_warm():
 
 def _startup():
     if _is_cold_start():
-        _do_cold_start()
+        threading.Thread(daemon=True, target=_cold_start_background,
+                         name="cold-start").start()
     else:
         _startup_warm()
 

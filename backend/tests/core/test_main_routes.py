@@ -2,6 +2,8 @@
 import json
 import sys
 import os
+import threading
+import time
 from unittest.mock import patch
 
 # Add backend directory to sys.path so 'import main' works
@@ -237,3 +239,39 @@ class TestWarmingUpGate:
             assert self.client.get("/api/db-status").status_code == 200
             assert self.client.get("/api/tasks").status_code == 200
             assert self.client.get("/api/sources").status_code == 200
+
+
+class TestLifespanColdStartNonBlocking:
+    """Cold-start lifespan must not block: background thread started, HTTP up."""
+
+    def test_cold_start_branch_starts_background_thread(self, monkeypatch):
+        """When _is_cold_start() is True, lifespan yields without waiting on
+        the batch. The background thread is started and runs _cold_start_background."""
+        import main
+        from unittest.mock import patch, MagicMock
+
+        started = threading.Event()
+        def _fake_background():
+            started.set()
+            # 模拟批次跑一会儿,但不阻塞 lifespan
+            time.sleep(0.2)
+
+        with patch.object(main, "_is_cold_start", return_value=True), \
+             patch.object(main, "_cold_start_background", _fake_background), \
+             patch.object(main, "_ensure_refresh_scheduler"):
+            with TestClient(main.app) as client:
+                # HTTP 立即可达(非阻塞证据)
+                assert client.get("/api/db-status").status_code == 200
+                # 后台线程已启动
+                assert started.is_set(), "background thread not started before yield"
+
+    def test_warm_branch_sets_no_explicit_ready_flag(self):
+        """Warm path still works (load_db already makes _db_loaded True)."""
+        import main
+        from ipdb import load_db
+        with patch.object(main, "_is_cold_start", return_value=False):
+            with TestClient(main.app) as client:
+                load_db()  # warm path 走 _startup_warm → load_db
+                r = client.get("/api/db-status")
+                assert r.status_code == 200
+                assert r.json()["warming_up"] is False
