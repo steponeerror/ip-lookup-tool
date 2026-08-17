@@ -12,6 +12,11 @@ import { useI18n } from "./i18n";
 
 type InputTab = "text" | "file";
 
+// api 层对非 200 抛 plain Error(detail)(无 status 字段);503 的 detail 恒为
+// "database is warming up",按 message 识别即可。status 检查留作前向兼容。
+const isWarming503 = (e: unknown) =>
+  (e as any)?.status === 503 || /warming up/i.test((e as any)?.message ?? "");
+
 export default function LookupView() {
   const { t } = useI18n();
   const [tab, setTab] = useState<InputTab>("text");
@@ -67,6 +72,11 @@ export default function LookupView() {
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
         setError(t("lookup.cancelled"));
+      } else if (isWarming503(e)) {
+        // 503 自纠:查询漏过初始加载窗口撞上后端 warming 门 — 重拉 db-status
+        // 置 warming;横幅接管,抑制通用错误显示。
+        const s = await getDbStatus().catch(() => null);
+        setWarming(!!s?.warming_up);
       } else {
         setError(e instanceof Error ? e.message : t("lookup.queryFailed"));
       }
@@ -102,6 +112,9 @@ export default function LookupView() {
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
         setError(t("lookup.cancelled"));
+      } else if (isWarming503(e)) {
+        const s = await getDbStatus().catch(() => null);
+        setWarming(!!s?.warming_up);
       } else {
         setError(e instanceof Error ? e.message : t("lookup.uploadFailed"));
       }

@@ -3,7 +3,7 @@ import { screen, waitFor, fireEvent } from "@testing-library/react";
 import LookupView from "../LookupView";
 import { TaskProvider } from "../tasks/TaskProvider";
 import { renderWithI18n } from "../test/i18nTestUtils";
-import { getDbStatus } from "../api";
+import { getDbStatus, queryIpsStream } from "../api";
 
 vi.mock("../api", async () => {
   const real = await vi.importActual<any>("../api");
@@ -58,5 +58,50 @@ describe("LookupView warmup integration", () => {
     expect((container.querySelector("textarea") as HTMLTextAreaElement).disabled).toBe(false);
     expect(screen.getByRole("button", { name: "Query" })).toBeEnabled();
     expect(container.querySelector("[data-warmup]")).toBeNull();
+  });
+});
+
+describe("LookupView 503 self-correction", () => {
+  it("a warming 503 from a query suppresses the generic error and reveals the banner + disables controls", async () => {
+    // 所有 getDbStatus 调用共享一个 deferred:挂载期轮询保持 pending
+    // (控件可用);查询撞 503 后 resolve warming_up=true,LookupView 的
+    // 重拉与 WarmupBanner 的轮询拿到同一份结果(横幅不必等 5s 轮询)。
+    let resolveStatus!: (v: any) => void;
+    const pending = new Promise<any>(r => { resolveStatus = r; });
+    (getDbStatus as any).mockReturnValue(pending);
+    (queryIpsStream as any).mockRejectedValue(new Error("database is warming up"));
+
+    const { container } = renderLookup();
+    const textarea = await waitFor(() => {
+      const el = container.querySelector("textarea") as HTMLTextAreaElement;
+      expect(el).not.toBeNull();
+      return el;
+    });
+    fireEvent.change(textarea, { target: { value: "1.1.1.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+
+    resolveStatus({ warming_up: true, total_records: 0 });
+
+    await waitFor(() => expect(container.querySelector("[data-warmup]")).not.toBeNull());
+    expect(screen.queryByText("database is warming up")).toBeNull();
+    expect(screen.getByRole("button", { name: "Query" })).toBeDisabled();
+  });
+
+  it("a non-warming error still shows the generic error box without the banner", async () => {
+    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
+    (queryIpsStream as any).mockRejectedValue(new Error("boom"));
+
+    const { container } = renderLookup();
+    const textarea = await waitFor(() => {
+      const el = container.querySelector("textarea") as HTMLTextAreaElement;
+      expect(el).not.toBeNull();
+      return el;
+    });
+    fireEvent.change(textarea, { target: { value: "1.1.1.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+
+    await waitFor(() => expect(screen.getByText("boom")).not.toBeNull());
+    expect(container.querySelector("[data-warmup]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Query" })).toBeEnabled();
   });
 });
