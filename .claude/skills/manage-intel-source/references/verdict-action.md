@@ -3,7 +3,7 @@
 ## weight-invariant 警告(先读)
 
 降 SOURCE_RELIABILITY **不改 verdict、不改该源贡献的 IP**,只改 fusion 数值话语权 + STIX `x_reliability`。
-想真正改变采用状态(问题源别贡献 / misp 别报 fp)必须 **disable / tighten noise filter / 精简数据**,光降权对 MIXED/NEGATIVE 无效。
+想真正改变采用状态(问题源别贡献 / 某源别报 fp)必须 **disable / tighten noise filter / 精简数据**,光降权对 MIXED/NEGATIVE 无效。
 
 ## 全 lever 表
 

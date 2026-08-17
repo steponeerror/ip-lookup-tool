@@ -224,7 +224,7 @@ Real examples: `iptoasn.py` (gzip + range→CIDR + `single_evidence`),
 `cn_isp.py` (multi-file via its own rebuild override — not a harvest source;
 see §3b), `ip2proxy.py` (ZIP + range→CIDR + asset slots + `single_evidence`),
 `threatfox.py` (ZIP + per-row classification), `otx.py` (REST state machine),
-`misp.py` (REST + severity-driven reliability), `tweetfeed.py` / `urlhaus.py`
+`tweetfeed.py` / `urlhaus.py`
 (per-row tags + category priority), `geolite_city.py` (.mmdb input via
 maxminddb iteration — see the gray-zone table row). **Read `iptoasn.py`
 end-to-end before writing one of these** — it's the canonical minimal
@@ -238,7 +238,7 @@ template.
 | `rebuild()` | **The only write path.** Runs `harvest()`, groups evidence per CIDR (full-evidence dedup) — or streams, if `single_evidence` — and calls `rebuild_lmdb()`: new epoch dir → pointer swap → new readonly env via `reader_setter` → in-memory disjoint flag via `flag_setter`. Closes the old reader in `finally`. Overrides must pass `flag_setter` too (stale-flag = silent parent misses). |
 | `query(ip)` | Env read; on a closed-env hit, re-reads the pointer, reopens, retries once. |
 | `health()` | `SourceHealth` with `is_stale` from the data file's `st_mtime` (convention 4). |
-| `_http_get(url, *, headers, timeout, retries)` | **GET-only** staticmethod. Retries with exponential backoff, `User-Agent`, auth headers. **POST / JSON-body feeds must hand-roll HTTP** (see `misp.py`). |
+| `_http_get(url, *, headers, timeout, retries)` | **GET-only** staticmethod. Retries with exponential backoff, `User-Agent`, auth headers. **POST / JSON-body feeds must hand-roll HTTP**. |
 
 You override **two hooks** (`download` and `harvest`) and optionally `normalize`
 (an `Evidence → Evidence` post-harvest transform; no source uses it today —
@@ -636,10 +636,10 @@ not implemented; YAGNI until enough simple sources accrue.
 | Trigger | Example source |
 |---|---|
 | Row filtering (drop by value/threshold) | `ip2proxy.py` drops SES/WEB proxy_types |
-| Conditional field routing | `misp.py` severity-driven reliability |
+| Conditional field routing | `reportedip.py` per-code type grouping |
 | 1→many: one input row → many CIDRs | `iptoasn.py`, `ip2proxy.py` |
 | Nested archive (ZIP/gzip) | `threatfox.py`, `ip2proxy.py` |
-| REST state machine (cursor/pagination) | `otx.py`, `misp.py` |
+| REST state machine (cursor/pagination) | `otx.py` |
 | Multi-file load (one source, several files) | `cn_isp.py` (adjacent to §3c) |
 | Per-row evidence (timestamps/counts per row) | `otx.py`, `reportedip.py` |
 | `.mmdb` binary input | `geolite_city.py` — maxminddb>=2.0 read-only dep; mmap iteration in `harvest()`; single_evidence streaming |

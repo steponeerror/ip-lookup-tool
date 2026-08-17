@@ -146,7 +146,6 @@ SOURCE_CATEGORIES = {
     "ipsum": "threat",
     "firehol": "threat",
     "abuseipdb": "threat",
-    "misp": "threat",
     "stopforumspam": "threat",
     "binarydefense": "threat",
     "tweetfeed": "threat",

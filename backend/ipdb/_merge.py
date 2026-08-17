@@ -75,7 +75,6 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "otx":         0.55,
     # threat sources also consumed by STIX export x_reliability (_stix_export._get_src_reliability)
     "abuseipdb":   0.65,
-    "misp":        0.70,
     "stopforumspam": 0.70,
     "binarydefense": 0.65,
     "tweetfeed": 0.45,

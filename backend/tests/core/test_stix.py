@@ -57,10 +57,10 @@ def test_stix_surfaces_extra_details_malware_names_verdict_conflict():
     ca = ClassificationAssessment(
         type="c2-server", verdict="malicious", detected=True, confidence=85,
         algorithm="corroboration",
-        sources=[SourceAttribution("misp", True, 0.7, False)],
+        sources=[SourceAttribution("otx", True, 0.7, False)],
         corroborated=False, reporter_total=1, verdict_conflict=True,
         malware_names=["win.vidar"],
-        details=[{"source": "misp", "reliability": 0.7,
+        details=[{"source": "otx", "reliability": 0.7,
                   "extra": {"port": 443, "native_type": "c2-server"}}],
     )
     lr = LookupResult(

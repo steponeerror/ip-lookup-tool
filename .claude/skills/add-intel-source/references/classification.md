@@ -103,7 +103,6 @@ THREATFOX_MAP = {           # abuse.ch threat_type → IntelMQ
 BLOCKLIST_DE_MAP = { ... }  # attack code → IntelMQ
 PROXY_MAP = { ... }         # ip2proxy proxy_type → IntelMQ
 OTX_PROTOCOL_MAP = { ... }  # OTX pulse protocol keyword → IntelMQ
-MISP_CATEGORY_MAP = { ... }  # MISP category → IntelMQ (severity-driven; see misp.py)
 ```
 
 Rules for building a map:
@@ -116,9 +115,8 @@ Rules for building a map:
   `other` for it automatically. (ip2proxy's `DCH` is deliberately absent from
   `PROXY_MAP` for this reason — see the comment in the file.)
 - Use **lowercase** map keys — `normalize()` lowercases the raw value before
-  lookup. MISP's `Payload delivery` must be keyed `payload delivery`, or it
-  silently maps to `other`. (This silently broke the MISP source until a
-  pre-test self-check caught it.)
+  lookup. A native value like `Payload delivery` must be keyed
+  `payload delivery`, or it silently maps to `other`.
 
 ### Multi-value category columns
 

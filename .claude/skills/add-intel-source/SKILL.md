@@ -135,7 +135,7 @@ Is it a static file you download once and load into LMDB?
 │      machine / per-row classification with non-trivial mapping (priority
 │      fallback, tag filtering — plain per-row columns fit CsvSource §2) /
 │      .mmdb binary input?
-│        → Source subclass         (threatfox, ip2proxy, otx, iptoasn, misp…)
+│        → Source subclass         (threatfox, ip2proxy, otx, iptoasn…)
 │          implement download() + harvest() -> (cidr_str, Evidence) pairs;
 │          inherit rebuild() (LMDB write: per-CIDR accumulate + full-evidence
 │          dedup, or single_evidence streaming) / load() (pure mmap) /
