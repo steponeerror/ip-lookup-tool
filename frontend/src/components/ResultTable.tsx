@@ -14,7 +14,7 @@ interface ResultTableProps {
   results: LookupResult[];
 }
 
-type SortKey = "ip" | "asn" | "country" | "as_name" | "verdict" | "threat" | "ip_range";
+type SortKey = "ip" | "asn" | "country" | "city" | "as_name" | "verdict" | "threat" | "ip_range";
 
 // 基础设施类标签 (anonymizing infra): neutral, not malicious.
 const INFRA_TYPES = new Set(["tor", "proxy", "vpn", "hosting", "scanner_hosting"]);
@@ -371,6 +371,7 @@ export function ResultTable({ results }: ResultTableProps) {
       case "ip": return r.ip;
       case "asn": return typeof r.asn.value === "number" ? r.asn.value : 0;
       case "country": return r.country.value;
+      case "city": return r.city?.value ?? "";
       case "as_name": return r.as_name.value;
       case "verdict": return VERDICT_RANK[threatSummary(r).verdict] ?? 0;
       case "threat": {
@@ -440,6 +441,7 @@ export function ResultTable({ results }: ResultTableProps) {
     { key: "ip", label: "IP" },
     { key: "asn", label: "ASN", className: "w-24" },
     { key: "country", label: t("column.country"), className: "w-24" },
+    { key: "city", label: t("column.city"), className: "w-28" },
     { key: "as_name", label: t("ipDetail.org") },
     { key: "verdict", label: t("column.verdict"), className: "w-20 text-center" },
     { key: "threat", label: t("column.threat"), className: "min-w-[180px]" },
@@ -536,6 +538,11 @@ export function ResultTable({ results }: ResultTableProps) {
                   <td className={`px-3 py-2 font-semibold ${r.is_reserved ? "text-zinc-500" : "text-zinc-100"}`}>{r.ip}</td>
                   <ScoredCell value={r.asn.value} confidence={r.asn.confidence} />
                   <ScoredCell value={r.country.value} confidence={r.country.confidence} />
+                  {r.city && r.city.value !== null && r.city.value !== "" && r.city.value !== "N/A" ? (
+                    <ScoredCell value={r.city.value} confidence={r.city.confidence} />
+                  ) : (
+                    <td className="px-3 py-2 text-zinc-600">-</td>
+                  )}
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span className="text-zinc-300">{r.as_name.value}</span>
                     <span className={`ml-1 text-[10px] ${confTextColor(r.as_name.confidence)}`}>({r.as_name.confidence})</span>
@@ -571,7 +578,7 @@ export function ResultTable({ results }: ResultTableProps) {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.15 }}
                     >
-                      <td colSpan={7} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
+                      <td colSpan={8} className="px-5 py-3 bg-zinc-900/60 border-b border-zinc-800/40">
                         {r.is_reserved ? (
                           <div className="text-xs text-zinc-500">{t("reserved.notice")}</div>
                         ) : (
@@ -586,7 +593,7 @@ export function ResultTable({ results }: ResultTableProps) {
             })}
             {sorted.length === 0 && filter && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-xs text-zinc-600">
+                <td colSpan={8} className="px-4 py-8 text-center text-xs text-zinc-600">
                   {t("resultTable.noMatch", { filter })}
                 </td>
               </tr>

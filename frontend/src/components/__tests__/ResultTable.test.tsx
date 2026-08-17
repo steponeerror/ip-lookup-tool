@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent, within } from "@testing-library/react";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import { ResultTable } from "../ResultTable";
 import type { LookupResult } from "../../api";
@@ -43,6 +43,28 @@ describe("Expand disagreements toggle", () => {
     const collapse = screen.getByRole("button", { name: /collapse disagreements/i });
     fireEvent.click(collapse);
     expect(screen.getByRole("button", { name: /expand disagreements/i })).toBeInTheDocument();
+  });
+});
+
+describe("ResultTable city column", () => {
+  it("shows city value directly in the table without expanding", () => {
+    renderWithI18n(<ResultTable results={[lowConf]} />);
+    expect(screen.getByRole("columnheader", { name: "City" })).toBeInTheDocument();
+    expect(screen.getByText("Mountain View")).toBeInTheDocument();
+    // still collapsed — city visible without the detail panel
+    expect(screen.queryByText("Threat details")).not.toBeInTheDocument();
+  });
+
+  it("renders '-' for a row without city data", () => {
+    const noCity: LookupResult = {
+      ip: "198.51.100.7", country: mf("DE"), city: mf("N/A", 0), asn: mf(3320, 90),
+      as_name: mf("DTAG", 90), ip_range: mf("198.51.100.0/24", 90),
+      is_isp: false, classifications: {},
+    };
+    renderWithI18n(<ResultTable results={[noCity]} />);
+    const row = screen.getByText("198.51.100.7").closest("tr")!;
+    expect(within(row).getAllByText("-").length).toBeGreaterThanOrEqual(1);
+    expect(within(row).queryByText("N/A")).not.toBeInTheDocument();
   });
 });
 

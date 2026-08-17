@@ -60,6 +60,7 @@
   "asset.carrier": "Carrier",
   "asset.service": "Service",
 
+  "column.city": "City",
   "column.country": "Country",
   "column.verdict": "Verdict",
   "column.threat": "Threat",
