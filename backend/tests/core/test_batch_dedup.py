@@ -81,3 +81,42 @@ def test_epoch_fingerprint_includes_source_names(monkeypatch):
                         lambda: [FakeSrc("src_x"), FakeSrc("src_z")])
     fp_b = bp._epoch_fingerprint()
     assert fp_a != fp_b
+
+def test_dedup_lookup_pool_worker_bypasses_lru(monkeypatch):
+    """池 worker(_IN_POOL_WORKER=True)直查不走 LRU。"""
+    import ipdb._batch_pool as bp
+    import ipdb._registry as reg
+    calls = []
+    class Stub:
+        def __init__(self, ip): self.ip = ip
+        def to_dict(self): return {"ip": self.ip}
+    monkeypatch.setattr(reg, "lookup", lambda ip: (calls.append(ip), Stub(ip))[1])
+    hits = {"n": 0}
+    orig = bp._cached_lookup
+    def spy(ip, fp):
+        hits["n"] += 1
+        return orig.__wrapped__(ip, fp)
+    monkeypatch.setattr(bp, "_cached_lookup", spy)
+    monkeypatch.setattr(bp, "_IN_POOL_WORKER", True)
+    bp._dedup_lookup(["8.8.8.8", "8.8.8.8"])
+    assert hits["n"] == 0 and len(calls) == 1   # 直查+片内去重, 无 LRU
+    monkeypatch.setattr(bp, "_IN_POOL_WORKER", False)
+    bp._dedup_lookup(["8.8.8.8"])
+    assert hits["n"] >= 1   # 主进程走 LRU
+
+
+def test_epoch_fingerprint_time_bucket(monkeypatch):
+    """跨 5 分钟桶指纹不同; 同桶相同。
+
+    基准取 300 的整数倍(桶对齐): +299 仍在同桶, +301 跨入下一桶。
+    (1_000_000 非桶对齐——距桶界仅 200s, +299 即跨桶, 断言会假失败)
+    """
+    import ipdb._batch_pool as bp
+    T0 = 999_900.0  # = 3333 * 300, 桶对齐
+    monkeypatch.setattr(bp.time, "time", lambda: T0)
+    a = bp._epoch_fingerprint()
+    monkeypatch.setattr(bp.time, "time", lambda: T0 + 299)
+    b = bp._epoch_fingerprint()
+    monkeypatch.setattr(bp.time, "time", lambda: T0 + 301)
+    c = bp._epoch_fingerprint()
+    assert a == b and a != c
