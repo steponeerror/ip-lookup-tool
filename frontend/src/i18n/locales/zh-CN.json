@@ -123,6 +123,14 @@
   "dbStatus.statusUnavailable": "状态不可用",
   "dbStatus.updateFailed": "数据库更新失败",
 
+  "warmup.title": "数据库首次构建中",
+  "warmup.progress": "{done}/{total} 源",
+  "warmup.current": "当前: {source} ↓ {pct}",
+  "warmup.currentBytes": "当前: {source} ↓ {bytes}",
+  "warmup.hint": "构建完成后即可查询,请勿关闭页面",
+  "warmup.failed": "构建失败,请检查网络连接",
+  "warmup.retry": "重试构建",
+
   "sourceDetail.nativeTypeTitle": "源原生分类",
   "sourceDetail.comment": "评论",
   "sourceDetail.extraKeys": "额外 {n} 键",

@@ -123,6 +123,14 @@
   "dbStatus.statusUnavailable": "Status unavailable",
   "dbStatus.updateFailed": "Database update failed",
 
+  "warmup.title": "Building database for the first time",
+  "warmup.progress": "{done}/{total} sources",
+  "warmup.current": "Current: {source} ↓ {pct}",
+  "warmup.currentBytes": "Current: {source} ↓ {bytes}",
+  "warmup.hint": "Queries unlock once the build completes — please keep this page open",
+  "warmup.failed": "Build failed — please check your network connection",
+  "warmup.retry": "Retry build",
+
   "sourceDetail.nativeTypeTitle": "Source native category",
   "sourceDetail.comment": "comment",
   "sourceDetail.extraKeys": "extra {n} keys",
