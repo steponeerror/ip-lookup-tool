@@ -9,6 +9,9 @@ backend/data
 backend/.env
 .env
 .env.local
+**/.env*
+**/__pycache__
+**/.pytest_cache
 *.zip
 docs
 misp-docker
