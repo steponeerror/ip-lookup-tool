@@ -14,7 +14,7 @@
 
 ## 特性 | Features
 
-- **开箱即用，24/28 源不要密钥** —— 首次启动自动下载构建，≈4.7M 条记录入库；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
+- **开箱即用，24/28 源不需要密钥** —— 首次启动自动下载构建，≈4.7M 条记录入库；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
 - **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（源可靠性加权、交叉佐证、随时间衰减）。
 - **地理 · 城市 · ASN** —— GeoLite2 给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
 - **代理 · VPN · Tor · CDN，一眼认出来** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘，都标得清清楚楚。
@@ -173,7 +173,7 @@ curl -s http://127.0.0.1:8000/api/sources
 | `add-intel-source` | 已选定某个源，要完整接入 | “把 GreyNoise 加进来” |
 | `manage-intel-source` | 管理现有源：体检、更新、替换 | “看看各源的健康状况” |
 
-- **discover-intel-sources** —— 没想好加什么？说说你的要求（免费/密钥、数据类型、覆盖面），它去调研，带回一份带评估的候选清单。
+- **discover-intel-sources** —— 没想好加什么？说说你的要求（免费/密钥、数据类型、覆盖面），它去调研，带回一份附评估的候选清单。
 - **add-intel-source** —— 定了加谁就交给它：按仓库既有的接法一次到位——源文件、自动注册、分类映射、融合权重、回归测试。
 - **manage-intel-source** —— 发现→接入→评估，整个生命周期都管：给现有源做体检，把低信号的换掉。
 
@@ -242,7 +242,7 @@ cd frontend && npm test
 
 ## 许可证 | License
 
-AGPL-3.0，见 [LICENSE](LICENSE)；各情报源的使用条款各自保留。
+AGPL-3.0，见 [LICENSE](LICENSE)；各情报源有自己的使用条款。
 
 > AGPL-3.0, see [LICENSE](LICENSE); each intelligence feed keeps its own terms.
 
