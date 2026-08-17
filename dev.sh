@@ -12,7 +12,7 @@ cd "$PROJECT_ROOT"
 echo "[Backend] Starting..."
 cd backend
 source .venv/bin/activate
-.venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
+.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 cd ..
 
