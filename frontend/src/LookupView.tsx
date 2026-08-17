@@ -50,6 +50,7 @@ export default function LookupView() {
       } else {
         setResults(r.results);
         if (r.enrichError) setEnrichError(r.enrichError);
+        if (r.error) setError(r.error);
       }
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
@@ -85,6 +86,7 @@ export default function LookupView() {
       } else {
         setResults(r.results);
         if (r.enrichError) setEnrichError(r.enrichError);
+        if (r.error) setError(r.error);
       }
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
