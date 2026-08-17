@@ -42,17 +42,17 @@ flowchart TD
     F --> G["React UI"]
 ```
 
-全部数据在本地融合、本地存储、本地查询——不把你的查询发给任何第三方。
+融合、存储、查询，全在你本地——你的查询不发给任何第三方。
 
-> Everything is fused, stored, and queried locally — your lookups never leave your machine.
+> Fused, stored, and queried on your own machine — your lookups never leave it.
 
 ## 快速开始 | Quick Start
 
 ### Docker（自托管推荐）
 
-单容器跑起全栈（FastAPI 后端 + 构建好的前端）。要求 Docker Compose v2.24+（`docker compose version`）。
+一个容器装下全部（FastAPI 后端 + 构建好的前端）。Docker Compose 要 v2.24+（`docker compose version` 看一眼）。
 
-> The full stack (FastAPI backend + built frontend) in one container. Requires Docker with Compose v2.24+ (`docker compose version`).
+> The whole stack (FastAPI backend + built frontend) in one container. Docker Compose v2.24+ required (`docker compose version` to check).
 
 ```bash
 git clone https://github.com/steponeerror/ip-radar.git
@@ -60,22 +60,22 @@ cd ip-radar
 docker compose up -d --build
 ```
 
-打开 http://127.0.0.1:8000 。首次启动容器会先下载并构建全部免密钥源（28 个源中的 24 个，含地理/城市/ASN 与主要封禁列表）再开始服务——用 `docker compose logs -f` 看进度；之后每次启动都从 `ipradar-data` 卷秒级加载。
+打开 http://127.0.0.1:8000 。首次启动会先把 24 个免密钥源（共 28 个：地理/城市/ASN 加主要封禁列表）下载构建完才开张——`docker compose logs -f` 盯进度；往后每次启动直接读 `ipradar-data` 卷，秒级。
 
-> Open http://127.0.0.1:8000. On first start the container downloads and builds all keyless feeds (24 of the 28 sources, including geo/city/ASN and the major blocklists) before serving — watch progress with `docker compose logs -f`. Subsequent starts load from the `ipradar-data` volume in seconds.
+> Open http://127.0.0.1:8000. First start downloads and builds all 24 keyless feeds (of 28: geo/city/ASN plus the major blocklists) before serving — watch with `docker compose logs -f`. Every later start reads straight from the `ipradar-data` volume, in seconds.
 
-可选的密钥源（ipinfo_lite / abuseipdb / otx / ip2proxy，及 ipapi.is 增强）——把密钥放进 `.env.local`（已 gitignore，覆盖 `.env`）：
+想开 4 个密钥源（ipinfo_lite / abuseipdb / otx / ip2proxy）或 ipapi.is 增强？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
 
-> Optional API-keyed sources (ipinfo_lite / abuseipdb / otx / ip2proxy, and ipapi.is enrichment) — put keys in `.env.local` (gitignored, overrides `.env`):
+> Want the 4 keyed sources (ipinfo_lite / abuseipdb / otx / ip2proxy) or ipapi.is enrichment? Drop the keys into `.env.local` (gitignored, overrides `.env`):
 
 ```bash
 cp .env .env.local   # then open .env.local in any editor, fill keys; set IPAPI_IS_ENABLED=true if using ipapi.is
 docker compose up -d
 ```
 
-五个变量与申请入口（`.env` 内含同样注释）：
+五个变量，去哪申请（`.env` 里也有同样的注释）：
 
-> The five variables and where to apply for keys (`.env` carries the same comments):
+> The five variables, and where to apply for keys (`.env` carries the same comments):
 
 | 源 Source | 变量 Variable | 申请 Apply |
 |---|---|---|
@@ -85,9 +85,9 @@ docker compose up -d
 | ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
 | ipapi.is（付费增强） | `IPAPI_IS_KEY` + `IPAPI_IS_ENABLED=true` | <https://ipapi.is/> |
 
-npm/pip 下载慢（如国内网络）——传镜像 build-args：
+npm/pip 下载慢（国内网络常见）——传镜像 build-args：
 
-> Slow npm/pip downloads (e.g. CN networks) — pass mirror build-args:
+> Slow npm/pip downloads (common on CN networks) — pass mirror build-args:
 
 ```bash
 docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
@@ -98,14 +98,14 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 > Notes:
 
-- 端口默认只绑 `127.0.0.1`。要在局域网/公网暴露，改 `docker-compose.yml` 的 `ports` —— 本 API **没有任何鉴权**。
-- 每个源有自己的使用条款；商用责任自负（本仓库的 AGPL-3.0 只覆盖代码）。
-- 升级：`git pull && docker compose up -d --build` —— 数据卷保留。
-- 磁盘：为数据卷预留 ≥6 GB。
+- 端口默认只绑 `127.0.0.1`；要上局域网/公网，改 `docker-compose.yml` 的 `ports`——注意本 API **没有任何鉴权**。
+- 各源有自己的使用条款，商用责任自负（本仓库的 AGPL-3.0 只管代码）。
+- 升级：`git pull && docker compose up -d --build`，数据卷原地保留。
+- 磁盘：给数据卷留够 ≥6 GB。
 
-> - Port binds to 127.0.0.1 by default. To expose on LAN/public internet, edit `ports` in `docker-compose.yml` — the API has **no authentication**.
-> - Each feed has its own usage terms; commercial use is your responsibility (this repo's AGPL-3.0 license covers code only).
-> - Upgrade: `git pull && docker compose up -d --build` — the data volume survives.
+> - The port binds to 127.0.0.1 by default; to go LAN/public, edit `ports` in `docker-compose.yml` — mind that the API has **no authentication**.
+> - Each feed has its own usage terms; commercial use is your responsibility (this repo's AGPL-3.0 covers code only).
+> - Upgrade: `git pull && docker compose up -d --build` — the data volume stays right where it is.
 > - Disk: budget ≥6 GB for the data volume.
 
 ### 开发模式 | Development
