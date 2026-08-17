@@ -146,7 +146,7 @@ def _epoch_fingerprint():
     from ipdb import _registry
     from ipdb._sources._lmdb import read_ptr
     return tuple(
-        read_ptr(s._lmdb_base)
+        (s.name, read_ptr(s._lmdb_base))
         for s in _registry._enabled_sources()
         if hasattr(s, "_lmdb_base")
     )

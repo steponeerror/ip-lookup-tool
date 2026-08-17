@@ -167,3 +167,24 @@ def test_stream_pool_wait_non_bpp_error_done(monkeypatch):
         events = _drain_stream(client, ips)
     assert events[-1]["type"] == "done"
     assert events[-1].get("error") == "simulated worker crash"
+
+def test_stream_pool_error_empty_message_falls_back_to_type_name(monkeypatch):
+    """无消息异常(str(e)==""): done.error 兜底为类型名,
+    非空字符串不再绕过前端 `if (r.error)` 真值检查(静默截断回归)。"""
+    from concurrent.futures import Future
+    from ipdb import _registry
+    _registry.load_db()
+    import ipdb._batch_pool as bp
+
+    class _BoomSilent:
+        def submit(self, fn, *a, **kw):
+            fut = Future()
+            fut.set_exception(RuntimeError())   # str(e) == ""
+            return fut
+
+    monkeypatch.setattr(bp, "get_pool", lambda: _BoomSilent())
+    ips = ["203.0.113.%d" % i for i in range(250)]
+    with TestClient(main.app) as client:
+        events = _drain_stream(client, ips)
+    assert events[-1]["type"] == "done"
+    assert events[-1].get("error") == "RuntimeError"

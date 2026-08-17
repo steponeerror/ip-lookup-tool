@@ -159,7 +159,7 @@ def read_ptr(base: Path) -> int | None:
         return None
     try:
         return int(p.read_text().strip())
-    except ValueError:
+    except (ValueError, OSError):     # exists→read 竞态: FileNotFound/Permission 不炸整批
         return None
 
 

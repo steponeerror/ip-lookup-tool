@@ -124,6 +124,7 @@ async function readStream(
   let ipv6Unsupported = 0;
   let enrichError: string | null = null;
   let error: string | null = null;
+  let sawDone = false;
 
   const flushRows = () => {
     if (rowBuffer.length) {
@@ -157,6 +158,7 @@ async function readStream(
       } else if (evt.type === "progress") {
         onProgress({ done: evt.done, total: evt.total, phase: "lookup" });
       } else if (evt.type === "done") {
+        sawDone = true;
         invalidLines = evt.invalid_lines ?? 0;
         ipv6Unsupported = evt.ipv6_unsupported ?? 0;
         enrichError = evt.enrich_error ?? null;
@@ -164,6 +166,9 @@ async function readStream(
       }
     }
   }
+
+  // done 未到即 EOF(代理截断/进程被杀的干净关闭): 不视为成功
+  if (!sawDone && error == null) error = "stream ended before done";
 
   if (mode === "csv") {
     flushRows();

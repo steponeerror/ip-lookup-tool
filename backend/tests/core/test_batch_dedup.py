@@ -59,3 +59,25 @@ def test_dedup_lookup_repeated_ip_cached(monkeypatch):
     assert len(seen) == n_after_first
     assert len(a) == 3 and len(b) == 1
     assert b[0]["ip"] == "8.8.8.8"
+
+def test_epoch_fingerprint_includes_source_names(monkeypatch):
+    """指纹键带源名(位置元组碰撞回归): 全新安装所有源 ptr=1 时,
+    切换启用源集合后旧指纹(纯 ptr 元组)字节相同 → LRU 返回错误证据组合。
+    """
+    import ipdb._batch_pool as bp
+    import ipdb._registry as reg
+    import ipdb._sources._lmdb as lmdb_mod
+
+    class FakeSrc:
+        def __init__(self, name):
+            self.name = name
+            self._lmdb_base = f"/fake/{name}.lmdb"
+
+    monkeypatch.setattr(lmdb_mod, "read_ptr", lambda base: 1)  # 全新安装 ptr 恒 1
+    monkeypatch.setattr(reg, "_enabled_sources",
+                        lambda: [FakeSrc("src_x"), FakeSrc("src_y")])
+    fp_a = bp._epoch_fingerprint()
+    monkeypatch.setattr(reg, "_enabled_sources",
+                        lambda: [FakeSrc("src_x"), FakeSrc("src_z")])
+    fp_b = bp._epoch_fingerprint()
+    assert fp_a != fp_b
