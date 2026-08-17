@@ -167,9 +167,8 @@ def _cached_lookup(ip: str, epoch_fp: tuple) -> dict:
 
 def _dedup_lookup(ips: list[str]) -> list[dict]:
     """Chunk 级去重:唯一 IP 只走一次全管线,结果按输入顺序展开。
-    返回长度 == 输入长度(协议不变)。仅无池 inline 路径(主进程、顺序 chunk)
-    走 LRU;池 worker(_IN_POOL_WORKER)与有池主进程直查——恢复分支前
-    inline=全局去重/pooled=片内去重的各自语义,worker 侧零驻留。"""
+    返回长度 == 输入长度(协议不变)。主进程 inline 路径(无池全量 + 有池
+    ≤200 小批,顺序 chunk)走 LRU;池 worker(_IN_POOL_WORKER)直查零驻留。"""
     from ipdb import _registry
     if _IN_POOL_WORKER:
         def _get(ip):
