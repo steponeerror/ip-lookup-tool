@@ -4,9 +4,10 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _clear_lru_cache():
-    """每个测试前清空模块级 LRU,避免跨测试污染调用计数(epoch_fp 恒定)。"""
+    """每个测试前后都清空模块级 LRU,避免跨测试/跨文件污染(Stub 结果泄漏)。"""
     _batch_pool._cached_lookup.cache_clear()
     yield
+    _batch_pool._cached_lookup.cache_clear()
 
 def test_dedup_lookup_preserves_order_and_length(monkeypatch):
     import ipdb._registry as reg
