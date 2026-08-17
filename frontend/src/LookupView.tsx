@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { IpInput } from "./components/IpInput";
 import { FileUpload } from "./components/FileUpload";
 import { ResultTable } from "./components/ResultTable";
 import { ExportCsv } from "./components/ExportCsv";
 import { Modal } from "./components/Modal";
-import { queryIpsStream, uploadFileStream } from "./api";
+import { WarmupBanner } from "./components/WarmupBanner";
+import { getDbStatus, queryIpsStream, uploadFileStream } from "./api";
 import type { LookupResult, Progress } from "./api";
 import { useI18n } from "./i18n";
 
@@ -27,6 +28,18 @@ export default function LookupView() {
     ipv6: number;
   } | null>(null);
   const reduce = useReducedMotion();
+  const [warming, setWarming] = useState(false);
+
+  // 查询控件置灰联动:与 WarmupBanner 的轮询解耦(各持一份,避免跨组件状态提升)
+  useEffect(() => {
+    let alive = true;
+    const poll = () => getDbStatus().then(s => { if (alive) setWarming(s.warming_up); })
+                                .catch(() => {});
+    poll();
+    // 兜底 5s 轮询(与 WarmupBanner 一致,失败/断连时也能解锁)
+    const id = setInterval(poll, 5000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   const handleQuery = async (ips: string[]) => {
     setLoading(true);
@@ -102,6 +115,7 @@ export default function LookupView() {
     <div className="space-y-6">
       {/* Input Section */}
       <section>
+        <WarmupBanner />
         <div className="flex items-center gap-3">
           <div className="flex gap-1 rounded-lg bg-zinc-900 p-1">
             {(["text", "file"] as const).map((tabKey) => (
@@ -130,7 +144,7 @@ export default function LookupView() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
               >
-                <IpInput onQuery={handleQuery} loading={loading} progress={progress} />
+                <IpInput onQuery={handleQuery} loading={loading} progress={progress} disabled={warming} />
               </motion.div>
             ) : (
               <motion.div
@@ -140,7 +154,7 @@ export default function LookupView() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
               >
-                <FileUpload onUpload={handleUpload} loading={loading} progress={progress} />
+                <FileUpload onUpload={handleUpload} loading={loading} progress={progress} disabled={warming} />
               </motion.div>
             )}
           </AnimatePresence>
