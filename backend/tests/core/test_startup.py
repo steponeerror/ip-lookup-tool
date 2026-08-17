@@ -1,32 +1,39 @@
 """Lifespan decouple (Task 8): warm = immediate disk load + background refresh;
-cold = block via run_batch_blocking until the first batch settles.
+cold = background daemon thread via run_batch_blocking until the first batch settles.
 
-Tests focus on BRANCHING (cold→_do_cold_start, warm→_startup_warm) and on the
-_is_cold_start predicate's logic, not on load_db internals.
+Tests focus on BRANCHING (cold→_cold_start_background daemon thread,
+warm→_startup_warm) and on the _is_cold_start predicate's logic, not on
+load_db internals.
 """
-from unittest.mock import patch, ANY
+from unittest.mock import patch
 
 
 # ── _startup branching ────────────────────────────────────────────────
 
-def test_startup_cold_branch_calls_do_cold_start():
+def test_startup_cold_branch_starts_cold_start_background_thread(capsys):
+    import threading
+    import time
     import main
+    started = threading.Event()
+    def _fake_background():
+        started.set()
     with patch.object(main, "_is_cold_start", return_value=True), \
-         patch.object(main, "_do_cold_start") as cold, \
+         patch.object(main, "_cold_start_background", _fake_background), \
          patch.object(main, "_startup_warm") as warm:
         main._startup()
-    cold.assert_called_once()
     warm.assert_not_called()
+    time.sleep(0.05)  # let the daemon thread spin up and set the Event
+    assert started.is_set(), "background _cold_start_background thread not started"
 
 
 def test_startup_warm_branch_calls_startup_warm():
     import main
     with patch.object(main, "_is_cold_start", return_value=False), \
-         patch.object(main, "_do_cold_start") as cold, \
-         patch.object(main, "_startup_warm") as warm:
+         patch.object(main, "_startup_warm") as warm, \
+         patch.object(main, "_cold_start_background") as cold_bg:
         main._startup()
     warm.assert_called_once()
-    cold.assert_not_called()
+    cold_bg.assert_not_called()   # warm branch must not spawn a background build
 
 
 # ── _startup_warm body ────────────────────────────────────────────────
@@ -55,33 +62,30 @@ def test_startup_warm_skips_enqueue_when_no_stale():
     enqueue.assert_not_called()
 
 
-# ── _do_cold_start body ───────────────────────────────────────────────
+# ── _cold_start_background body ───────────────────────────────────────
 
-def test_do_cold_start_blocks_on_run_batch_blocking_with_offline_names():
+def test_cold_start_background_blocks_then_waits_settle():
     import main
-
-    class FakeSrc:
-        def __init__(self, name):
-            self.name = name
-
-    offline = [FakeSrc("a"), FakeSrc("b")]
-    with patch("ipdb._registry._enabled_sources", return_value=offline), \
-         patch("ipdb._registry._archetype", return_value="offline"), \
-         patch.object(main, "_ensure_valve_sampler"), \
-         patch.object(main.manager, "run_batch_blocking") as rbb:
-        main._do_cold_start()
-    rbb.assert_called_once_with(["a", "b"], timeout=ANY)
+    with patch.object(main, "_ensure_valve_sampler"), \
+         patch.object(main, "_offline_enabled_names", return_value=["a", "b"]), \
+         patch.object(main, "_cold_start_timeout", return_value=600), \
+         patch.object(main.manager, "run_batch_blocking", return_value="bid1") as rbb, \
+         patch.object(main.manager, "wait_batch_settled") as wbs:
+        main._cold_start_background()
+    rbb.assert_called_once_with(["a", "b"], timeout=600)
+    wbs.assert_called_once_with("bid1")
 
 
-def test_do_cold_start_noop_when_no_offline_sources():
+def test_cold_start_background_noop_when_no_offline_sources():
     """Empty offline list → no blocking call (avoids needless wait)."""
     import main
-    with patch("ipdb._registry._enabled_sources", return_value=[]), \
-         patch("ipdb._registry._archetype", return_value="offline"), \
-         patch.object(main, "_ensure_valve_sampler"), \
-         patch.object(main.manager, "run_batch_blocking") as rbb:
-        main._do_cold_start()
+    with patch.object(main, "_ensure_valve_sampler"), \
+         patch.object(main, "_offline_enabled_names", return_value=[]), \
+         patch.object(main.manager, "run_batch_blocking") as rbb, \
+         patch.object(main.manager, "wait_batch_settled") as wbs:
+        main._cold_start_background()
     rbb.assert_not_called()
+    wbs.assert_not_called()
 
 
 # ── _is_cold_start predicate ──────────────────────────────────────────
