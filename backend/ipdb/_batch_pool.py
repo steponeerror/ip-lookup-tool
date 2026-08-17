@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+import functools
 
 _log = logging.getLogger(__name__)
 
@@ -137,17 +138,39 @@ def _init_worker():
     _registry.load_db()
 
 
+def _epoch_fingerprint():
+    """离线源 epoch 指纹: 任一源后台刷新换 epoch → 指纹变 → LRU 自动失效。
+
+    只含离线源(有 _lmdb_base 者); ApiSource(在线, query-on-demand)不参与。
+    """
+    from ipdb import _registry
+    from ipdb._sources._lmdb import read_ptr
+    return tuple(
+        read_ptr(s._lmdb_base)
+        for s in _registry._enabled_sources()
+        if hasattr(s, "_lmdb_base")
+    )
+
+
+@functools.lru_cache(maxsize=2048)
+def _cached_lookup(ip: str, epoch_fp: tuple) -> dict:
+    """有界 LRU: 只读契约 —— 返回 dict 不 mutate。epoch_fp 进键保时效。"""
+    from ipdb import _registry
+    return _registry.lookup(ip).to_dict()
+
+
 def _dedup_lookup(ips: list[str]) -> list[dict]:
     """Chunk 级去重:唯一 IP 只走一次全管线,结果按输入顺序展开。
     返回长度 == 输入长度(协议不变,main.py 三条路径零改动)。"""
     from ipdb import _registry
+    epoch_fp = _epoch_fingerprint()
     unique: list[str] = []
     seen: dict[str, int] = {}
     for ip in ips:
         if ip not in seen:
             seen[ip] = len(unique)
             unique.append(ip)
-    results = [_registry.lookup(ip).to_dict() for ip in unique]
+    results = [_cached_lookup(ip, epoch_fp) for ip in unique]
     return [results[seen[ip]] for ip in ips]
 
 
