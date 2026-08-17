@@ -22,8 +22,14 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<TaskState[]>([]);
   const [batch, setBatch] = useState<BatchState | null>(null);
   const tasksRef = useRef<Record<string, TaskState>>({});
+  // True while a getTasks() fetch is in flight AND an SSE event has since
+  // arrived. Prevents a slow getTasks() snapshot (e.g. cold-start first load)
+  // from overwriting a fresher SSE event with stale state. Reset at every
+  // fetch start so reconnect-time resyncs still apply when no SSE interleaves.
+  const sseSawRef = useRef(false);
 
   const applyEvent = (e: any) => {
+    sseSawRef.current = true;
     if (e.type === "snapshot" && e.data) {
       tasksRef.current = Object.fromEntries(e.data.tasks.map((t: TaskState) => [t.id, t]));
       setTasks(Object.values(tasksRef.current));
@@ -47,8 +53,10 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     const resync = async () => {
+      sseSawRef.current = false; // this fetch wins unless SSE interleaves
       const snap = await getTasks();
       if (!alive) return;
+      if (sseSawRef.current) return; // an SSE event landed mid-fetch — it's fresher
       tasksRef.current = Object.fromEntries(snap.tasks.map((t) => [t.id, t]));
       setTasks(Object.values(tasksRef.current));
       setBatch(snap.batch);
