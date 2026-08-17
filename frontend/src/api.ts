@@ -86,6 +86,7 @@ export interface StreamOutcome {
   invalidLines: number;
   ipv6Unsupported: number;
   enrichError?: string | null;
+  error?: string | null;   // backend done.error (spec §4)
   total: number;
 }
 
@@ -122,6 +123,7 @@ async function readStream(
   let invalidLines = 0;
   let ipv6Unsupported = 0;
   let enrichError: string | null = null;
+  let error: string | null = null;
 
   const flushRows = () => {
     if (rowBuffer.length) {
@@ -158,6 +160,7 @@ async function readStream(
         invalidLines = evt.invalid_lines ?? 0;
         ipv6Unsupported = evt.ipv6_unsupported ?? 0;
         enrichError = evt.enrich_error ?? null;
+        error = evt.error ?? null;
       }
     }
   }
@@ -166,16 +169,16 @@ async function readStream(
     flushRows();
     if (csvParts.length > 1) {  // more than just the header → has rows
       downloadCsv(csvParts);
-      return { results: [], csvDownloaded: true, invalidLines, ipv6Unsupported, enrichError, total };
+      return { results: [], csvDownloaded: true, invalidLines, ipv6Unsupported, enrichError, error, total };
     }
-    return { results: [], csvDownloaded: false, invalidLines, ipv6Unsupported, enrichError, total };
+    return { results: [], csvDownloaded: false, invalidLines, ipv6Unsupported, enrichError, error, total };
   }
 
   // table mode — reassemble in idx order
   const results = Array.from({ length: total }, (_, i) => resultsByIdx.get(i)).filter(
     (x): x is LookupResult => x !== undefined,
   );
-  return { results, csvDownloaded: false, invalidLines, ipv6Unsupported, enrichError, total };
+  return { results, csvDownloaded: false, invalidLines, ipv6Unsupported, enrichError, error, total };
 }
 
 function streamFetchTimeout(controller: AbortController, connectMs = 30_000, idleMs = 120_000) {
