@@ -9,8 +9,6 @@ services:
         required: true
       - path: .env.local
         required: false
-    environment:
-      - TZ=${TZ:-UTC}
     volumes:
       - ipradar-data:/app/data
     restart: unless-stopped
