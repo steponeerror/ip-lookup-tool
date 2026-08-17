@@ -228,9 +228,9 @@ AGPL-3.0 —— 见 [LICENSE](LICENSE)。各情报源保留各自的使用条款
 
 ## 关于这份代码 | About This Code
 
-这个项目是 vibe coding 写出来的——与人结对的不是人，是 AI。它必然有这样那样的问题；请多包涵，也欢迎到 [Issues](https://github.com/steponeerror/ip-radar/issues) 告诉我哪里不对。
+这个项目是 vibe coding 写出来的。它必然有这样那样的问题；请多包涵，也欢迎到 [Issues](https://github.com/steponeerror/ip-radar/issues) 告诉我哪里不对。
 
-> This project was written by vibe coding — the pair partner wasn't human, it was AI. It surely has its quirks and rough edges; please be understanding, and file an [issue](https://github.com/steponeerror/ip-radar/issues) when you spot one.
+> This project was written by vibe coding. It surely has its quirks and rough edges; please be understanding, and file an [issue](https://github.com/steponeerror/ip-radar/issues) when you spot one.
 
 ## 后记 | Epilogue
 
