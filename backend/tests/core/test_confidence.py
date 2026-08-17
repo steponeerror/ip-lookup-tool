@@ -21,28 +21,39 @@ class TestFactualVoting:
         assert result.value == "CN"
         assert result.confidence == 50
 
-    def test_all_agree_confidence_85(self, monkeypatch):
+    def test_all_agree_confidence_100(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
                             {"s1": 0.80, "s2": 0.80, "s3": 0.80})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default="N/A")
         result = fv.merge({"s1": "CN", "s2": "CN", "s3": "CN"}, {})
         assert result.value == "CN"
-        assert result.confidence == 85
+        assert result.confidence == 100
 
-    def test_majority_confidence(self, monkeypatch):
-        """2 of 3 → confidence = 50 + (2-1)/(3-1)*20 = 60"""
+    def test_majority_confidence_67(self, monkeypatch):
+        """2/3 equal rel → Σ1.6/Σ2.4 = 66.67 → half-up 67"""
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
                             {"s1": 0.80, "s2": 0.80, "s3": 0.80})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default="N/A")
         result = fv.merge({"s1": "CN", "s2": "CN", "s3": "US"}, {})
         assert result.value == "CN"
-        assert result.confidence == 60
+        assert result.confidence == 67
+
+    def test_weighted_share_5_of_6_83(self, monkeypatch):
+        """5×0.6 vs 1×0.6 → Σ3.0/Σ3.6 = 83.33 → 83"""
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
+                            {f"s{i}": 0.6 for i in range(1, 7)})
+        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
+        fv = FactualVoting(default="N/A")
+        values = {f"s{i}": "CN" for i in range(1, 6)}
+        values["s6"] = "US"
+        result = fv.merge(values, {})
+        assert result.value == "CN"
+        assert result.confidence == 83
 
     def test_filters_empty_string(self, monkeypatch):
-        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
-                            {"s1": 0.80, "s2": 0.80})
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"s1": 0.80, "s2": 0.80})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default="N/A")
         result = fv.merge({"s1": "", "s2": "CN"}, {})
@@ -50,8 +61,7 @@ class TestFactualVoting:
         assert result.confidence == 50
 
     def test_filters_na_string(self, monkeypatch):
-        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
-                            {"s1": 0.80, "s2": 0.80})
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"s1": 0.80, "s2": 0.80})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default="N/A")
         result = fv.merge({"s1": "N/A", "s2": "CN"}, {})
@@ -59,8 +69,7 @@ class TestFactualVoting:
         assert result.confidence == 50
 
     def test_all_invalid_returns_default_zero(self, monkeypatch):
-        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
-                            {"s1": 0.80, "s2": 0.80})
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"s1": 0.80, "s2": 0.80})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default="N/A")
         result = fv.merge({"s1": "", "s2": "N/A"}, {})
@@ -68,22 +77,20 @@ class TestFactualVoting:
         assert result.confidence == 0
 
     def test_asn_zero_filtered(self, monkeypatch):
-        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
-                            {"s1": 0.80, "s2": 0.80})
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"s1": 0.80, "s2": 0.80})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default=0)
         result = fv.merge({"s1": 0, "s2": 4134}, {})
         assert result.value == 4134
         assert result.confidence == 50
 
-    def test_asn_all_agree_confidence_85(self, monkeypatch):
-        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
-                            {"s1": 0.80, "s2": 0.80})
+    def test_asn_all_agree_confidence_100(self, monkeypatch):
+        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY", {"s1": 0.80, "s2": 0.80})
         monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
         fv = FactualVoting(default=0)
         result = fv.merge({"s1": 4134, "s2": 4134}, {})
         assert result.value == 4134
-        assert result.confidence == 85
+        assert result.confidence == 100
 
 
 class TestNamingAuthority:

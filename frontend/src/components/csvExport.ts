@@ -7,7 +7,8 @@ export const CSV_HEADER =
   "is_isp,verdict,verdict_confidence,threat_tags," +
   "reporter_total,verdict_conflict,corroborated,malware_names,top_reliability," +
   "ip_range,range_confidence,error," +
-  "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier,service,service_provider\n";
+  "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier,service,service_provider," +
+  "city,city_confidence\n";
 
 export function aggregateThreatDepth(r: LookupResult) {
   const cas = Object.values(r.classifications);
@@ -95,6 +96,8 @@ export function buildCsvRow(r: LookupResult): string {
     csvEscape(assetVal(r, "carrier")),
     csvEscape(assetVal(r, "service")),
     csvEscape(assetNative(r, "service")),
+    csvEscape(String(r.city?.value ?? "")),
+    String(r.city?.confidence ?? 0),
   ].join(",");
 }
 

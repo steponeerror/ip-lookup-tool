@@ -113,12 +113,14 @@ class LookupResult:
     attributes: dict = field(default_factory=dict)   # dict[str, list[AssetStatement]] — pure陈述
     error: str | None = None
     is_reserved: bool = False
+    city_zh: Optional[str] = None      # display-only zh name of winning city
 
     def to_dict(self) -> dict:
         return {
             "ip": self.ip,
             "country": _field_to_dict(self.country),
             "city": _field_to_dict(self.city),
+            "city_zh": self.city_zh,
             "asn": _field_to_dict(self.asn),
             "as_name": _field_to_dict(self.as_name),
             "ip_range": _field_to_dict(self.ip_range),

@@ -11,7 +11,7 @@ const mf = <T,>(value: T, confidence = 95) => ({
 
 const reserved: LookupResult = {
   ip: "10.0.0.1",
-  country: mf("N/A", 0), asn: mf(0, 0), as_name: mf("N/A", 0),
+  country: mf("N/A", 0), city: mf("N/A", 0), asn: mf(0, 0), as_name: mf("N/A", 0),
   ip_range: mf("N/A", 0), is_isp: false, classifications: {},
   is_reserved: true,
 };
@@ -24,7 +24,7 @@ describe("ResultTable reserved rows", () => {
 });
 
 const lowConf: LookupResult = {
-  ip: "203.0.113.5", country: mf("US", 50), asn: mf(64500, 50),
+  ip: "203.0.113.5", country: mf("US", 50), city: mf("Mountain View", 50), asn: mf(64500, 50),
   as_name: mf("Example", 50), ip_range: mf("203.0.113.0/24", 50),
   is_isp: false, classifications: {},
 };
@@ -50,7 +50,7 @@ describe("ResultTable service badge", () => {
   it("renders 'Service: <provider>' for an infra asset statement", () => {
     const dns: LookupResult = {
       ip: "8.8.8.8",
-      country: mf("US"), asn: mf(15169), as_name: mf("Google"),
+      country: mf("US"), city: mf("Mountain View"), asn: mf(15169), as_name: mf("Google"),
       ip_range: mf("8.8.8.0/24"), is_isp: true, classifications: {},
       attributes: { service: [{ source: "infra_services", value: "dns", native_type: "Google Public DNS" }] },
     };

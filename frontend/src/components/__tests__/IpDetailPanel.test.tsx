@@ -12,6 +12,7 @@ const mf = <T,>(value: T, confidence = 95) => ({
 const r: LookupResult = {
   ip: "8.8.8.8",
   country: mf("US"),
+  city: mf("Mountain View"),
   asn: mf(15169),
   as_name: mf("Google"),
   ip_range: mf("8.8.8.0/24"),
@@ -50,5 +51,46 @@ describe("IpDetailPanel", () => {
     const clean = { ...r, classifications: {} };
     renderWithI18n(<IpDetailPanel r={clean} />);
     expect(screen.getByText("No hits")).toBeInTheDocument();
+  });
+
+  it("renders city row between country and ASN with zh suffix", () => {
+    const withCity: LookupResult = {
+      ...r,
+      city: mf("Mountain View"),
+      city_zh: "山景城",
+    };
+    renderWithI18n(<IpDetailPanel r={withCity} />);
+    expect(screen.getByText("City")).toBeInTheDocument();
+    expect(screen.getAllByText("Mountain View").length).toBeGreaterThan(0);
+    expect(screen.getByText("山景城")).toBeInTheDocument();
+    const rows = screen.getAllByText(/Mountain View/);
+    const countryIdx = screen.getByText("Country").compareDocumentPosition(
+      screen.getByText("City"),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(countryIdx).toBeTruthy();
+    expect(rows.length).toBeGreaterThan(0);
+  });
+
+  it("groups divergent answers with counts, winner first (single row asserts)", () => {
+    const grouped: LookupResult = {
+      ...r,
+      country: {
+        value: "CN", confidence: 75, algorithm: "voting",
+        sources: [
+          { source: "cn_isp", value: "CN", reliability: 0.85, authoritative: false },
+          { source: "geolite", value: "CN", reliability: 0.85, authoritative: false },
+          { source: "iptoasn", value: "CN", reliability: 0.8, authoritative: false },
+          { source: "other", value: "US", reliability: 0.4, authoritative: false },
+        ],
+      },
+    };
+    renderWithI18n(<IpDetailPanel r={grouped} />);
+    expect(screen.getByText("CN (3)")).toBeInTheDocument();
+    expect(screen.getByText("US (1)")).toBeInTheDocument();
+  });
+
+  it("does not group when single valid source", () => {
+    renderWithI18n(<IpDetailPanel r={r} />);
+    expect(screen.queryByText(/\(\d\)/)).toBeNull();
   });
 });

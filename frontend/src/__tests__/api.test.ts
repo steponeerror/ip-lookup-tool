@@ -204,6 +204,7 @@ describe("queryIpsStream (row protocol v2)", () => {
       const r: any = {
         ip: `10.0.0.${i}`,
         country: { value: "", confidence: 0, algorithm: "", sources: [] },
+        city: { value: "", confidence: 0, algorithm: "", sources: [] },
         asn: { value: 0, confidence: 0, algorithm: "", sources: [] },
         as_name: { value: "", confidence: 0, algorithm: "", sources: [] },
         ip_range: { value: "", confidence: 0, algorithm: "", sources: [] },

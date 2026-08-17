@@ -50,6 +50,8 @@ export interface ClassificationAssessment {
 export interface LookupResult {
   ip: string;
   country: MergedField<string>;
+  city: MergedField<string>;
+  city_zh?: string | null;
   asn: MergedField<number | string>;
   as_name: MergedField<string>;
   ip_range: MergedField<string>;
