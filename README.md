@@ -161,6 +161,26 @@ curl -s http://127.0.0.1:8000/api/sources
 
 > Management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes directly too.
 
+## 用 AI 扩展数据源 | Extending Sources with AI
+
+仓库自带三个 Claude Code skills（`.claude/skills/`）。装了 [Claude Code](https://claude.com/claude-code) 的访客，一句自然语言就能驱动加源全流程：
+
+> The repo ships three Claude Code skills (`.claude/skills/`). With [Claude Code](https://claude.com/claude-code) installed, one sentence of plain language drives the whole add-a-source workflow:
+
+| Skill | 什么时候用 When | 一句话示例 Example |
+|---|---|---|
+| `discover-intel-sources` | 还没想好加哪个源，先要候选清单与评估 | “帮我找几个值得加的威胁情报源” |
+| `add-intel-source` | 已选定某个源，要完整接入 | “把 GreyNoise 加进来” |
+| `manage-intel-source` | 管理现有源：体检、更新、替换 | “看看各源的健康状况” |
+
+- **discover-intel-sources** —— 按你的约束（免费/密钥、数据类型、覆盖面）调研候选源，给出带评估的清单，帮你决定加哪个。
+- **add-intel-source** —— 把选定的源按仓库既有契约一次接到位：源文件、自动注册、分类映射、融合权重、回归测试。
+- **manage-intel-source** —— 跑完整的发现→接入→评估生命周期：体检现有源，替换低信号源。
+
+> - **discover-intel-sources** — researches candidate feeds under your constraints (free/keyed, data type, coverage) and returns an evaluated shortlist.
+> - **add-intel-source** — wires the chosen source in under the repo's established contract: source file, auto-registration, classification map, fusion weight, regression tests.
+> - **manage-intel-source** — runs the full discover→add→evaluate lifecycle: health-check existing sources, replace low-signal ones.
+
 ## 数据源与致谢 | Data Sources & Acknowledgments
 
 以下每一份数据都属于其提供方——感谢它们的开放与持续维护。🔑 = 需要免费/付费密钥（填法见[快速开始](#快速开始--quick-start)）；`*` = 聚合源，荣誉归其上游列表的维护者。
