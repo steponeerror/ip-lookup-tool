@@ -1,8 +1,8 @@
 # IP Radar
 
-自托管的多源 IP 威胁情报融合引擎：28 个公开源熔成一份裁决，证据、置信度、地理与 ASN 俱全，一条命令跑起来。
+把 28 个公开情报源搬回家：查任何 IP，拿一份说人话的裁决——证据、置信度、地理、ASN 一次看全。一条命令，自己部署。
 
-> Self-hosted multi-source IP threat-intelligence fusion: 28 public feeds fused into one verdict — with evidence, confidence, geo & ASN — one command away.
+> Pull 28 public threat feeds into your own box: every lookup comes back with a verdict in plain words — evidence, confidence, geo & ASN, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -14,19 +14,19 @@
 
 ## 特性 | Features
 
-- **24/28 源免密钥开箱即用** —— 首次启动自动下载构建全部免密钥源，≈4.7M 条记录入库；其余 4 个 🔑 源的密钥填法见[快速开始](#快速开始--quick-start)。
-- **多源融合裁决** —— 单 IP 一句话结论 + 逐源证据表 + 0-100 置信度（按源可靠性加权、交叉佐证、随时间衰减）。
-- **地理 · 城市 · ASN** —— GeoLite2 城市、iptoasn 自治域、CN ISP 归属识别（含港澳台）。
-- **代理 · VPN · Tor · CDN 边缘识别** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘一览。
-- **单容器全栈 + 自适应内存阀** —— `docker compose up -d --build` 即得；按宿主机内存自动限并发，默认每 30 分钟后台刷新。
-- **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认未装 `stix2`，`pip install stix2` 后启用。
+- **开箱即用，24/28 源不要密钥** —— 首次启动自动下载构建，≈4.7M 条记录入库；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
+- **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（源可靠性加权、交叉佐证、随时间衰减）。
+- **地理 · 城市 · ASN** —— GeoLite2 给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
+- **代理 · VPN · Tor · CDN，一眼认出来** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘，都标得清清楚楚。
+- **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，默认每 30 分钟后台刷新。
+- **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认不带 `stix2`，`pip install stix2` 装上即开。
 
-> - **24 of 28 feeds work with zero API keys** — first start auto-downloads and builds every keyless feed into ≈4.7M records; keys for the other 4 🔑 sources go in [Quick Start](#快速开始--quick-start).
-> - **Fused verdicts, not raw lists** — one verdict per IP with per-source evidence, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
-> - **Geo · City · ASN** — GeoLite2 city, ASN ranges, and classification across China ISPs (mainland + HK/MO/TW).
-> - **Proxy · VPN · Tor · CDN-edge detection** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges.
-> - **One container, self-limiting memory valve** — `docker compose up -d --build` and you're serving; concurrency adapts to host RAM, background refresh every 30 min by default.
-> - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to enable.
+> - **24 of 28 feeds need zero API keys** — first start downloads and builds them all into ≈4.7M records; to light up the other 4 🔑 sources, see [Quick Start](#快速开始--quick-start).
+> - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
+> - **Geo · City · ASN** — GeoLite2 for the city, iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
+> - **Proxy · VPN · Tor · CDN, spotted at a glance** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges, all labeled.
+> - **One container, memory that behaves** — `docker compose up -d --build` and you're serving; concurrency bends to host RAM, background refresh every 30 min by default.
+> - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to switch it on.
 
 ![干净 IP 的地理富化](assets/feature-geo.png)
 
