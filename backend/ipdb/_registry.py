@@ -182,7 +182,17 @@ def _db_loaded() -> bool:
     of _sources and _disabled so it recomputes only when the source set or
     enabled-state changes (not per lookup). Background per-source reloads do not
     change those identities; a briefly-stale True during a reload is benign —
-    the query loop treats a None reader as an empty result for that source."""
+    the query loop treats a None reader as an empty result for that source.
+
+    Caller contract: the ONLY callers are lookup() and main.require_ready.
+    Neither is reached before the DB is ready (require_ready gates the 4 query
+    endpoints; lookup() is called only from those endpoints). So the first
+    _db_loaded() call in a process always happens AFTER readers are loaded,
+    meaning the cached False from a pre-ready probe (if any) cannot survive
+    into a ready-state lookup. Do NOT add new callers that invoke this before
+    readers are loaded — a stale-False cache hit would wrongly raise
+    RuntimeError("Database not loaded") from lookup().
+    """
     key = (id(_sources), id(_disabled))
     if _loaded_cache["key"] == key:
         return _loaded_cache["value"]
