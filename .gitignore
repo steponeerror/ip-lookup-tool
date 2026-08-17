@@ -21,7 +21,8 @@ backend/data/
 Thumbs.db
 
 # Secrets
-.env
+/.env.local
+backend/.env
 *.pem
 *.key
 

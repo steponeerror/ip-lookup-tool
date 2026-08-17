@@ -1,0 +1,24 @@
+services:
+  ipradar:
+    build: .
+    image: ipradar:latest
+    ports:
+      - "127.0.0.1:${IPRADAR_PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: true
+      - path: .env.local
+        required: false
+    environment:
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ipradar-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/db-status', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 1800s   # 容纳冷启动阻塞构建; warm 路径秒级不受影响
+volumes:
+  ipradar-data:
