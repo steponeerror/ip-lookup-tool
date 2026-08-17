@@ -16,14 +16,14 @@
 
 - **24/28 源免密钥开箱即用** —— 首次启动自动下载构建全部免密钥源，≈4.7M 条记录入库。
 - **多源融合裁决** —— 单 IP 一句话结论 + 逐源证据表 + 0-100 置信度（按源可靠性加权、交叉佐证、随时间衰减）。
-- **地理 · 城市 · ASN** —— GeoLite2 城市、iptoasn 自治域、CN 五大 ISP 归属识别。
+- **地理 · 城市 · ASN** —— GeoLite2 城市、iptoasn 自治域、CN ISP 归属识别（含港澳台）。
 - **代理 · VPN · Tor · CDN 边缘识别** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘一览。
 - **单容器全栈 + 自适应内存阀** —— `docker compose up -d --build` 即得；按宿主机内存自动限并发，默认每 30 分钟后台刷新。
 - **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认未装 `stix2`，`pip install stix2` 后启用。
 
 > - **24 of 28 feeds work with zero API keys** — first start auto-downloads and builds every keyless feed into ≈4.7M records.
 > - **Fused verdicts, not raw lists** — one verdict per IP with per-source evidence, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
-> - **Geo · City · ASN** — GeoLite2 city, ASN ranges, and classification across the five major China ISPs.
+> - **Geo · City · ASN** — GeoLite2 city, ASN ranges, and classification across China ISPs (mainland + HK/MO/TW).
 > - **Proxy · VPN · Tor · CDN-edge detection** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges.
 > - **One container, self-limiting memory valve** — `docker compose up -d --build` and you're serving; concurrency adapts to host RAM, background refresh every 30 min by default.
 > - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to enable.
@@ -136,7 +136,7 @@ cd frontend && npm run dev
 ```bash
 # 核心查询 | core lookup
 curl -s http://127.0.0.1:8000/api/lookup/1.12.0.1
-# → {"ip":"1.12.0.1","verdict":"...","confidence":..,"country":{"value":"CN",..},"city":{"value":"Guangzhou",..},"asn":{"value":..},"sources":[..]}
+# → {"ip":"1.12.0.1","country":{"value":"CN",..},"city":{"value":"Guangzhou",..},"asn":{"value":132203,..},"classifications":{..},"attributes":{..}}
 
 # 记录数与状态 | record count & status
 curl -s http://127.0.0.1:8000/api/db-status
@@ -184,7 +184,7 @@ curl -s http://127.0.0.1:8000/api/sources
 |---|---|---|---|
 | geolite_city | [MaxMind GeoLite2](https://github.com/P3TERX/GeoLite.mmdb) | City / geo per IP | |
 | iptoasn | [IPtoASN](https://iptoasn.com/) | ASN + AS-name ranges | |
-| cn_isp | [clang.cn ISP ranges](https://ispip.clang.cn/) | China ISP classification (5 ISPs) | |
+| cn_isp | [clang.cn ISP ranges](https://ispip.clang.cn/) | China ISP classification (mainland + HK/MO/TW) | |
 | ipinfo_lite | [IPinfo](https://ipinfo.io/) | Country / ASN / ranges enrichment | 🔑 |
 
 ### 资产与网络面 | Asset & Network Surface
@@ -213,6 +213,12 @@ cd frontend && npm test
 AGPL-3.0 —— 见 [LICENSE](LICENSE)。各情报源保留各自的使用条款。
 
 > AGPL-3.0 — see [LICENSE](LICENSE). Intelligence feeds keep their own terms.
+
+## 关于这份代码 | About This Code
+
+这个项目是 vibe coding 写出来的——与人结对的不是人，是 AI。它必然有这样那样的问题；请多包涵，也欢迎到 [Issues](https://github.com/steponeerror/ip-lookup-tool/issues) 告诉我哪里不对。
+
+> This project was written by vibe coding — the pair partner wasn't human, it was AI. It surely has its quirks and rough edges; please be understanding, and file an [issue](https://github.com/steponeerror/ip-lookup-tool/issues) when you spot one.
 
 ## 后记 | Epilogue
 
