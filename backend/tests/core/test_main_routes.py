@@ -198,6 +198,21 @@ class TestWarmingUpGate:
         import main
         cls.client = TestClient(main.app)
 
+    def setup_method(self):
+        """Default per-test module state: warm-start view (not inside the
+        cold-start integral window). Swaps in a fresh Event so a test that
+        clears it can never touch the module's original object."""
+        import main
+        self._orig_event = main._COLD_START_DONE
+        main._COLD_START_DONE = threading.Event()
+        main._COLD_START_DONE.set()          # default: not in cold-start window
+        main._COLD_START_TRIGGERED = False
+
+    def teardown_method(self):
+        import main
+        main._COLD_START_DONE = self._orig_event
+        main._COLD_START_TRIGGERED = False
+
     def test_db_status_has_warming_up_field(self):
         resp = self.client.get("/api/db-status")
         assert resp.status_code == 200
@@ -240,9 +255,62 @@ class TestWarmingUpGate:
             assert self.client.get("/api/tasks").status_code == 200
             assert self.client.get("/api/sources").status_code == 200
 
+    def test_integral_window_503_until_batch_settles(self):
+        """Regression (integral gate): once the first source's rebuild flips
+        _db_loaded() True, ALL query endpoints STILL return 503 until the
+        cold-start batch settles (_COLD_START_DONE). The old gate released
+        here and served partial-coverage verdicts (malicious IPs read clean)."""
+        import main
+        from ipdb import load_db
+        load_db()  # real readers exist so the post-settle lookup returns 200
+        main._COLD_START_TRIGGERED = True
+        main._COLD_START_DONE.clear()        # batch still building
+        with patch("ipdb._registry._db_loaded", return_value=True):
+            r1 = self.client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
+            assert r1.status_code == 503
+            r2 = self.client.post("/api/upload/stream",
+                                  files={"file": ("ips.txt", b"8.8.8.8\n", "text/plain")})
+            assert r2.status_code == 503
+            r3 = self.client.get("/api/lookup/8.8.8.8")
+            assert r3.status_code == 503
+            r4 = self.client.get("/api/lookup/8.8.8.8/stix")
+            assert r4.status_code == 503
+            # batch settles → integral window closes → gate opens
+            main._COLD_START_DONE.set()
+            r5 = self.client.get("/api/lookup/8.8.8.8")
+            assert r5.status_code == 200
+
+    def test_db_status_warming_up_tracks_integral_gate(self):
+        """db-status warming_up reflects the integral gate: True mid-batch
+        even when _db_loaded() is already True; False once the batch settles."""
+        import main
+        main._COLD_START_TRIGGERED = True
+        main._COLD_START_DONE.clear()
+        with patch("ipdb._registry._db_loaded", return_value=True):
+            resp = self.client.get("/api/db-status")
+            assert resp.status_code == 200
+            assert resp.json()["warming_up"] is True
+            main._COLD_START_DONE.set()
+            resp = self.client.get("/api/db-status")
+            assert resp.json()["warming_up"] is False
+
 
 class TestLifespanColdStartNonBlocking:
     """Cold-start lifespan must not block: background thread started, HTTP up."""
+
+    def setup_method(self):
+        """The cold-branch test runs the REAL _startup(), which sets
+        _COLD_START_TRIGGERED=True, while the patched fake background never
+        sets _COLD_START_DONE — reset both so no stuck integral window leaks
+        into the next test."""
+        import main
+        main._COLD_START_TRIGGERED = False
+        main._COLD_START_DONE.set()
+
+    def teardown_method(self):
+        import main
+        main._COLD_START_TRIGGERED = False
+        main._COLD_START_DONE.set()
 
     def test_cold_start_branch_starts_background_thread(self, monkeypatch):
         """When _is_cold_start() is True, lifespan yields without waiting on

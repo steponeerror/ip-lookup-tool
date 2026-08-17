@@ -22,6 +22,7 @@ def test_startup_cold_branch_starts_cold_start_background_thread(capsys):
          patch.object(main, "_startup_warm") as warm:
         main._startup()
     warm.assert_not_called()
+    assert main._COLD_START_TRIGGERED is True  # cold branch marks the integral window
     time.sleep(0.05)  # let the daemon thread spin up and set the Event
     assert started.is_set(), "background _cold_start_background thread not started"
 
@@ -66,6 +67,7 @@ def test_startup_warm_skips_enqueue_when_no_stale():
 
 def test_cold_start_background_blocks_then_waits_settle():
     import main
+    main._COLD_START_DONE.clear()
     with patch.object(main, "_ensure_valve_sampler"), \
          patch.object(main, "_offline_enabled_names", return_value=["a", "b"]), \
          patch.object(main, "_cold_start_timeout", return_value=600), \
@@ -74,11 +76,13 @@ def test_cold_start_background_blocks_then_waits_settle():
         main._cold_start_background()
     rbb.assert_called_once_with(["a", "b"], timeout=600)
     wbs.assert_called_once_with("bid1")
+    assert main._COLD_START_DONE.is_set()  # settle path always closes the window
 
 
 def test_cold_start_background_noop_when_no_offline_sources():
     """Empty offline list → no blocking call (avoids needless wait)."""
     import main
+    main._COLD_START_DONE.clear()
     with patch.object(main, "_ensure_valve_sampler"), \
          patch.object(main, "_offline_enabled_names", return_value=[]), \
          patch.object(main.manager, "run_batch_blocking") as rbb, \
@@ -86,6 +90,7 @@ def test_cold_start_background_noop_when_no_offline_sources():
         main._cold_start_background()
     rbb.assert_not_called()
     wbs.assert_not_called()
+    assert main._COLD_START_DONE.is_set()  # early return also closes the window
 
 
 # ── _is_cold_start predicate ──────────────────────────────────────────

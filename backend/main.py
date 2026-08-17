@@ -41,21 +41,39 @@ logging.basicConfig(level=logging.INFO)
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
 ENRICH_CHUNK = 100
 
+# Integral cold-start gate state. _COLD_START_DONE is set when the cold-start
+# batch settles/times out (or exits for any other reason); _COLD_START_TRIGGERED
+# is True only when the cold branch of _startup() actually ran. Together with
+# _db_loaded() they form _db_ready(): on a cold start queries stay 503 until
+# the WHOLE batch finishes, not merely until the first source hot-swaps its
+# reader (partial coverage must never serve "clean" verdicts).
+_COLD_START_DONE = threading.Event()
+_COLD_START_TRIGGERED = False
+
 
 class SourceEnabledPatch(BaseModel):
     enabled: bool
 
 
+def _db_ready() -> bool:
+    """Integral gate: queries pass only when the DB is loaded AND (a warm start,
+    or the cold-start batch has settled/timed out). Reuses _db_loaded() for the
+    loaded check; _COLD_START_DONE bounds the integral window on cold starts."""
+    if _COLD_START_TRIGGERED and not _COLD_START_DONE.is_set():
+        return False
+    return _ipdb_registry._db_loaded()
+
+
 def require_ready():
-    """Gate query endpoints during cold-start DB construction. Reuses the
-    registry's _db_loaded() guard (the same check lookup() performs internally)
-    so there is a single source of truth for "is the DB queryable" — no second
-    _DB_READY Event that could diverge from lookup()'s view.
+    """Gate query endpoints during cold-start DB construction. Delegates to
+    _db_ready() so this gate and db-status's warming_up field share a single
+    source of truth for "is the DB queryable" — on cold starts queries stay
+    503 until the batch settles (integral), not until the first source loads.
 
     Resolves _db_loaded via the registry module attribute at call time (not a
     name bound at import) so a single patched reference reaches both this gate
     and lookup()'s internal check identically."""
-    if not _ipdb_registry._db_loaded():
+    if not _db_ready():
         raise HTTPException(503, detail="database is warming up")
 
 
@@ -271,21 +289,24 @@ def _is_cold_start() -> bool:
 
 def _cold_start_background():
     """Background-thread cold start: download + build all offline sources
-    without blocking lifespan. Does NOT set any ready flag — require_ready
-    reuses _db_loaded(), which flips True once the first source's rebuild()
-    hot-swaps its reader (rebuild_lmdb's reader_setter). On total failure
-    (zero sources loaded) _db_loaded() stays False and the gate holds; the
-    frontend WarmupBanner shows a failure/retry state."""
-    import psutil
-    _ensure_valve_sampler()
-    names = _offline_enabled_names()
-    if not names:
-        return  # 全在线源部署:_db_loaded() 恒 True,require_ready 直放行
-    total_gb = psutil.virtual_memory().total / 1e9
-    bid = manager.run_batch_blocking(names, timeout=_cold_start_timeout(total_gb))
-    # 超时返回后批次可能仍在跑;等 settle 后让 _db_loaded() 给终判。
-    # 不重排队列(防无限重试打配额源);任务级 30s socket 超时保证 settle 有界。
-    manager.wait_batch_settled(bid)
+    without blocking lifespan. ALWAYS sets _COLD_START_DONE on exit (settle,
+    timeout-return, zero-offline-sources early return, or exception) so the
+    integral gate _db_ready() can never wedge shut: once this thread is done,
+    _db_loaded() gives the final verdict (zero sources loaded → gate holds;
+    the frontend WarmupBanner shows a failure/retry state)."""
+    try:
+        import psutil
+        _ensure_valve_sampler()
+        names = _offline_enabled_names()
+        if not names:
+            return  # 全在线源部署:_db_loaded() 恒 True,require_ready 直放行
+        total_gb = psutil.virtual_memory().total / 1e9
+        bid = manager.run_batch_blocking(names, timeout=_cold_start_timeout(total_gb))
+        # 超时返回后批次可能仍在跑;等 settle 后让 _db_loaded() 给终判。
+        # 不重排队列(防无限重试打配额源);任务级 30s socket 超时保证 settle 有界。
+        manager.wait_batch_settled(bid)
+    finally:
+        _COLD_START_DONE.set()
 
 
 def _startup_warm():
@@ -302,7 +323,9 @@ def _startup_warm():
 
 
 def _startup():
+    global _COLD_START_TRIGGERED
     if _is_cold_start():
+        _COLD_START_TRIGGERED = True
         threading.Thread(daemon=True, target=_cold_start_background,
                          name="cold-start").start()
     else:
@@ -410,7 +433,7 @@ async def upload_file_stream(file: UploadFile = File(...)):
 @app.get("/api/db-status")
 async def db_status():
     status = get_status()
-    status["warming_up"] = not _ipdb_registry._db_loaded()
+    status["warming_up"] = not _db_ready()
     return status
 
 
