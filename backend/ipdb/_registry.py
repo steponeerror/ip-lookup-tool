@@ -178,26 +178,25 @@ def _enabled_sources() -> list:
 
 
 def _db_loaded() -> bool:
-    """True if any enabled source has a loaded reader. Cached by the identities
-    of _sources and _disabled so it recomputes only when the source set or
-    enabled-state changes (not per lookup). Background per-source reloads do not
-    change those identities; a briefly-stale True during a reload is benign —
-    the query loop treats a None reader as an empty result for that source.
+    """True if any enabled source has a loaded reader.
 
-    Caller contract: the ONLY callers are lookup() and main.require_ready.
-    Neither is reached before the DB is ready (require_ready gates the 4 query
-    endpoints; lookup() is called only from those endpoints). So the first
-    _db_loaded() call in a process always happens AFTER readers are loaded,
-    meaning the cached False from a pre-ready probe (if any) cannot survive
-    into a ready-state lookup. Do NOT add new callers that invoke this before
-    readers are loaded — a stale-False cache hit would wrongly raise
-    RuntimeError("Database not loaded") from lookup().
+    Caches only a True result. A False result is never cached, so callers
+    that probe pre-ready — db_status()'s warming_up poll, which runs through a
+    cold-start build — cannot freeze a False into a later ready-state query.
+    Once True it fast-paths until the source set or enabled-state changes
+    (then it re-evaluates, and if briefly False it re-evaluates each call
+    until loaded again — correct, and negligible cost at the poll cadence).
+
+    Callers: lookup() and main.require_ready (reached only when ready), and
+    main.db_status() (reached pre-ready to report warming_up — safe because a
+    False result is never cached, so pre-ready polls cannot freeze a ready-state
+    query).
     """
-    key = (id(_sources), id(_disabled))
-    if _loaded_cache["key"] == key:
-        return _loaded_cache["value"]
+    if _loaded_cache["key"] == (id(_sources), id(_disabled)) \
+            and _loaded_cache["value"]:
+        return True
     value = any(s.health().loaded for s in _enabled_sources())
-    _loaded_cache["key"] = key
+    _loaded_cache["key"] = (id(_sources), id(_disabled))
     _loaded_cache["value"] = value
     return value
 
