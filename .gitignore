@@ -58,11 +58,10 @@ results-final.png
 baseline-pytest.txt
 
 # Design scratch (superpowers brainstorm/plans/specs)
-docs/superpowers/
 .superpowers/
 
-# Eval harness reports: markdown findings tracked, JSON artifacts ignored (spec §11)
-docs/eval/*.json
+# docs/ = nested private repository (own .git; history lives there, not here)
+/docs/
 
 # Nested separate repository (has its own .git)
 misp-docker/

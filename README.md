@@ -80,11 +80,6 @@ cd backend && python3 -m pytest -q
 cd frontend && npm test
 ```
 
-## Docs
-
-Design specs, implementation plans, and eval snapshots live in [`docs/`](docs/).
-See [`docs/README.md`](docs/README.md) for a themed index of specs and plans.
-
 ## License
 
 AGPL-3.0 — see [LICENSE](LICENSE). Intelligence feeds keep their own terms.
