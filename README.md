@@ -159,8 +159,8 @@ curl -s http://127.0.0.1:8000/api/sources
 
 | 源 Source | 提供方 Provider | 贡献 Contributes | 🔑 |
 |---|---|---|---|
-| abuseipdb | [AbuseIPDB](https://www.abuseipdb.com/) | Most-reported attacker IPs | 🔑
-| otx | [AlienVault OTX](https://otx.alienvault.com/) | Community threat pulses (IPv4 indicators) | 🔑
+| abuseipdb | [AbuseIPDB](https://www.abuseipdb.com/) | Most-reported attacker IPs | 🔑 |
+| otx | [AlienVault OTX](https://otx.alienvault.com/) | Community threat pulses (IPv4 indicators) | 🔑 |
 | spamhaus | [Spamhaus](https://www.spamhaus.org/drop/) | DROP/EDROP hijacked ranges | |
 | stopforumspam | [StopForumSpam](https://www.stopforumspam.com/) | "Toxic" spam-only CIDR ranges | |
 | threatfox | [abuse.ch](https://threatfox.abuse.ch/) | Malware IOC feed (CSV/ZIP) | |
@@ -185,13 +185,13 @@ curl -s http://127.0.0.1:8000/api/sources
 | geolite_city | [MaxMind GeoLite2](https://github.com/P3TERX/GeoLite.mmdb) | City / geo per IP | |
 | iptoasn | [IPtoASN](https://iptoasn.com/) | ASN + AS-name ranges | |
 | cn_isp | [clang.cn ISP ranges](https://ispip.clang.cn/) | China ISP classification (5 ISPs) | |
-| ipinfo_lite | [IPinfo](https://ipinfo.io/) | Country / ASN / ranges enrichment | 🔑
+| ipinfo_lite | [IPinfo](https://ipinfo.io/) | Country / ASN / ranges enrichment | 🔑 |
 
 ### 资产与网络面 | Asset & Network Surface
 
 | 源 Source | 提供方 Provider | 贡献 Contributes | 🔑 |
 |---|---|---|---|
-| ip2proxy | [IP2Location](https://www.ip2location.com/) | PX2 LITE proxy ranges | 🔑
+| ip2proxy | [IP2Location](https://www.ip2location.com/) | PX2 LITE proxy ranges | 🔑 |
 | proxyscrape | [ProxyScrape](https://github.com/proxyscrape/free-proxy-list) | Open proxy IPs | |
 | tor_exits | [Tor Project](https://check.torproject.org/exit-addresses) | Tor exit node addresses | |
 | x4bnet_vpn | [X4BNet](https://github.com/X4BNet/lists_vpn) | VPN ranges | |
