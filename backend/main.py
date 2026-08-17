@@ -128,15 +128,23 @@ async def _stream_lookup(expansion):
             fut_to_chunk[fut] = (start_idx, ips)
     except BrokenProcessPool:
         logging.getLogger(__name__).warning(
-            "stream batch pool broke during submit; falling back to inline")
-        ips_all = [ip for _, ip in expansion]
-        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips_all)
-        for i, d in enumerate(dicts):
-            yield orjson.dumps({"type": "row", "idx": i, "result": d}) + b"\n"
-        yield orjson.dumps({
+            "stream batch pool broke during submit; streaming inline")
+        yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
+               + b"\n")   # 提交期一行未吐, 从头流式
+        try:
+            async for evt in _emit_chunks(expansion, total):
+                yield evt
+        except Exception as e:
+            logging.getLogger(__name__).exception("submit-fallback stream error")
+            yield (orjson.dumps({
+                "type": "done", "invalid_lines": expansion.invalid,
+                "ipv6_unsupported": expansion.ipv6,
+                "enrich_error": None, "error": str(e)}) + b"\n")
+            return
+        yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
             "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
-        }) + b"\n"
+        }) + b"\n")
         return
 
     emitted: set = set()
@@ -172,20 +180,21 @@ async def _stream_lookup(expansion):
                       for fut, (start_idx, ips) in fut_to_chunk.items()
                       if fut not in emitted]
         if un_emitted:
-            all_ips = [ip for _, ips in un_emitted for ip in ips]
-            dicts = await asyncio.to_thread(
-                _batch_pool.fan_out_lookup, all_ips)
-            offset = 0
-            for start_idx, ips in un_emitted:
-                chunk_dicts = dicts[offset:offset + len(ips)]
-                offset += len(ips)
-                for i, d in enumerate(chunk_dicts):
-                    yield orjson.dumps({
-                        "type": "row", "idx": start_idx + i,
-                        "result": d}) + b"\n"
-    except Exception as e:
-        logging.getLogger(__name__).exception("stream lookup error")
-        yield orjson.dumps({"type": "error", "message": str(e)}) + b"\n"
+            # done_start = 已吐计数 = done_count (残局续发, 进度不回跳)
+            un_emitted_stream = (
+                (si + i, ip) for si, ips in un_emitted for i, ip in enumerate(ips))
+            try:
+                async for evt in _emit_chunks(
+                        un_emitted_stream, total, done_start=done_count):
+                    yield evt
+            except Exception as e:
+                logging.getLogger(__name__).exception(
+                    "wait-fallback stream error")
+                yield (orjson.dumps({
+                    "type": "done", "invalid_lines": expansion.invalid,
+                    "ipv6_unsupported": expansion.ipv6,
+                    "enrich_error": None, "error": str(e)}) + b"\n")
+                return
 
     yield orjson.dumps({
         "type": "done", "invalid_lines": expansion.invalid,

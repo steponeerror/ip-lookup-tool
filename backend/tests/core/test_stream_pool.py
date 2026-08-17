@@ -84,50 +84,33 @@ def test_stream_progress_done_is_monotonic_and_ends_at_total():
 
 
 def test_stream_pool_broken_mid_wait_no_duplicate_idx(monkeypatch):
-    """Wait-time BrokenProcessPool: chunks already emitted must NOT be re-emitted
-    by the inline fallback. Uses distinct IPs so duplicate-idx would be visible
-    (the old buggy full-requery emitted 450 rows with duplicate idx 0–199).
-
-    The fake pool completes chunk 0 synchronously (its 200 rows emit during the
-    first asyncio.wait), then chunk 1's future resolves to BrokenProcessPool via
-    a daemon thread — breaking mid-WAIT, after chunk 0's rows are already out.
-    This exercises the wait-time fallback path (not the submit-time one)."""
     import time
     import threading
     from concurrent.futures import Future
     from ipdb import _registry
     _registry.load_db()
+    import ipdb._batch_pool as bp
 
-    # Distinct IPs — 250 > INLINE_THRESHOLD(200) → pooled path, 2 chunks.
     ips = ["10.0.0.%d" % i for i in range(250)]
 
-    # Fake pool: chunk 0 runs synchronously and returns a completed future
-    # (emitted during the first asyncio.wait). Chunk 1 returns a pending future
-    # that a daemon thread later sets to BrokenProcessPool — simulating worker
-    # death after chunk 0 was already emitted.
     class _BreakAfterFirstChunk:
         def __init__(self):
             self.count = 0
-
         def submit(self, fn, *a, **kw):
             self.count += 1
             if self.count == 1:
-                fut = Future()
-                fut.set_result(fn(*a, **kw))
-                return fut
+                fut = Future(); fut.set_result(fn(*a, **kw)); return fut
             fut = Future()
-
             def _break_after_delay():
-                time.sleep(0.05)  # let chunk 0 emit during first asyncio.wait
-                fut.set_exception(
-                    BrokenProcessPool("simulated worker death"))
-
+                time.sleep(0.05)
+                fut.set_exception(BrokenProcessPool("simulated worker death"))
             threading.Thread(target=_break_after_delay, daemon=True).start()
             return fut
 
     monkeypatch.setattr(bp, "get_pool", lambda: _BreakAfterFirstChunk())
-    # Force inline lookup in the fallback (no real pool interference).
-    monkeypatch.setattr(bp, "fan_out_lookup", lambda ips_arg: bp._inline(ips_arg))
+    # 兜底现在直接调 _work_chunk, 不是 fan_out_lookup
+    monkeypatch.setattr(bp, "_work_chunk",
+                        lambda ips_arg: bp._dedup_lookup(ips_arg))
 
     with TestClient(main.app) as client:
         events = _drain_stream(client, ips)
@@ -136,8 +119,30 @@ def test_stream_pool_broken_mid_wait_no_duplicate_idx(monkeypatch):
     assert "complete" not in types
     assert types[-1] == "done"
     rows = [e for e in events if e["type"] == "row"]
-    # Exactly 250 rows — NOT 450 (which the old buggy full-requery produced).
     assert len(rows) == 250
     idx_values = [r["idx"] for r in rows]
-    assert len(set(idx_values)) == 250  # no duplicates
-    assert set(idx_values) == set(range(250))  # full coverage
+    assert len(set(idx_values)) == 250
+    assert set(idx_values) == set(range(250))
+
+
+def test_stream_pool_broken_submit_phase(monkeypatch):
+    """提交期 BrokenProcessPool: 兜底走 _emit_chunks, 事件序仍 start→done。"""
+    from ipdb import _registry
+    _registry.load_db()
+    import ipdb._batch_pool as bp
+
+    class _Boom:
+        def submit(self, fn, *a, **kw):
+            raise BrokenProcessPool("simulated submit break")
+
+    monkeypatch.setattr(bp, "get_pool", lambda: _Boom())
+    ips = ["203.0.113.%d" % i for i in range(250)]  # > INLINE_THRESHOLD → pooled 提交路径
+    with TestClient(main.app) as client:
+        events = _drain_stream(client, ips)
+    types = [e["type"] for e in events]
+    assert types[0] == "start"
+    assert types[-1] == "done"
+    rows = [e for e in events if e["type"] == "row"]
+    assert len(rows) == 250
+    assert set(r["idx"] for r in rows) == set(range(250))
+    assert "error" not in events[-1]  # 正常完成无 error
