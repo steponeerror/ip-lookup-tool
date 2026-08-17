@@ -60,9 +60,9 @@ cd ip-lookup-tool
 docker compose up -d --build
 ```
 
-打开 http://127.0.0.1:8000 。首次启动容器会先下载并构建全部免密钥源（28 个源中的 24 个，含地理/城市/ASN 与主要封禁列表）再开始服务——用 `docker compose logs -f` 看进度；之后每次启动都从 `ipradar-data` 卷秒级加载。
+打开 http://127.0.0.1:8000 。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（28 个源中的 24 个，含地理/城市/ASN 与主要封禁列表）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
 
-> Open http://127.0.0.1:8000. On first start the container downloads and builds all keyless feeds (24 of the 28 sources, including geo/city/ASN and the major blocklists) before serving — watch progress with `docker compose logs -f`. Subsequent starts load from the `ipradar-data` volume in seconds.
+> Open http://127.0.0.1:8000. The container is reachable within seconds on first start — it comes up immediately, and a banner at the top of the page shows real-time download/build progress for the keyless feeds (24 of the 28 sources, including geo/city/ASN and the major blocklists). Queries unlock automatically once the build completes. Subsequent starts load from the `ipradar-data` volume in seconds.
 
 可选的密钥源（ipinfo_lite / abuseipdb / otx / ip2proxy，及 ipapi.is 增强）——把密钥放进 `.env.local`（已 gitignore，覆盖 `.env`）：
 
