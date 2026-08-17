@@ -30,4 +30,24 @@ describe("LookupView stream done.error", () => {
     expect(await screen.findByText("boom")).toBeInTheDocument();
     expect(queryIpsStream).toHaveBeenCalledWith(["8.8.8.8"], expect.anything());
   });
+
+  it("shows error banner alongside CSV modal in csv mode (csvDownloaded + error)", async () => {
+    vi.mocked(queryIpsStream).mockResolvedValueOnce({
+      results: [],
+      csvDownloaded: true,
+      invalidLines: 0,
+      ipv6Unsupported: 0,
+      total: 60000,
+      error: "boom",
+    });
+    renderWithI18n(<LookupView />);
+
+    const textarea = screen.getByPlaceholderText(/1\.1\.1\.1/i);
+    fireEvent.change(textarea, { target: { value: "8.8.8.8" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Query$/i }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Results exported as CSV")).toBeInTheDocument();
+    expect(await screen.findByText("boom")).toBeInTheDocument();
+  });
 });

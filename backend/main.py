@@ -114,6 +114,8 @@ async def _stream_lookup(expansion):
         return
 
     # Pooled path: chunk the lazy generator, submit all, emit rows as they finish.
+    yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
+           + b"\n")
     loop = asyncio.get_running_loop()
     it = iter(expansion)
     fut_to_chunk: dict = {}  # {future: (start_idx, ips)}

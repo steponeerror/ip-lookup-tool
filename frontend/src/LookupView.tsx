@@ -47,6 +47,7 @@ export default function LookupView() {
           invalid: r.invalidLines,
           ipv6: r.ipv6Unsupported,
         });
+        if (r.error) setError(r.error);
       } else {
         setResults(r.results);
         if (r.enrichError) setEnrichError(r.enrichError);
@@ -83,6 +84,7 @@ export default function LookupView() {
           invalid: r.invalidLines,
           ipv6: r.ipv6Unsupported,
         });
+        if (r.error) setError(r.error);
       } else {
         setResults(r.results);
         if (r.enrichError) setEnrichError(r.enrichError);
