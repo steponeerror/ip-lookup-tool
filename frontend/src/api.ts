@@ -72,6 +72,7 @@ export interface DbStatus {
   asset_records: number;
   is_stale: boolean;
   warnings?: string[];
+  warming_up: boolean;
 }
 
 // Above this expanded-IP count the UI switches from table to CSV download.
