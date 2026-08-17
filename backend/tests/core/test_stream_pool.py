@@ -16,20 +16,63 @@ def _drain_stream(client, ips):
 
 
 def test_stream_events_shape_and_results_order():
-    """v2: start → row{idx,result} × N → progress → done (inline path)."""
+    """v2: start → progress(0) → row×N/progress → done (inline path)."""
     with TestClient(main.app) as client:
         events = _drain_stream(client, ["8.8.8.8", "1.1.1.1", "9.9.9.9"])
     types = [e["type"] for e in events]
     assert types[0] == "start"
     assert types[-1] == "done"
     assert "complete" not in types
-    # 3 IPs <= INLINE_THRESHOLD -> inline path emits start → row×3 → progress → done.
     rows = [e for e in events if e["type"] == "row"]
     assert len(rows) == 3
     assert [r["idx"] for r in rows] == [0, 1, 2]
     assert [r["result"]["ip"] for r in rows] == ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
     start = events[0]
     assert start["total"] == 3
+    # progress(0) 破冰: start 后紧跟 progress, 首个 done=0
+    assert events[1]["type"] in ("progress", "row")
+    first_prog = next(e for e in events if e["type"] == "progress")
+    assert first_prog["done"] == 0
+
+
+def test_stream_inline_chunks_streaming(monkeypatch):
+    """无池(pool=None)下 300 IP 走流式 inline: progress(0) 破冰 + 行片间吐出。"""
+    import ipdb._batch_pool as bp
+    from ipdb import _registry
+    _registry.load_db()
+    monkeypatch.setattr(bp, "get_pool", lambda: None)  # M=1 无池场景
+
+    # TEST-NET-3 + TEST-NET-2 (均为保留段, 不与真实源撞); 300 个合法 IP
+    # (203.0.113.0/24 仅 256 个, 故补 100 个 198.51.100.x)
+    ips = (["203.0.113.%d" % i for i in range(200)]
+           + ["198.51.100.%d" % i for i in range(100)])
+    with TestClient(main.app) as client:
+        events = _drain_stream(client, ips)
+    types = [e["type"] for e in events]
+    assert types[0] == "start"
+    assert types[-1] == "done"
+    # progress(0) 破冰: start 后首个非 start 事件应为 progress(done=0)
+    assert events[1]["type"] == "progress"
+    assert events[1]["done"] == 0
+    assert events[1]["total"] == 300
+    # 至少 2 个 progress 且 done 单调、终值 300
+    progs = [e["done"] for e in events if e["type"] == "progress"]
+    assert len(progs) >= 2
+    assert progs == sorted(progs)
+    assert progs[-1] == 300
+    # 行: idx 完整覆盖 0..299, 无重复无缺漏
+    rows = [e for e in events if e["type"] == "row"]
+    idxs = [r["idx"] for r in rows]
+    assert set(idxs) == set(range(300))
+    assert len(idxs) == 300
+
+
+def test_stream_total_zero_no_progress():
+    with TestClient(main.app) as client:
+        events = _drain_stream(client, ["invalid-line-zzz"])
+    types = [e["type"] for e in events]
+    assert types == ["start", "done"]  # 无 progress(0,0)
+    assert events[0]["total"] == 0
 
 
 def test_stream_progress_done_is_monotonic_and_ends_at_total():

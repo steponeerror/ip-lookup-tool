@@ -45,6 +45,31 @@ class SourceEnabledPatch(BaseModel):
     enabled: bool
 
 
+async def _emit_chunks(src, total, done_start=0):
+    """src: 产出 (idx, ip) 的可迭代对象; 低层流式吐行 helper。
+
+    islice 按 CHUNK 分片(不整体物化), 逐片 asyncio.to_thread 计算,
+    片完成即吐 row + progress。整批一个 try —— 异常向上抛, 由调用方终止。
+    """
+    import itertools
+    it = iter(src)
+    done = done_start
+    while True:
+        batch = list(itertools.islice(it, _batch_pool.CHUNK))
+        if not batch:
+            break
+        ips = [ip for _, ip in batch]
+        start_idx = batch[0][0]
+        dicts = await asyncio.to_thread(_batch_pool._work_chunk, ips)
+        for i, d in enumerate(dicts):
+            yield orjson.dumps({"type": "row", "idx": start_idx + i,
+                                "result": d}) + b"\n"
+        done += len(dicts)
+        yield orjson.dumps({"type": "progress",
+                            "done": min(done, total), "total": total}) + b"\n"
+        await asyncio.sleep(0)
+
+
 async def _stream_lookup(expansion):
     """Stream lookup results row-by-row as NDJSON (protocol v2).
 
@@ -68,18 +93,24 @@ async def _stream_lookup(expansion):
     pool = _batch_pool.get_pool()
     chunk_size = _batch_pool.CHUNK
 
-    # Inline path: small batches or no pool — run in a thread, emit rows.
+    # Inline path: small batches or no pool — stream chunk-by-chunk.
     if total <= _batch_pool.INLINE_THRESHOLD or pool is None:
-        ips_inline = [ip for _, ip in expansion]
-        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips_inline)
-        for i, d in enumerate(dicts):
-            yield orjson.dumps({"type": "row", "idx": i, "result": d}) + b"\n"
-        yield orjson.dumps({
-            "type": "progress", "done": len(dicts), "total": total}) + b"\n"
-        yield orjson.dumps({
+        yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
+               + b"\n")
+        try:
+            async for evt in _emit_chunks(expansion, total):
+                yield evt
+        except Exception as e:            # done-error 不静默 (spec §4)
+            logging.getLogger(__name__).exception("inline stream error")
+            yield (orjson.dumps({
+                "type": "done", "invalid_lines": expansion.invalid,
+                "ipv6_unsupported": expansion.ipv6,
+                "enrich_error": None, "error": str(e)}) + b"\n")
+            return
+        yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
             "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
-        }) + b"\n"
+        }) + b"\n")
         return
 
     # Pooled path: chunk the lazy generator, submit all, emit rows as they finish.
