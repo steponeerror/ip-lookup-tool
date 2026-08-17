@@ -80,7 +80,7 @@ docker compose up -d
 | 源 Source | 变量 Variable | 申请 Apply |
 |---|---|---|
 | ipinfo_lite | `IPINFO_TOKEN` | <https://ipinfo.io/account/token> |
-| abuseipdb | `ABUSEIPDB_API_KEY` | <https://www.abuseipdb.com/account/api> |
+| abuseipdb | `ABUSEIPDB_API_KEY` | <https://www.abuseipdb.com/account> |
 | otx | `OTX_API_KEY` | <https://otx.alienvault.com/settings> |
 | ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
 | ipapi.is（付费增强） | `IPAPI_IS_KEY` + `IPAPI_IS_ENABLED=true` | <https://ipapi.is/> |
