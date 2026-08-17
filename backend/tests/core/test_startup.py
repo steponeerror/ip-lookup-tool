@@ -10,21 +10,35 @@ from unittest.mock import patch
 
 # ── _startup branching ────────────────────────────────────────────────
 
-def test_startup_cold_branch_starts_cold_start_background_thread(capsys):
+def test_startup_cold_branch_starts_cold_start_background_thread():
     import threading
     import time
     import main
-    started = threading.Event()
-    def _fake_background():
-        started.set()
-    with patch.object(main, "_is_cold_start", return_value=True), \
-         patch.object(main, "_cold_start_background", _fake_background), \
-         patch.object(main, "_startup_warm") as warm:
-        main._startup()
-    warm.assert_not_called()
-    assert main._COLD_START_TRIGGERED is True  # cold branch marks the integral window
-    time.sleep(0.05)  # let the daemon thread spin up and set the Event
-    assert started.is_set(), "background _cold_start_background thread not started"
+    # Runs the REAL _startup(), whose cold branch sets _COLD_START_TRIGGERED=True
+    # while the fake background below never sets _COLD_START_DONE — save/restore
+    # both so no stuck integral window leaks into other test files (mirrors
+    # TestLifespanColdStartNonBlocking in test_main_routes.py).
+    saved_triggered = main._COLD_START_TRIGGERED
+    saved_done = main._COLD_START_DONE
+    fresh_done = threading.Event()
+    fresh_done.set()
+    main._COLD_START_TRIGGERED = False
+    main._COLD_START_DONE = fresh_done
+    try:
+        started = threading.Event()
+        def _fake_background():
+            started.set()
+        with patch.object(main, "_is_cold_start", return_value=True), \
+             patch.object(main, "_cold_start_background", _fake_background), \
+             patch.object(main, "_startup_warm") as warm:
+            main._startup()
+        warm.assert_not_called()
+        assert main._COLD_START_TRIGGERED is True  # cold branch marks the integral window
+        time.sleep(0.05)  # let the daemon thread spin up and set the Event
+        assert started.is_set(), "background _cold_start_background thread not started"
+    finally:
+        main._COLD_START_TRIGGERED = saved_triggered
+        main._COLD_START_DONE = saved_done
 
 
 def test_startup_warm_branch_calls_startup_warm():
