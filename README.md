@@ -14,14 +14,14 @@
 
 ## 特性 | Features
 
-- **24/28 源免密钥开箱即用** —— 首次启动自动下载构建全部免密钥源，≈4.7M 条记录入库。
+- **24/28 源免密钥开箱即用** —— 首次启动自动下载构建全部免密钥源，≈4.7M 条记录入库；其余 4 个 🔑 源的密钥填法见[快速开始](#快速开始--quick-start)。
 - **多源融合裁决** —— 单 IP 一句话结论 + 逐源证据表 + 0-100 置信度（按源可靠性加权、交叉佐证、随时间衰减）。
 - **地理 · 城市 · ASN** —— GeoLite2 城市、iptoasn 自治域、CN ISP 归属识别（含港澳台）。
 - **代理 · VPN · Tor · CDN 边缘识别** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘一览。
 - **单容器全栈 + 自适应内存阀** —— `docker compose up -d --build` 即得；按宿主机内存自动限并发，默认每 30 分钟后台刷新。
 - **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认未装 `stix2`，`pip install stix2` 后启用。
 
-> - **24 of 28 feeds work with zero API keys** — first start auto-downloads and builds every keyless feed into ≈4.7M records.
+> - **24 of 28 feeds work with zero API keys** — first start auto-downloads and builds every keyless feed into ≈4.7M records; keys for the other 4 🔑 sources go in [Quick Start](#快速开始--quick-start).
 > - **Fused verdicts, not raw lists** — one verdict per IP with per-source evidence, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
 > - **Geo · City · ASN** — GeoLite2 city, ASN ranges, and classification across China ISPs (mainland + HK/MO/TW).
 > - **Proxy · VPN · Tor · CDN-edge detection** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges.
@@ -72,6 +72,18 @@ docker compose up -d --build
 cp .env .env.local   # then open .env.local in any editor, fill keys; set IPAPI_IS_ENABLED=true if using ipapi.is
 docker compose up -d
 ```
+
+五个变量与申请入口（`.env` 内含同样注释）：
+
+> The five variables and where to apply for keys (`.env` carries the same comments):
+
+| 源 Source | 变量 Variable | 申请 Apply |
+|---|---|---|
+| ipinfo_lite | `IPINFO_TOKEN` | <https://ipinfo.io/account/token> |
+| abuseipdb | `ABUSEIPDB_API_KEY` | <https://www.abuseipdb.com/account/api> |
+| otx | `OTX_API_KEY` | <https://otx.alienvault.com/settings> |
+| ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
+| ipapi.is（付费增强） | `IPAPI_IS_KEY` + `IPAPI_IS_ENABLED=true` | <https://ipapi.is/> |
 
 npm/pip 下载慢（如国内网络）——传镜像 build-args：
 
@@ -151,9 +163,9 @@ curl -s http://127.0.0.1:8000/api/sources
 
 ## 数据源与致谢 | Data Sources & Acknowledgments
 
-以下每一份数据都属于其提供方——感谢它们的开放与持续维护。🔑 = 需要免费/付费密钥；`*` = 聚合源，荣誉归其上游列表的维护者。
+以下每一份数据都属于其提供方——感谢它们的开放与持续维护。🔑 = 需要免费/付费密钥（填法见[快速开始](#快速开始--quick-start)）；`*` = 聚合源，荣誉归其上游列表的维护者。
 
-> Every dataset below belongs to its provider — thank you for keeping them open. 🔑 = requires an API key; `*` = aggregator, where credit flows to the upstream list maintainers.
+> Every dataset below belongs to its provider — thank you for keeping them open. 🔑 = requires an API key (see [Quick Start](#快速开始--quick-start) for where to put it); `*` = aggregator, where credit flows to the upstream list maintainers.
 
 ### 威胁信誉 | Threat Reputation
 
