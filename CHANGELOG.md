@@ -16,6 +16,10 @@
 - **资源自觉** —— 重建内存阀门按宿主机 RAM 自动收敛并发；LMDB + mmap 存储，查询路径内存 MB 级；默认每 30 分钟后台自动刷新
 - **Docker 一键部署** —— `docker compose up -d --build` 即全栈
 
+### 修复
+
+- ip2proxy：PX2 LITE CSV 本无表头，harvest 不再误把首行数据当表头丢弃（此前每次重建恰丢一行代理记录）
+
 ### 历程（v1.0.0 之前）
 
 - 2026-06-08 项目起步：TSV 加载器 + FastAPI 查询路由 + React 脚手架
