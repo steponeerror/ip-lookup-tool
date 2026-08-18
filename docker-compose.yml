@@ -17,6 +17,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 1800s   # 容纳冷启动阻塞构建; warm 路径秒级不受影响
+      start_period: 60s   # HTTP 现秒级可达(warming 期 db-status 返 200);60s 留慢机余量
 volumes:
   ipradar-data:

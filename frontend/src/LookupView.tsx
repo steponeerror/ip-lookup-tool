@@ -5,13 +5,28 @@ import { FileUpload } from "./components/FileUpload";
 import { ResultTable } from "./components/ResultTable";
 import { ExportCsv } from "./components/ExportCsv";
 import { Modal } from "./components/Modal";
+import { WarmupBanner } from "./components/WarmupBanner";
+import { WarmingProvider, useWarming } from "./warming";
 import { queryIpsStream, uploadFileStream } from "./api";
-import type { LookupResult, Progress } from "./api";
+import type { LookupResult, Progress, StreamOutcome } from "./api";
 import { useI18n } from "./i18n";
 
 type InputTab = "text" | "file";
 
+// api 层非 2xx 抛错统一带 e.status + e.reason(见 api.ts throwApiError);
+// 503 且 reason==="warming" 才是 warming 门(no-sources 是另一种 503)。
+const isWarming503 = (e: unknown) =>
+  (e as any)?.status === 503 && (e as any)?.reason === "warming";
+
 export default function LookupView() {
+  return (
+    <WarmingProvider>
+      <LookupViewInner />
+    </WarmingProvider>
+  );
+}
+
+function LookupViewInner() {
   const { t } = useI18n();
   const [tab, setTab] = useState<InputTab>("text");
   const [results, setResults] = useState<LookupResult[]>([]);
@@ -27,37 +42,66 @@ export default function LookupView() {
     ipv6: number;
   } | null>(null);
   const reduce = useReducedMotion();
+  const { warming, recheck } = useWarming();
 
-  const handleQuery = async (ips: string[]) => {
+  const applyOutcome = (r: StreamOutcome) => {
+    if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
+      setSkipped({ invalid: r.invalidLines, ipv6: r.ipv6Unsupported });
+    }
+    if (r.csvDownloaded) {
+      setResults([]);
+      setCsvModal({
+        open: true,
+        count: r.total,
+        invalid: r.invalidLines,
+        ipv6: r.ipv6Unsupported,
+      });
+      if (r.error != null) setError(r.error);
+    } else {
+      setResults(r.results);
+      if (r.enrichError) setEnrichError(r.enrichError);
+      if (r.error != null) setError(r.error);
+    }
+  };
+
+  // 503 自纠:乐观提交漏过初始加载窗口撞上 warming 门时,recheck 确认 —
+  // 仍在 warming 则横幅接管(recheck 同时重臂轮询,后端重启亦能恢复);
+  // 门已开则原样重试一次(503 在依赖处抛出,服务端零副作用,重试安全)。
+  // 第二次仍 503 不再重试(防乒乓)。no-sources 是配置态非瞬时门:本地化
+  // 提示、不重试。
+  const runLookup = async (fetcher: () => Promise<StreamOutcome>, failMsg: string) => {
     setLoading(true);
     setError(null);
     setEnrichError(null);
     setSkipped(null);
     setProgress(null);
     try {
-      const r = await queryIpsStream(ips, setProgress);
-      if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
-        setSkipped({ invalid: r.invalidLines, ipv6: r.ipv6Unsupported });
-      }
-      if (r.csvDownloaded) {
-        setResults([]);
-        setCsvModal({
-          open: true,
-          count: r.total,
-          invalid: r.invalidLines,
-          ipv6: r.ipv6Unsupported,
-        });
-        if (r.error != null) setError(r.error);
-      } else {
-        setResults(r.results);
-        if (r.enrichError) setEnrichError(r.enrichError);
-        if (r.error != null) setError(r.error);
-      }
-    } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") {
-        setError(t("lookup.cancelled"));
-      } else {
-        setError(e instanceof Error ? e.message : t("lookup.queryFailed"));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          applyOutcome(await fetcher());
+          break;
+        } catch (e) {
+          if (e instanceof Error && e.name === "AbortError") {
+            setError(t("lookup.cancelled"));
+            break;
+          }
+          if ((e as any)?.status === 503 && (e as any)?.reason === "no-sources") {
+            setError(t("lookup.noSources"));
+            break;
+          }
+          if (!isWarming503(e)) {
+            setError(e instanceof Error ? e.message : failMsg);
+            break;
+          }
+          if (await recheck()) {
+            break;
+          }
+          if (attempt > 0) {
+            setError(e instanceof Error ? e.message : failMsg);
+            break;
+          }
+          // 503 与重拉之间门恰好开合 — 重试一次
+        }
       }
     } finally {
       setLoading(false);
@@ -65,47 +109,17 @@ export default function LookupView() {
     }
   };
 
-  const handleUpload = async (file: File) => {
-    setLoading(true);
-    setError(null);
-    setEnrichError(null);
-    setSkipped(null);
-    setProgress(null);
-    try {
-      const r = await uploadFileStream(file, setProgress);
-      if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
-        setSkipped({ invalid: r.invalidLines, ipv6: r.ipv6Unsupported });
-      }
-      if (r.csvDownloaded) {
-        setResults([]);
-        setCsvModal({
-          open: true,
-          count: r.total,
-          invalid: r.invalidLines,
-          ipv6: r.ipv6Unsupported,
-        });
-        if (r.error != null) setError(r.error);
-      } else {
-        setResults(r.results);
-        if (r.enrichError) setEnrichError(r.enrichError);
-        if (r.error != null) setError(r.error);
-      }
-    } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") {
-        setError(t("lookup.cancelled"));
-      } else {
-        setError(e instanceof Error ? e.message : t("lookup.uploadFailed"));
-      }
-    } finally {
-      setLoading(false);
-      setProgress(null);
-    }
-  };
+  const handleQuery = (ips: string[]) =>
+    runLookup(() => queryIpsStream(ips, setProgress), t("lookup.queryFailed"));
+
+  const handleUpload = (file: File) =>
+    runLookup(() => uploadFileStream(file, setProgress), t("lookup.uploadFailed"));
 
   return (
     <div className="space-y-6">
       {/* Input Section */}
       <section>
+        <WarmupBanner />
         <div className="flex items-center gap-3">
           <div className="flex gap-1 rounded-lg bg-zinc-900 p-1">
             {(["text", "file"] as const).map((tabKey) => (
@@ -134,7 +148,7 @@ export default function LookupView() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
               >
-                <IpInput onQuery={handleQuery} loading={loading} progress={progress} />
+                <IpInput onQuery={handleQuery} loading={loading} progress={progress} disabled={warming} />
               </motion.div>
             ) : (
               <motion.div
@@ -144,7 +158,7 @@ export default function LookupView() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
               >
-                <FileUpload onUpload={handleUpload} loading={loading} progress={progress} />
+                <FileUpload onUpload={handleUpload} loading={loading} progress={progress} disabled={warming} />
               </motion.div>
             )}
           </AnimatePresence>

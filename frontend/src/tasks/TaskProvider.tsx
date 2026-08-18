@@ -22,8 +22,20 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<TaskState[]>([]);
   const [batch, setBatch] = useState<BatchState | null>(null);
   const tasksRef = useRef<Record<string, TaskState>>({});
+  // True while a getTasks() fetch is in flight AND an SSE event has since
+  // arrived. Prevents a slow getTasks() snapshot (e.g. cold-start first load)
+  // from overwriting a fresher SSE event with stale state. Reset at every
+  // fetch start so reconnect-time resyncs still apply when no SSE interleaves.
+  const sseSawRef = useRef(false);
+
+  // 仅状态事件使能 saw(这类事件会取代快照);task_progress 只携带字节
+  // 计数、不含快照会过期的状态 — 下载洪峰期 ~0.15s 一次的 progress tick
+  // 若也置位,resync 快照将几乎总被丢弃(SSE 溢出丢掉 done 事件时,UI
+  // 中的 batch 会永远卡在 running)。
+  const SAW_EVENTS = new Set(["snapshot", "task", "batch", "done"]);
 
   const applyEvent = (e: any) => {
+    if (SAW_EVENTS.has(e.type)) sseSawRef.current = true;
     if (e.type === "snapshot" && e.data) {
       tasksRef.current = Object.fromEntries(e.data.tasks.map((t: TaskState) => [t.id, t]));
       setTasks(Object.values(tasksRef.current));
@@ -47,8 +59,10 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     const resync = async () => {
+      sseSawRef.current = false; // this fetch wins unless SSE interleaves
       const snap = await getTasks();
       if (!alive) return;
+      if (sseSawRef.current) return; // an SSE event landed mid-fetch — it's fresher
       tasksRef.current = Object.fromEntries(snap.tasks.map((t) => [t.id, t]));
       setTasks(Object.values(tasksRef.current));
       setBatch(snap.batch);

@@ -1,13 +1,14 @@
 import asyncio
 import json
 import logging
+import math
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 import orjson
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 import os
 import sys
 import threading
+import time
 
 # Release runs `uvicorn app.main:app` from the package root, so this file's
 # directory (holding the sibling `ipdb/` package) isn't on sys.path. Dev runs
@@ -31,6 +33,7 @@ from ipdb import (
 )
 from ipdb import _batch_pool
 from ipdb._cidr import expand_inputs
+from ipdb import _registry as _ipdb_registry
 
 import os
 from pathlib import Path
@@ -40,9 +43,100 @@ logging.basicConfig(level=logging.INFO)
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
 ENRICH_CHUNK = 100
 
+# Integral build-gate state. The gate itself is state-driven (see _db_ready):
+# queries hold while offline tasks are actively building sources the DB has
+# no loaded reader for — by construction this covers every enqueue door
+# (cold-start thread, banner Retry via /api/update-db, single-source update,
+# registry PATCH-enable, scheduler refresh). _BUILD_DEADLINE only bounds the
+# window: past it the gate releases (超时即放行 — a wedged or paused build
+# must not hold the server hostage). Armed at cold start; every NEW build
+# episode arms a fresh window via the _coverage_episode transition, while a
+# continuing episode keeps its original (expiring) deadline.
+_BUILD_DEADLINE = math.inf
+# True while the last _db_ready() probe saw coverage being built — detects
+# build-episode STARTS (False→True) so each new episode gets a fresh
+# deadline, while a CONTINUING episode keeps (and can outlive) its own.
+_coverage_episode = False
+_build_window_sec: float | None = None
+
+
+def _window_sec() -> float:
+    """Cold-start window policy timeout (memory-tiered), computed once."""
+    global _build_window_sec
+    if _build_window_sec is None:
+        import psutil
+        _build_window_sec = _cold_start_timeout(
+            psutil.virtual_memory().total / 1e9)
+    return _build_window_sec
+
 
 class SourceEnabledPatch(BaseModel):
     enabled: bool
+
+
+def _build_tasks_active(source_filter=None) -> bool:
+    """Any queued/downloading/loading/throttled offline task, optionally
+    restricted to sources matching `source_filter(name)`. Paused batches
+    keep their tasks in these states by design."""
+    return manager.has_active_offline_tasks(source_filter)
+
+
+def _coverage_building() -> bool:
+    """True while offline tasks are in flight whose sources still lack a
+    loaded reader — i.e. queryable coverage is actively being constructed.
+    Refresh/rebuild of already-loaded sources never gates queries (a
+    settled 27/28 deployment stays servable during routine refresh)."""
+    if not _build_tasks_active():
+        return False
+    loaded = {s.name for s in _ipdb_registry._enabled_sources()
+              if s.health().loaded}
+    return _build_tasks_active(lambda n: n not in loaded)
+
+
+def _db_ready() -> bool:
+    """Integral gate, by state: (a) nothing loaded → hold; (b) coverage is
+    being built (in-flight tasks on sources with no loaded reader) within
+    the armed deadline → hold — so neither the first cold batch nor any
+    later rebuild can open the gate onto partial coverage mid-build (the
+    first source's rebuild hot-swap flipping _db_loaded() True is NOT
+    sufficient). Past the deadline the window force-releases.
+
+    Deadline lifecycle: a NEW build episode (warm-boot PATCH-enable, a
+    day-2 rebuild after the cold window naturally elapsed, a retry after
+    a settle) arms a fresh window on its first probe; a CONTINUING
+    episode keeps its original deadline, so the 超时即放行 release cannot
+    slide forever (a paused build still releases at its deadline).
+    Reuses _db_loaded() for the loaded check."""
+    global _BUILD_DEADLINE, _coverage_episode
+    building = _coverage_building()
+    if building and not _coverage_episode:
+        _BUILD_DEADLINE = time.time() + _window_sec()
+    _coverage_episode = building
+    if not _ipdb_registry._db_loaded():
+        return False  # zero coverage: hold (never serve empty-DB clean verdicts)
+    if building and time.time() < _BUILD_DEADLINE:
+        return False
+    return True
+
+
+def require_ready():
+    """Gate query endpoints during DB construction. Zero enabled sources is
+    reported honestly via a machine-readable header (that state is not
+    "warming"); otherwise delegates to _db_ready() so this gate and
+    db-status's warming_up field share a single source of truth for "is the
+    DB queryable".
+
+    Resolves _db_loaded via the registry module attribute at call time (not a
+    name bound at import) so a single patched reference reaches both this gate
+    and lookup()'s internal check identically."""
+    if not _ipdb_registry._enabled_sources():
+        raise HTTPException(
+            503, detail="no data sources enabled",
+            headers={"X-IPRadar-Reason": "no-sources"})
+    if not _db_ready():
+        raise HTTPException(
+            503, detail="database is warming up",
+            headers={"X-IPRadar-Reason": "warming"})
 
 
 async def _emit_chunks(src, total, done_start=0):
@@ -304,20 +398,21 @@ def _is_cold_start() -> bool:
                    for s in offline)
 
 
-def _do_cold_start():
-    """Cold start: synchronously download the first batch via run_batch_blocking.
-
-    Blocks lifespan startup until every enabled offline source has settled
-    (done/failed/cancelled). The server then serves from the freshly-written
-    data files. Skips the blocking call when there are no offline sources.
-    """
-    import psutil
-    from ipdb._registry import _enabled_sources, _archetype
-    names = [s.name for s in _enabled_sources() if _archetype(s) == "offline"]
-    _ensure_valve_sampler()
-    if names:
-        total_gb = psutil.virtual_memory().total / 1e9
-        manager.run_batch_blocking(names, timeout=_cold_start_timeout(total_gb))
+def _cold_start_background():
+    """Cold start reduced to enqueueing the build batch: the integral gate
+    (_db_ready) is driven by live task state, so this thread needs no
+    blocking waits — settle and deadline handling live in the gate itself.
+    An exception here only abandons the build attempt: zero sources loaded
+    → gate holds → WarmupBanner shows failure/retry, with a log record."""
+    try:
+        _ensure_valve_sampler()
+        names = _offline_enabled_names()
+        if not names:
+            return  # 全在线源部署:_db_loaded() 恒 True,require_ready 直放行
+        manager.enqueue_batch(names)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "cold-start background thread failed")
 
 
 def _startup_warm():
@@ -334,8 +429,11 @@ def _startup_warm():
 
 
 def _startup():
+    global _BUILD_DEADLINE
     if _is_cold_start():
-        _do_cold_start()
+        _BUILD_DEADLINE = time.time() + _window_sec()
+        threading.Thread(daemon=True, target=_cold_start_background,
+                         name="cold-start").start()
     else:
         _startup_warm()
 
@@ -392,7 +490,7 @@ app.add_middleware(
 )
 
 
-@app.post("/api/query/stream")
+@app.post("/api/query/stream", dependencies=[Depends(require_ready)])
 async def query_ips_stream(body: dict):
     raw = body.get("ips", [])
     if not raw:
@@ -409,7 +507,7 @@ async def query_ips_stream(body: dict):
     )
 
 
-@app.post("/api/upload/stream")
+@app.post("/api/upload/stream", dependencies=[Depends(require_ready)])
 async def upload_file_stream(file: UploadFile = File(...)):
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
@@ -440,7 +538,10 @@ async def upload_file_stream(file: UploadFile = File(...)):
 
 @app.get("/api/db-status")
 async def db_status():
-    return get_status()
+    status = get_status()
+    # 全源禁用不是 warming:报 False 隐藏横幅,查询走 require_ready 的诚实报错
+    status["warming_up"] = bool(_ipdb_registry._enabled_sources()) and not _db_ready()
+    return status
 
 
 @app.get("/api/scheduler/status")
@@ -493,14 +594,14 @@ async def update_db_resume():
     return {"ok": True}
 
 
-@app.get("/api/lookup/{ip}")
+@app.get("/api/lookup/{ip}", dependencies=[Depends(require_ready)])
 async def lookup_single(ip: str):
     """Single IP lookup — same shape as POST /api/query results[0]."""
     result = await asyncio.to_thread(lookup, ip)
     return result.to_dict()
 
 
-@app.get("/api/lookup/{ip}/stix")
+@app.get("/api/lookup/{ip}/stix", dependencies=[Depends(require_ready)])
 async def lookup_stix(ip: str):
     """Single IP STIX 2.1 Bundle export."""
     from ipdb._stix_export import to_stix_bundle

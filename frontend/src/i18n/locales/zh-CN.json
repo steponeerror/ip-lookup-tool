@@ -16,6 +16,7 @@
   "lookup.queryFailed": "查询失败",
   "lookup.uploadFailed": "上传失败",
   "lookup.cancelled": "查询已取消",
+  "lookup.noSources": "没有启用的数据源 — 请先在「源管理」页启用至少一个源",
 
   "ipInput.label": "IP 地址",
   "ipInput.query": "查询",
@@ -122,6 +123,14 @@
   "dbStatus.abort": "终止",
   "dbStatus.statusUnavailable": "状态不可用",
   "dbStatus.updateFailed": "数据库更新失败",
+
+  "warmup.title": "数据库首次构建中",
+  "warmup.progress": "{done}/{total} 源",
+  "warmup.current": "当前: {source} ↓ {pct}",
+  "warmup.currentBytes": "当前: {source} ↓ {bytes}",
+  "warmup.hint": "构建完成后即可查询,请勿关闭页面",
+  "warmup.failed": "构建失败,请检查网络连接",
+  "warmup.retry": "重试构建",
 
   "sourceDetail.nativeTypeTitle": "源原生分类",
   "sourceDetail.comment": "评论",

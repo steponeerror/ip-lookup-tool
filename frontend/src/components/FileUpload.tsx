@@ -5,9 +5,10 @@ interface FileUploadProps {
   onUpload: (file: File) => void;
   loading: boolean;
   progress?: { done: number; total: number; phase: string } | null;
+  disabled?: boolean;
 }
 
-export function FileUpload({ onUpload, loading, progress }: FileUploadProps) {
+export function FileUpload({ onUpload, loading, progress, disabled }: FileUploadProps) {
   const { t } = useI18n();
   const [dragOver, setDragOver] = useState(false);
 
@@ -15,6 +16,7 @@ export function FileUpload({ onUpload, loading, progress }: FileUploadProps) {
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragOver(false);
+      if (disabled) return;
       const file = e.dataTransfer.files[0];
       if (!file) return;
       const validExtensions = [".txt", ".csv"];
@@ -29,7 +31,7 @@ export function FileUpload({ onUpload, loading, progress }: FileUploadProps) {
       }
       onUpload(file);
     },
-    [onUpload]
+    [onUpload, disabled, t]
   );
 
   const handleChange = useCallback(
@@ -92,6 +94,7 @@ export function FileUpload({ onUpload, loading, progress }: FileUploadProps) {
               type="file"
               accept=".txt,.csv"
               onChange={handleChange}
+              disabled={disabled}
               className="hidden"
             />
           </label>

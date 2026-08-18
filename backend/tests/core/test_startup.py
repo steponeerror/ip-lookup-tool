@@ -1,32 +1,56 @@
 """Lifespan decouple (Task 8): warm = immediate disk load + background refresh;
-cold = block via run_batch_blocking until the first batch settles.
+cold = build window armed + background daemon thread enqueues the batch.
 
-Tests focus on BRANCHING (cold→_do_cold_start, warm→_startup_warm) and on the
+Tests focus on BRANCHING (cold→window+thread, warm→_startup_warm) and on the
 _is_cold_start predicate's logic, not on load_db internals.
 """
-from unittest.mock import patch, ANY
+from unittest.mock import patch
 
 
 # ── _startup branching ────────────────────────────────────────────────
 
-def test_startup_cold_branch_calls_do_cold_start():
+def test_startup_cold_branch_opens_window_and_starts_thread():
+    import math
+    import threading
+    import time
     import main
-    with patch.object(main, "_is_cold_start", return_value=True), \
-         patch.object(main, "_do_cold_start") as cold, \
-         patch.object(main, "_startup_warm") as warm:
-        main._startup()
-    cold.assert_called_once()
-    warm.assert_not_called()
+    # Runs the REAL _startup(), whose cold branch arms a finite build
+    # deadline while the fake background below does nothing — save/restore
+    # so no armed window leaks into other test files (mirrors
+    # TestLifespanColdStartNonBlocking in test_main_routes.py).
+    saved_deadline = main._BUILD_DEADLINE
+    main._BUILD_DEADLINE = math.inf
+    try:
+        started = threading.Event()
+        def _fake_background():
+            started.set()
+        with patch.object(main, "_is_cold_start", return_value=True), \
+             patch.object(main, "_cold_start_background", _fake_background), \
+             patch.object(main, "_startup_warm") as warm:
+            main._startup()
+        warm.assert_not_called()
+        assert main._BUILD_DEADLINE > time.time()  # cold branch arms the window
+        time.sleep(0.05)  # let the daemon thread spin up and set the Event
+        assert started.is_set(), "background _cold_start_background thread not started"
+    finally:
+        main._BUILD_DEADLINE = saved_deadline
 
 
 def test_startup_warm_branch_calls_startup_warm():
+    import math
     import main
-    with patch.object(main, "_is_cold_start", return_value=False), \
-         patch.object(main, "_do_cold_start") as cold, \
-         patch.object(main, "_startup_warm") as warm:
-        main._startup()
-    warm.assert_called_once()
-    cold.assert_not_called()
+    saved_deadline = main._BUILD_DEADLINE
+    main._BUILD_DEADLINE = math.inf
+    try:
+        with patch.object(main, "_is_cold_start", return_value=False), \
+             patch.object(main, "_startup_warm") as warm, \
+             patch.object(main, "_cold_start_background") as cold_bg:
+            main._startup()
+        warm.assert_called_once()
+        cold_bg.assert_not_called()   # warm branch must not spawn a background build
+        assert main._BUILD_DEADLINE == math.inf  # warm branch never arms the window
+    finally:
+        main._BUILD_DEADLINE = saved_deadline
 
 
 # ── _startup_warm body ────────────────────────────────────────────────
@@ -55,33 +79,43 @@ def test_startup_warm_skips_enqueue_when_no_stale():
     enqueue.assert_not_called()
 
 
-# ── _do_cold_start body ───────────────────────────────────────────────
+# ── _cold_start_background body ───────────────────────────────────────
 
-def test_do_cold_start_blocks_on_run_batch_blocking_with_offline_names():
+def test_cold_start_background_enqueues_batch():
+    """The thread's whole job is enqueueing — settle/deadline handling lives
+    in the task-state-driven gate, not in blocking waits here."""
     import main
-
-    class FakeSrc:
-        def __init__(self, name):
-            self.name = name
-
-    offline = [FakeSrc("a"), FakeSrc("b")]
-    with patch("ipdb._registry._enabled_sources", return_value=offline), \
-         patch("ipdb._registry._archetype", return_value="offline"), \
-         patch.object(main, "_ensure_valve_sampler"), \
-         patch.object(main.manager, "run_batch_blocking") as rbb:
-        main._do_cold_start()
-    rbb.assert_called_once_with(["a", "b"], timeout=ANY)
+    with patch.object(main, "_ensure_valve_sampler"), \
+         patch.object(main, "_offline_enabled_names", return_value=["a", "b"]), \
+         patch.object(main.manager, "enqueue_batch", return_value="bid1") as enq:
+        main._cold_start_background()
+    enq.assert_called_once_with(["a", "b"])
 
 
-def test_do_cold_start_noop_when_no_offline_sources():
-    """Empty offline list → no blocking call (avoids needless wait)."""
+def test_cold_start_background_noop_when_no_offline_sources():
+    """Empty offline list → no enqueue (all-online deployment)."""
     import main
-    with patch("ipdb._registry._enabled_sources", return_value=[]), \
-         patch("ipdb._registry._archetype", return_value="offline"), \
-         patch.object(main, "_ensure_valve_sampler"), \
-         patch.object(main.manager, "run_batch_blocking") as rbb:
-        main._do_cold_start()
-    rbb.assert_not_called()
+    with patch.object(main, "_ensure_valve_sampler"), \
+         patch.object(main, "_offline_enabled_names", return_value=[]), \
+         patch.object(main.manager, "enqueue_batch") as enq:
+        main._cold_start_background()
+    enq.assert_not_called()
+
+
+def test_cold_start_background_logs_and_swallows_exceptions(caplog):
+    """Review #7: thread death must leave a diagnosable log record instead
+    of a silent excepthook-only stderr trace (the gate degrades to the
+    zero-coverage failure state, which the banner frames as a network
+    problem — the log is the only honest trace)."""
+    import logging
+    import main
+    with patch.object(main, "_ensure_valve_sampler"), \
+         patch.object(main, "_offline_enabled_names",
+                      side_effect=RuntimeError("boom")):
+        with caplog.at_level(logging.ERROR, logger="main"):
+            main._cold_start_background()  # must not raise
+    assert any("cold-start background thread failed" in r.message
+               for r in caplog.records)
 
 
 # ── _is_cold_start predicate ──────────────────────────────────────────

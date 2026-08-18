@@ -72,6 +72,7 @@ export interface DbStatus {
   asset_records: number;
   is_stale: boolean;
   warnings?: string[];
+  warming_up: boolean;
 }
 
 // Above this expanded-IP count the UI switches from table to CSV download.
@@ -90,13 +91,31 @@ export interface StreamOutcome {
   total: number;
 }
 
+// 所有非 2xx 抛错统一走这里:错误对象带 HTTP status 与后端的
+// X-IPRadar-Reason(机器可读的 503 归因:"warming" / "no-sources"),
+// 调用方按状态码+reason 分支,不靠文案猜。
+function apiError(detail: string, res: Response, fallback: string, cause?: unknown): Error {
+  const err = new Error(detail || fallback);
+  (err as any).status = res.status;
+  (err as any).reason = res.headers.get("x-ipradar-reason");
+  if (cause !== undefined) (err as any).cause = cause;
+  return err;
+}
+
+async function throwApiError(res: Response, fallback: string): Promise<never> {
+  let detail = res.statusText;
+  try {
+    const body = await res.json();
+    detail = body.detail || detail;
+  } catch (e) {
+    throw apiError(detail, res, fallback, e);
+  }
+  throw apiError(detail, res, fallback);
+}
+
 export async function getDbStatus(): Promise<DbStatus> {
   const res = await fetch("/api/db-status");
-  if (!res.ok) {
-    let detail: string;
-    try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-    throw new Error(detail || "Failed to get database status");
-  }
+  if (!res.ok) return throwApiError(res, "Failed to get database status");
   return res.json();
 }
 
@@ -212,11 +231,7 @@ export async function queryIpsStream(
       body: JSON.stringify({ ips }),
       signal: controller.signal,
     });
-    if (!res.ok) {
-      let detail: string;
-      try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-      throw new Error(detail || "Query failed");
-    }
+    if (!res.ok) return throwApiError(res, "Query failed");
     resetIdle();
     return await readStream(res, onProgress, resetIdle);
   } catch (e) {
@@ -243,11 +258,7 @@ export async function uploadFileStream(
       body: form,
       signal: controller.signal,
     });
-    if (!res.ok) {
-      let detail: string;
-      try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-      throw new Error(detail || "Upload failed");
-    }
+    if (!res.ok) return throwApiError(res, "Upload failed");
     resetIdle();
     return await readStream(res, onProgress, resetIdle);
   } catch (e) {
@@ -285,16 +296,7 @@ export interface SourceInfo {
 }
 
 async function jsonOrThrow(res: Response, fallback: string) {
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail || detail;
-    } catch (e) {
-      throw new Error(detail || fallback, { cause: e });
-    }
-    throw new Error(detail || fallback);
-  }
+  if (!res.ok) return throwApiError(res, fallback);
   return res.json();
 }
 

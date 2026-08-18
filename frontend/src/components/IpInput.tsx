@@ -4,9 +4,10 @@ interface IpInputProps {
   onQuery: (ips: string[]) => void;
   loading: boolean;
   progress?: { done: number; total: number; phase: string } | null;
+  disabled?: boolean;
 }
 
-export function IpInput({ onQuery, loading, progress }: IpInputProps) {
+export function IpInput({ onQuery, loading, progress, disabled }: IpInputProps) {
   const { t } = useI18n();
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -32,11 +33,11 @@ export function IpInput({ onQuery, loading, progress }: IpInputProps) {
         rows={4}
         placeholder={"1.1.1.1\n8.8.8.8\n1.2.3.0/24"}
         className="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-3 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-y"
-        disabled={loading}
+        disabled={loading || disabled}
       />
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || disabled}
         className="relative self-end overflow-hidden rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
       >
         {loading && (

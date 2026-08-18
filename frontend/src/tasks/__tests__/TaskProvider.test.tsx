@@ -213,6 +213,59 @@ describe("TaskProvider", () => {
     expect(closeSpy).toHaveBeenCalled();
   });
 
+  it("progress ticks mid-fetch do NOT discard the resync snapshot (F5)", async () => {
+    // 下载洪峰期 progress tick ~0.15s 一次;若它也置 sseSaw,resync 快照
+    // 几乎总被丢弃(SSE 溢出丢掉 done 事件时 batch 永远卡 running)。
+    let resolveSnap!: (v: any) => void;
+    const delayed = new Promise<any>(r => { resolveSnap = r; });
+    const fetchMock = vi.fn().mockReturnValue(delayed);
+    (globalThis as any).fetch = fetchMock;
+    const es = makeFakeEventSource();
+    (globalThis as any).EventSource = es.FakeEventSource as any;
+    render(
+      <TaskProvider>
+        <Probe />
+      </TaskProvider>,
+    );
+    await screen.findByText("none");   // 挂载渲染完成,fetch 仍 pending
+    await act(async () => {
+      es.fireMessage({ type: "task_progress", task_id: "x", received: 1, total: 2 });
+    });
+    resolveSnap({
+      ok: true,
+      json: async () => ({
+        tasks: [{ id: "s1", source: "feodo", host: null, state: "done", error: null, batch_id: "b9" }],
+        batch: { id: "b9", state: "done", done: 1, total: 1 },
+      }),
+    });
+    expect(await screen.findByText("done:1/1")).toBeInTheDocument();  // 快照生效
+  });
+
+  it("a state event mid-fetch still discards the resync snapshot (fresher wins)", async () => {
+    let resolveSnap!: (v: any) => void;
+    const delayed = new Promise<any>(r => { resolveSnap = r; });
+    const fetchMock = vi.fn().mockReturnValue(delayed);
+    (globalThis as any).fetch = fetchMock;
+    const es = makeFakeEventSource();
+    (globalThis as any).EventSource = es.FakeEventSource as any;
+    render(
+      <TaskProvider>
+        <Probe />
+      </TaskProvider>,
+    );
+    await screen.findByText("none");
+    await act(async () => {
+      es.fireMessage({ type: "batch", batch: { id: "b1", state: "running", done: 0, total: 1 } });
+    });
+    expect(await screen.findByText("running:0/1")).toBeInTheDocument();
+    resolveSnap({
+      ok: true,
+      json: async () => ({ tasks: [], batch: { id: "zz", state: "done", done: 0, total: 0 } }),
+    });
+    await act(async () => {});   // flush 微任务
+    expect(screen.getByTestId("batch").textContent).toBe("running:0/1");  // 被丢弃
+  });
+
   it("useTasks throws when used outside provider", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     function Orphan() {
