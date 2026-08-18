@@ -3,6 +3,7 @@ import {
   enqueueBatch,
   enqueueSingle,
   getTasks,
+  getDbStatus,
   cancelTask,
   cancelBatch,
   pauseBatch,
@@ -257,5 +258,33 @@ describe("queryIpsStream (row protocol v2)", () => {
     const out = await queryIpsStream(["8.8.8.8"], () => {});
     expect(out.invalidLines).toBe(2);
     expect(out.ipv6Unsupported).toBe(1);
+  });
+});
+
+describe("apiError status attachment (review #10)", () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as any;
+  });
+
+  it("getDbStatus throws an error carrying the HTTP status", async () => {
+    (globalThis.fetch as any).mockResolvedValue(
+      new Response(JSON.stringify({ detail: "database is warming up" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const err: any = await getDbStatus().then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(503);
+    expect(err.message).toBe("database is warming up");
+  });
+
+  it("falls back and still carries status when the body is not JSON", async () => {
+    (globalThis.fetch as any).mockResolvedValue(
+      new Response("gateway hiccup", { status: 502 }),
+    );
+    const err: any = await getDbStatus().then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(502);
   });
 });

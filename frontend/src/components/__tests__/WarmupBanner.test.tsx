@@ -88,4 +88,24 @@ describe("WarmupBanner", () => {
     });
     await waitFor(() => expect(container.querySelector("[data-warmup]")).toBeNull());
   });
+
+  it("stops polling db-status after the first warming_up=false (review #8)", async () => {
+    vi.useFakeTimers();
+    (getDbStatus as any).mockClear();
+    let warming = true;
+    (getDbStatus as any).mockImplementation(() => Promise.resolve({
+      warming_up: warming, total_records: 0,
+    }));
+    render(<WarmupBanner />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });   // 初始 poll
+    expect(getDbStatus).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(getDbStatus).toHaveBeenCalledTimes(3);   // 初始 + 2 个 tick
+    warming = false;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });  // 翻 false → 停轮
+    expect(getDbStatus).toHaveBeenCalledTimes(4);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+    expect(getDbStatus).toHaveBeenCalledTimes(4);   // 稳态零轮询
+  });
 });

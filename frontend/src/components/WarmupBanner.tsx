@@ -19,12 +19,20 @@ export function WarmupBanner() {
 
   useEffect(() => {
     let alive = true;
-    const poll = () => getDbStatus().then(s => { if (alive) setStatus(s); })
-                                .catch(() => {});
+    let timer: number | undefined;
+    const poll = () => getDbStatus().then(s => {
+      if (!alive) return;
+      setStatus(s);
+      // warming_up 进程内只会 true→false;首个 false 即停轮(稳态零轮询)。
+      if (!s.warming_up && timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    }).catch(() => {});
     poll();
     // 兜底 5s 轮询(SSE 断连时也能解锁)
-    const id = setInterval(poll, 5000);
-    return () => { alive = false; clearInterval(id); };
+    timer = setInterval(poll, 5000);
+    return () => { alive = false; if (timer !== undefined) clearInterval(timer); };
   }, []);
 
   // batch done → 重拉 db-status(warming_up 可能翻 false)

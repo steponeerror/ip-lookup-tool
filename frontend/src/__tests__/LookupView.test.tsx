@@ -66,10 +66,12 @@ describe("LookupView 503 self-correction", () => {
     // 所有 getDbStatus 调用共享一个 deferred:挂载期轮询保持 pending
     // (控件可用);查询撞 503 后 resolve warming_up=true,LookupView 的
     // 重拉与 WarmupBanner 的轮询拿到同一份结果(横幅不必等 5s 轮询)。
+    (queryIpsStream as any).mockClear();
     let resolveStatus!: (v: any) => void;
     const pending = new Promise<any>(r => { resolveStatus = r; });
     (getDbStatus as any).mockReturnValue(pending);
-    (queryIpsStream as any).mockRejectedValue(new Error("database is warming up"));
+    const err503 = Object.assign(new Error("database is warming up"), { status: 503 });
+    (queryIpsStream as any).mockRejectedValue(err503);
 
     const { container } = renderLookup();
     const textarea = await waitFor(() => {
@@ -85,6 +87,63 @@ describe("LookupView 503 self-correction", () => {
     await waitFor(() => expect(container.querySelector("[data-warmup]")).not.toBeNull());
     expect(screen.queryByText("database is warming up")).toBeNull();
     expect(screen.getByRole("button", { name: "Query" })).toBeDisabled();
+    // 仍在 warming → 不重试(横幅接管,查询就此打住)
+    expect(queryIpsStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries the query once when the gate closed between the 503 and the db-status refetch", async () => {
+    // review #4: 重拉说 warming 已结束(503 与重拉之间的竞态窗口)时,
+    // 旧实现只 setWarming(false) 静默丢弃查询;现在原样重试一次成功。
+    (queryIpsStream as any).mockClear();
+    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
+    const err503 = Object.assign(new Error("database is warming up"), { status: 503 });
+    const mf = <T,>(value: T, confidence = 95) => ({
+      value, confidence, algorithm: "cascade", sources: [],
+    });
+    const outcome = {
+      results: [{
+        ip: "1.1.1.1",
+        country: mf("US"), city: mf("N/A", 0), asn: mf(13335, 90),
+        as_name: mf("Cloudflare", 90), ip_range: mf("1.1.1.0/24", 90),
+        is_isp: false, classifications: {},
+      }],
+      csvDownloaded: false, invalidLines: 0, ipv6Unsupported: 0, total: 1,
+    };
+    (queryIpsStream as any).mockRejectedValueOnce(err503).mockResolvedValueOnce(outcome);
+
+    const { container } = renderLookup();
+    const textarea = await waitFor(() => {
+      const el = container.querySelector("textarea") as HTMLTextAreaElement;
+      expect(el).not.toBeNull();
+      return el;
+    });
+    fireEvent.change(textarea, { target: { value: "1.1.1.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+
+    await waitFor(() => expect(screen.getByText("1.1.1.1")).not.toBeNull());
+    expect(queryIpsStream).toHaveBeenCalledTimes(2);   // 一次 503 + 一次重试
+    expect(screen.queryByText("database is warming up")).toBeNull();
+    expect(container.querySelector("[data-warmup]")).toBeNull();
+  });
+
+  it("gives up with the generic error when the retried attempt 503s again (no ping-pong)", async () => {
+    (queryIpsStream as any).mockClear();
+    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
+    const err503 = Object.assign(new Error("database is warming up"), { status: 503 });
+    (queryIpsStream as any).mockRejectedValue(err503);   // 每次都 503
+
+    const { container } = renderLookup();
+    const textarea = await waitFor(() => {
+      const el = container.querySelector("textarea") as HTMLTextAreaElement;
+      expect(el).not.toBeNull();
+      return el;
+    });
+    fireEvent.change(textarea, { target: { value: "1.1.1.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+
+    await waitFor(() => expect(screen.getByText("database is warming up")).not.toBeNull());
+    expect(queryIpsStream).toHaveBeenCalledTimes(2);   // 恰好重试一次,不再多
+    expect(container.querySelector("[data-warmup]")).toBeNull();
   });
 
   it("a non-warming error still shows the generic error box without the banner", async () => {

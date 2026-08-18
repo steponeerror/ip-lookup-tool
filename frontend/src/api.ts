@@ -90,12 +90,21 @@ export interface StreamOutcome {
   total: number;
 }
 
+// 所有非 2xx 抛错统一走这里:错误对象带 HTTP status(e.status),
+// 调用方按状态码分支(如 503 warming 门),不靠文案猜。
+function apiError(detail: string, status: number, fallback: string, cause?: unknown): Error {
+  const err = new Error(detail || fallback);
+  (err as any).status = status;
+  if (cause !== undefined) (err as any).cause = cause;
+  return err;
+}
+
 export async function getDbStatus(): Promise<DbStatus> {
   const res = await fetch("/api/db-status");
   if (!res.ok) {
     let detail: string;
     try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-    throw new Error(detail || "Failed to get database status");
+    throw apiError(detail, res.status, "Failed to get database status");
   }
   return res.json();
 }
@@ -208,7 +217,7 @@ export async function queryIpsStream(
     if (!res.ok) {
       let detail: string;
       try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-      throw new Error(detail || "Query failed");
+      throw apiError(detail, res.status, "Query failed");
     }
     resetIdle();
     return await readStream(res, onProgress, resetIdle);
@@ -239,7 +248,7 @@ export async function uploadFileStream(
     if (!res.ok) {
       let detail: string;
       try { const body = await res.json(); detail = body.detail || ""; } catch { detail = res.statusText; }
-      throw new Error(detail || "Upload failed");
+      throw apiError(detail, res.status, "Upload failed");
     }
     resetIdle();
     return await readStream(res, onProgress, resetIdle);
@@ -284,9 +293,9 @@ async function jsonOrThrow(res: Response, fallback: string) {
       const body = await res.json();
       detail = body.detail || detail;
     } catch (e) {
-      throw new Error(detail || fallback, { cause: e });
+      throw apiError(detail, res.status, fallback, e);
     }
-    throw new Error(detail || fallback);
+    throw apiError(detail, res.status, fallback);
   }
   return res.json();
 }

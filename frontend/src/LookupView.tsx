@@ -7,15 +7,13 @@ import { ExportCsv } from "./components/ExportCsv";
 import { Modal } from "./components/Modal";
 import { WarmupBanner } from "./components/WarmupBanner";
 import { getDbStatus, queryIpsStream, uploadFileStream } from "./api";
-import type { LookupResult, Progress } from "./api";
+import type { LookupResult, Progress, StreamOutcome } from "./api";
 import { useI18n } from "./i18n";
 
 type InputTab = "text" | "file";
 
-// api 层对非 200 抛 plain Error(detail)(无 status 字段);503 的 detail 恒为
-// "database is warming up",按 message 识别即可。status 检查留作前向兼容。
-const isWarming503 = (e: unknown) =>
-  (e as any)?.status === 503 || /warming up/i.test((e as any)?.message ?? "");
+// api 层非 2xx 抛错统一带 e.status(见 api.ts apiError);503 = warming 门
+const isWarming503 = (e: unknown) => (e as any)?.status === 503;
 
 export default function LookupView() {
   const { t } = useI18n();
@@ -35,50 +33,78 @@ export default function LookupView() {
   const reduce = useReducedMotion();
   const [warming, setWarming] = useState(false);
 
-  // 查询控件置灰联动:与 WarmupBanner 的轮询解耦(各持一份,避免跨组件状态提升)
+  // 查询控件置灰联动:与 WarmupBanner 的轮询解耦(各持一份,避免跨组件状态提升)。
+  // warming_up 在后端进程生命周期内只会 true→false(构建窗口只关不开),
+  // 首个 false 即停轮 — 稳态零轮询;后端重启进入新冷启动时由查询 503 自纠兜底。
   useEffect(() => {
     let alive = true;
-    const poll = () => getDbStatus().then(s => { if (alive) setWarming(s.warming_up); })
-                                .catch(() => {});
+    let timer: number | undefined;
+    const poll = () => getDbStatus().then(s => {
+      if (!alive) return;
+      setWarming(s.warming_up);
+      if (!s.warming_up && timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    }).catch(() => {});
     poll();
     // 兜底 5s 轮询(与 WarmupBanner 一致,失败/断连时也能解锁)
-    const id = setInterval(poll, 5000);
-    return () => { alive = false; clearInterval(id); };
+    timer = setInterval(poll, 5000);
+    return () => { alive = false; if (timer !== undefined) clearInterval(timer); };
   }, []);
 
-  const handleQuery = async (ips: string[]) => {
+  const applyOutcome = (r: StreamOutcome) => {
+    if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
+      setSkipped({ invalid: r.invalidLines, ipv6: r.ipv6Unsupported });
+    }
+    if (r.csvDownloaded) {
+      setResults([]);
+      setCsvModal({
+        open: true,
+        count: r.total,
+        invalid: r.invalidLines,
+        ipv6: r.ipv6Unsupported,
+      });
+    } else {
+      setResults(r.results);
+      if (r.enrichError) setEnrichError(r.enrichError);
+    }
+  };
+
+  // 503 自纠:乐观提交漏过初始加载窗口撞上 warming 门时,重拉 db-status —
+  // 仍在 warming 则横幅接管;门已开则原样重试一次(503 在依赖处抛出,
+  // 服务端零副作用,重试安全)。第二次仍 503 不再重试(防乒乓)。
+  const runLookup = async (fetcher: () => Promise<StreamOutcome>, failMsg: string) => {
     setLoading(true);
     setError(null);
     setEnrichError(null);
     setSkipped(null);
     setProgress(null);
     try {
-      const r = await queryIpsStream(ips, setProgress);
-      if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
-        setSkipped({ invalid: r.invalidLines, ipv6: r.ipv6Unsupported });
-      }
-      if (r.csvDownloaded) {
-        setResults([]);
-        setCsvModal({
-          open: true,
-          count: r.total,
-          invalid: r.invalidLines,
-          ipv6: r.ipv6Unsupported,
-        });
-      } else {
-        setResults(r.results);
-        if (r.enrichError) setEnrichError(r.enrichError);
-      }
-    } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") {
-        setError(t("lookup.cancelled"));
-      } else if (isWarming503(e)) {
-        // 503 自纠:查询漏过初始加载窗口撞上后端 warming 门 — 重拉 db-status
-        // 置 warming;横幅接管,抑制通用错误显示。
-        const s = await getDbStatus().catch(() => null);
-        setWarming(!!s?.warming_up);
-      } else {
-        setError(e instanceof Error ? e.message : t("lookup.queryFailed"));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          applyOutcome(await fetcher());
+          break;
+        } catch (e) {
+          if (e instanceof Error && e.name === "AbortError") {
+            setError(t("lookup.cancelled"));
+            break;
+          }
+          if (!isWarming503(e)) {
+            setError(e instanceof Error ? e.message : failMsg);
+            break;
+          }
+          const s = await getDbStatus().catch(() => null);
+          if (s?.warming_up) {
+            setWarming(true);
+            break;
+          }
+          if (attempt > 0) {
+            setError(e instanceof Error ? e.message : failMsg);
+            break;
+          }
+          // 503 与重拉之间门恰好开合 — 重试一次
+        }
       }
     } finally {
       setLoading(false);
@@ -86,43 +112,11 @@ export default function LookupView() {
     }
   };
 
-  const handleUpload = async (file: File) => {
-    setLoading(true);
-    setError(null);
-    setEnrichError(null);
-    setSkipped(null);
-    setProgress(null);
-    try {
-      const r = await uploadFileStream(file, setProgress);
-      if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
-        setSkipped({ invalid: r.invalidLines, ipv6: r.ipv6Unsupported });
-      }
-      if (r.csvDownloaded) {
-        setResults([]);
-        setCsvModal({
-          open: true,
-          count: r.total,
-          invalid: r.invalidLines,
-          ipv6: r.ipv6Unsupported,
-        });
-      } else {
-        setResults(r.results);
-        if (r.enrichError) setEnrichError(r.enrichError);
-      }
-    } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") {
-        setError(t("lookup.cancelled"));
-      } else if (isWarming503(e)) {
-        const s = await getDbStatus().catch(() => null);
-        setWarming(!!s?.warming_up);
-      } else {
-        setError(e instanceof Error ? e.message : t("lookup.uploadFailed"));
-      }
-    } finally {
-      setLoading(false);
-      setProgress(null);
-    }
-  };
+  const handleQuery = (ips: string[]) =>
+    runLookup(() => queryIpsStream(ips, setProgress), t("lookup.queryFailed"));
+
+  const handleUpload = (file: File) =>
+    runLookup(() => uploadFileStream(file, setProgress), t("lookup.uploadFailed"));
 
   return (
     <div className="space-y-6">
