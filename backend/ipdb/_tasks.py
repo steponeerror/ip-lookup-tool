@@ -121,6 +121,15 @@ class UpdateManager:
                         batch_id=batch_id)
             self._tasks[task.id] = task
             self._by_source[name] = task.id
+            # A task attaching to the active batch AFTER populate (re-enable
+            # path: set_source_enabled → enqueue_one) must grow that batch's
+            # total, or its later _settle increment pushes done past total and
+            # can complete the batch while the straggler is still in flight.
+            # During populate the post-loop re-stamp counts every attachment,
+            # so skip to avoid double-counting.
+            if (batch_id is not None and batch_id == self._active_batch
+                    and not self._populating_batch):
+                self._batches[batch_id].total += 1
             self._enqueue(task.id)
             self._emit({"type": "task", "task": task.to_dict()})
             return task
@@ -181,6 +190,15 @@ class UpdateManager:
             # future batch as perpetually "running".
             with self._lock:
                 self._populating_batch = False
+                # Counter-based completion (see _maybe_finish_batch) needs
+                # total == number of tasks that will actually settle into this
+                # batch. A batchless in-flight task (scheduler-detached refresh)
+                # absorbs its source's slot via dedup — no task is created for
+                # this batch — so re-stamp total to the attached count.
+                b = self._batches[batch.id]
+                if b.state != "done":
+                    b.total = sum(1 for t in self._tasks.values()
+                                  if t.batch_id == b.id)
         self._maybe_finish_batch()
         return batch.id
 
@@ -218,19 +236,23 @@ class UpdateManager:
             b = self._batches[self._active_batch]
             if b.state == "done":
                 return
-            # done when no active tasks remain for this batch
-            active = [t for t in self._tasks.values()
-                      if t.batch_id == b.id and t.state in ("queued", "downloading", "loading", "throttled")]
-            if not active:
-                b.state = "done"
-                self._emit({"type": "batch", "batch": b.to_dict()})
-                self._emit({"type": "done", "batch": b.to_dict()})
-                # Release the active slot so a terminal batch stops being
-                # reported as active. Without this, _active_batch leaks and
-                # later single-source updates (enqueue_one) silently attach to
-                # the finished batch, accruing its done/total counter (e.g.
-                # 3/2 · 150%) and showing stale batch context.
-                self._active_batch = None
+            # Counter-based completion, NOT a state scan: a task flips terminal
+            # via _set_state at the end of _run_task, but its b.done increment
+            # lands later in _settle — a state scan can see "all terminal" while
+            # the last 1..N increments are still in flight and emit the terminal
+            # done event with done < total (#6). b.done only moves under this
+            # lock, so the check is atomic with the increments.
+            if b.done < b.total:
+                return
+            b.state = "done"
+            self._emit({"type": "batch", "batch": b.to_dict()})
+            self._emit({"type": "done", "batch": b.to_dict()})
+            # Release the active slot so a terminal batch stops being
+            # reported as active. Without this, _active_batch leaks and
+            # later single-source updates (enqueue_one) silently attach to
+            # the finished batch, accruing its done/total counter (e.g.
+            # 3/2 · 150%) and showing stale batch context.
+            self._active_batch = None
 
     # --- pause / resume / cancel (Task 5) ---
     def pause(self):

@@ -2,6 +2,14 @@
 
 本项目的所有重要变更记录于此。自 v1.0.0 起按版本分节，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## Unreleased
+
+### 修复
+
+- 批量更新收敛竞态：终态 done 事件不再出现 done<total；源中途启用
+  (re-enable)或调度器刷新与手动全量更新重叠时，total 动态校正，
+  批次不再可能永久停在 running（需重启才能再全量更新）
+
 ## v1.0.0 — 2026-08-18
 
 开源首版。自托管威胁情报融合引擎：FastAPI + React 19 + LMDB，单容器部署，全栈本地运行，查询不出网。

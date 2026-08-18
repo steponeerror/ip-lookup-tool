@@ -437,3 +437,73 @@ def test_done_batches_bounded():
     # GC retains 10 + the just-completed batch = 11 max
     assert len(done) <= 11, \
         f"done batches should be bounded (~10+1), got {len(done)}"
+
+
+def test_batch_done_event_waits_for_every_settle(monkeypatch):
+    """#6 done-event 计数竞态:任务在 _run_task 末尾先经 _set_state 翻终态,
+    批计数 b.done 的递增落在其后的 _settle——若完成判定扫任务状态,并发的
+    _settle 可在最后 1..N 个计数未落地时提前发终态 done 事件(done < total,
+    在 test_batch_flows_through_manager_and_snapshot 表现为 27==28/26==28)。
+    用延迟一个 settle 钉死窗口:done 事件必须 done == total。"""
+    srcs = [FakeSource("a", host="h1"), FakeSource("b", host="h2")]
+    mgr, _ = _make_manager(srcs, concurrency=2)
+    events = []
+    monkeypatch.setattr(mgr, "_emit", events.append)
+    orig_settle = mgr._settle
+    def _slow_settle(task):
+        if task.source_name == "a":
+            time.sleep(0.25)   # 状态已 "done",计数未落:窗口保持打开
+        orig_settle(task)
+    monkeypatch.setattr(mgr, "_settle", _slow_settle)
+    mgr.enqueue_batch(["a", "b"])
+    _wait_states(mgr, lambda s: s["batch"] is None, timeout=10)
+    time.sleep(0.3)            # 等延迟的 settle 与其增量事件走完
+    done = [e for e in events if e.get("type") == "done"]
+    assert done, "terminal done event never emitted"
+    b = done[-1]["batch"]
+    assert b["done"] == b["total"] == 2
+
+
+def test_batch_total_counts_only_attached_tasks():
+    """无 batch 在途任务(scheduler 的 enqueue_one_detached)吸收新 batch 中
+    同源的名额:dedup 不给 batch 造任务,total 若按入参名单计,计数式完成
+    判定永远到不了 total → batch 永久挂起(overlap-reject 会让后续全量更新
+    一直返回死 batch id)。total 必须等于实际挂到本 batch 的任务数。"""
+    a = FakeSource("a", host="h1", slow=0.4)   # detached 慢任务,保持 in-flight
+    b = FakeSource("b", host="h2")
+    mgr, _ = _make_manager([a, b], concurrency=2)
+    mgr.enqueue_one_detached("a")
+    time.sleep(0.05)                # 让 worker 拿到 a(downloading)
+    bid = mgr.enqueue_batch(["a", "b"])
+    _wait_states(mgr, lambda s: s["batch"] is None, timeout=10)
+    batch = mgr._batches[bid]
+    assert batch.state == "done"
+    assert batch.total == 1         # 只有 b 挂到了 batch
+    assert batch.done == 1
+
+
+def test_late_enqueue_one_grows_running_batch_total():
+    """运行中 batch 途中经 enqueue_one 挂进来的任务(set_source_enabled(enable)
+    的 re-enqueue 路径)必须同步 total+1,否则其 settle 使 done 越过 total:
+    batch 提前翻 done / 后续 batch 事件 done>total。"""
+    slow = FakeSource("slow", host="h1", slow=0.5)
+    late = FakeSource("late", host="h2")
+    mgr, _ = _make_manager([slow, late], concurrency=2)
+    bid = mgr.enqueue_batch(["slow"])
+    time.sleep(0.05)                # slow 处 downloading → batch 保持打开
+    mgr.enqueue_one("late")         # 迟到挂载
+    _wait_states(mgr, lambda s: s["batch"] is None, timeout=10)
+    b = mgr._batches[bid]
+    assert b.state == "done"
+    assert b.total == 2             # 迟到任务计入
+    assert b.done == 2
+
+
+def test_empty_batch_completes_immediately():
+    """空名单 batch(全部被滤掉/空入参)按 0/0 立即完成,不挂起。"""
+    mgr, _ = _make_manager([FakeSource("a")])
+    bid = mgr.enqueue_batch([])
+    b = mgr._batches[bid]
+    assert b.state == "done"
+    assert b.total == 0 and b.done == 0
+    assert mgr.snapshot()["batch"] is None
