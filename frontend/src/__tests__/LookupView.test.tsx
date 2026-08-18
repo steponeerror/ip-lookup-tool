@@ -188,3 +188,40 @@ describe("LookupView 503 self-correction", () => {
     expect(screen.getByRole("button", { name: "Query" })).toBeEnabled();
   });
 });
+
+describe("LookupView stream done.error", () => {
+  it("shows error banner when queryIpsStream resolves with error (no throw)", async () => {
+    (queryIpsStream as any).mockClear();
+    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
+    (queryIpsStream as any).mockResolvedValue({
+      results: [], csvDownloaded: false, invalidLines: 0,
+      ipv6Unsupported: 0, total: 1, error: "boom",
+    });
+    renderLookup();
+
+    const textarea = screen.getByPlaceholderText(/1\.1\.1\.1/i);
+    fireEvent.change(textarea, { target: { value: "8.8.8.8" } });
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+
+    expect(await screen.findByText("boom")).toBeInTheDocument();
+    expect(queryIpsStream).toHaveBeenCalledWith(["8.8.8.8"], expect.anything());
+  });
+
+  it("shows error banner alongside CSV modal in csv mode (csvDownloaded + error)", async () => {
+    (queryIpsStream as any).mockClear();
+    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
+    (queryIpsStream as any).mockResolvedValue({
+      results: [], csvDownloaded: true, invalidLines: 0,
+      ipv6Unsupported: 0, total: 60000, error: "boom",
+    });
+    renderLookup();
+
+    const textarea = screen.getByPlaceholderText(/1\.1\.1\.1/i);
+    fireEvent.change(textarea, { target: { value: "8.8.8.8" } });
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Results exported as CSV")).toBeInTheDocument();
+    expect(await screen.findByText("boom")).toBeInTheDocument();
+  });
+});

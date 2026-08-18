@@ -1,8 +1,8 @@
 # IP Radar
 
-自托管的多源 IP 威胁情报融合引擎：28 个公开源熔成一份裁决，证据、置信度、地理与 ASN 俱全，一条命令跑起来。
+把 28 个公开情报源搬回家：查任何 IP，拿一份说人话的裁决——证据、置信度、地理、ASN 一次看全。一条命令，自己部署。
 
-> Self-hosted multi-source IP threat-intelligence fusion: 28 public feeds fused into one verdict — with evidence, confidence, geo & ASN — one command away.
+> Pull 28 public threat feeds into your own box: every lookup comes back with a verdict in plain words — evidence, confidence, geo & ASN, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -14,19 +14,19 @@
 
 ## 特性 | Features
 
-- **24/28 源免密钥开箱即用** —— 首次启动自动下载构建全部免密钥源，≈4.7M 条记录入库。
-- **多源融合裁决** —— 单 IP 一句话结论 + 逐源证据表 + 0-100 置信度（按源可靠性加权、交叉佐证、随时间衰减）。
-- **地理 · 城市 · ASN** —— GeoLite2 城市、iptoasn 自治域、CN ISP 归属识别（含港澳台）。
-- **代理 · VPN · Tor · CDN 边缘识别** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘一览。
-- **单容器全栈 + 自适应内存阀** —— `docker compose up -d --build` 即得；按宿主机内存自动限并发，默认每 30 分钟后台刷新。
-- **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认未装 `stix2`，`pip install stix2` 后启用。
+- **开箱即用，24/28 源不需要密钥** —— 首次启动自动下载构建，≈4.7M 条记录入库；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
+- **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（源可靠性加权、交叉佐证、随时间衰减）。
+- **地理 · 城市 · ASN** —— GeoLite2 给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
+- **代理 · VPN · Tor · CDN，一眼认出来** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘，都标得清清楚楚。
+- **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，默认每 30 分钟后台刷新。
+- **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认不带 `stix2`，`pip install stix2` 装上即开。
 
-> - **24 of 28 feeds work with zero API keys** — first start auto-downloads and builds every keyless feed into ≈4.7M records.
-> - **Fused verdicts, not raw lists** — one verdict per IP with per-source evidence, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
-> - **Geo · City · ASN** — GeoLite2 city, ASN ranges, and classification across China ISPs (mainland + HK/MO/TW).
-> - **Proxy · VPN · Tor · CDN-edge detection** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges.
-> - **One container, self-limiting memory valve** — `docker compose up -d --build` and you're serving; concurrency adapts to host RAM, background refresh every 30 min by default.
-> - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to enable.
+> - **24 of 28 feeds need zero API keys** — first start downloads and builds them all into ≈4.7M records; to light up the other 4 🔑 sources, see [Quick Start](#快速开始--quick-start).
+> - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
+> - **Geo · City · ASN** — GeoLite2 for the city, iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
+> - **Proxy · VPN · Tor · CDN, spotted at a glance** — open proxies, VPN ranges, Tor exits, and the big three CDNs' edges, all labeled.
+> - **One container, memory that behaves** — `docker compose up -d --build` and you're serving; concurrency bends to host RAM, background refresh every 30 min by default.
+> - **STIX 2.1 export (optional)** — `/api/lookup/{ip}/stix`; the Docker image ships without `stix2` — `pip install stix2` to switch it on.
 
 ![干净 IP 的地理富化](assets/feature-geo.png)
 
@@ -42,21 +42,21 @@ flowchart TD
     F --> G["React UI"]
 ```
 
-全部数据在本地融合、本地存储、本地查询——不把你的查询发给任何第三方。
+融合、存储、查询，全在你本地——你的查询不发给任何第三方。
 
-> Everything is fused, stored, and queried locally — your lookups never leave your machine.
+> Fused, stored, and queried on your own machine — your lookups never leave it.
 
 ## 快速开始 | Quick Start
 
 ### Docker（自托管推荐）
 
-单容器跑起全栈（FastAPI 后端 + 构建好的前端）。要求 Docker Compose v2.24+（`docker compose version`）。
+一个容器装下全部（FastAPI 后端 + 构建好的前端）。Docker Compose 要 v2.24+（`docker compose version` 看一眼）。
 
-> The full stack (FastAPI backend + built frontend) in one container. Requires Docker with Compose v2.24+ (`docker compose version`).
+> The whole stack (FastAPI backend + built frontend) in one container. Docker Compose v2.24+ required (`docker compose version` to check).
 
 ```bash
-git clone https://github.com/steponeerror/ip-lookup-tool.git
-cd ip-lookup-tool
+git clone https://github.com/steponeerror/ip-radar.git
+cd ip-radar
 docker compose up -d --build
 ```
 
@@ -64,18 +64,30 @@ docker compose up -d --build
 
 > Open http://127.0.0.1:8000. The container is reachable within seconds on first start — it comes up immediately, and a banner at the top of the page shows real-time download/build progress for the keyless feeds (24 of the 28 sources, including geo/city/ASN and the major blocklists). Queries unlock automatically once the build completes. Subsequent starts load from the `ipradar-data` volume in seconds.
 
-可选的密钥源（ipinfo_lite / abuseipdb / otx / ip2proxy，及 ipapi.is 增强）——把密钥放进 `.env.local`（已 gitignore，覆盖 `.env`）：
+想开 4 个密钥源（ipinfo_lite / abuseipdb / otx / ip2proxy）或 ipapi.is 增强？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
 
-> Optional API-keyed sources (ipinfo_lite / abuseipdb / otx / ip2proxy, and ipapi.is enrichment) — put keys in `.env.local` (gitignored, overrides `.env`):
+> Want the 4 keyed sources (ipinfo_lite / abuseipdb / otx / ip2proxy) or ipapi.is enrichment? Drop the keys into `.env.local` (gitignored, overrides `.env`):
 
 ```bash
 cp .env .env.local   # then open .env.local in any editor, fill keys; set IPAPI_IS_ENABLED=true if using ipapi.is
 docker compose up -d
 ```
 
-npm/pip 下载慢（如国内网络）——传镜像 build-args：
+五个变量，去哪申请（`.env` 里也有同样的注释）：
 
-> Slow npm/pip downloads (e.g. CN networks) — pass mirror build-args:
+> The five variables, and where to apply for keys (`.env` carries the same comments):
+
+| 源 Source | 变量 Variable | 申请 Apply |
+|---|---|---|
+| ipinfo_lite | `IPINFO_TOKEN` | <https://ipinfo.io/account/token> |
+| abuseipdb | `ABUSEIPDB_API_KEY` | <https://www.abuseipdb.com/account> |
+| otx | `OTX_API_KEY` | <https://otx.alienvault.com/settings> |
+| ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
+| ipapi.is（付费增强） | `IPAPI_IS_KEY` + `IPAPI_IS_ENABLED=true` | <https://ipapi.is/> |
+
+npm/pip 下载慢（国内网络常见）——传镜像 build-args：
+
+> Slow npm/pip downloads (common on CN networks) — pass mirror build-args:
 
 ```bash
 docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
@@ -86,19 +98,19 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 
 > Notes:
 
-- 端口默认只绑 `127.0.0.1`。要在局域网/公网暴露，改 `docker-compose.yml` 的 `ports` —— 本 API **没有任何鉴权**。
-- 每个源有自己的使用条款；商用责任自负（本仓库的 AGPL-3.0 只覆盖代码）。
-- 升级：`git pull && docker compose up -d --build` —— 数据卷保留。
-- 磁盘：为数据卷预留 ≥6 GB。
+- 端口默认只绑 `127.0.0.1`；要上局域网/公网，改 `docker-compose.yml` 的 `ports`——注意本 API **没有任何鉴权**。
+- 各源有自己的使用条款，商用责任自负（本仓库的 AGPL-3.0 只管代码）。
+- 升级：`git pull && docker compose up -d --build`，数据卷原地保留。
+- 磁盘：给数据卷留够 ≥6 GB。
 
-> - Port binds to 127.0.0.1 by default. To expose on LAN/public internet, edit `ports` in `docker-compose.yml` — the API has **no authentication**.
-> - Each feed has its own usage terms; commercial use is your responsibility (this repo's AGPL-3.0 license covers code only).
-> - Upgrade: `git pull && docker compose up -d --build` — the data volume survives.
+> - The port binds to 127.0.0.1 by default; to go LAN/public, edit `ports` in `docker-compose.yml` — mind that the API has **no authentication**.
+> - Each feed has its own usage terms; commercial use is your responsibility (this repo's AGPL-3.0 covers code only).
+> - Upgrade: `git pull && docker compose up -d --build` — the data volume stays right where it is.
 > - Disk: budget ≥6 GB for the data volume.
 
 ### 开发模式 | Development
 
-**dev 模式**（前端 :5173 热更新，后端 API :8000）：
+**dev 模式**（前端 :5173 热更新，后端 API 走 :8000）：
 
 > **Dev mode** (frontend hot-reload on :5173, backend API on :8000):
 
@@ -106,9 +118,9 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 ./dev.sh
 ```
 
-**或手动分别启动：**
+**想分开跑也行：**
 
-> **Or run each side manually:**
+> **Or run each side yourself:**
 
 ```bash
 # backend
@@ -119,7 +131,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 cd frontend && npm run dev
 ```
 
-**类生产**（构建前端，全部服务走 :8000）：
+**类生产**（构建前端，一切都走 :8000）：
 
 > **Production-style** (builds frontend, serves everything on :8000):
 
@@ -129,9 +141,9 @@ cd frontend && npm run dev
 
 ## 使用 | Usage
 
-打开 http://127.0.0.1:8000 ，输入任意 IP 即得融合裁决、逐源证据表与地理/ASN 富化。API 直接可用：
+打开 http://127.0.0.1:8000 ，随手输一个 IP：裁决、逐源证据、地理/ASN 一起回来。API 也能直接用：
 
-> Open http://127.0.0.1:8000, type any IP, and get the fused verdict, per-source evidence, and geo/ASN enrichment. The API works directly:
+> Open http://127.0.0.1:8000 and type any IP: verdict, per-source evidence, and geo/ASN come back together. The API works directly too:
 
 ```bash
 # 核心查询 | core lookup
@@ -145,15 +157,35 @@ curl -s http://127.0.0.1:8000/api/db-status
 curl -s http://127.0.0.1:8000/api/sources
 ```
 
-其余管理端点（update-db / tasks / events 等）见代码；UI 上也能直接触发刷新。
+其余管理端点（update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。
 
-> Management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes directly too.
+> The other management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too.
+
+## 用 AI 扩展数据源 | Extending Sources with AI
+
+仓库还自带三个 Claude Code skills（`.claude/skills/`）——装了 [Claude Code](https://claude.com/claude-code) 的话，一句话就能让 AI 替你把源加上：
+
+> The repo also ships three Claude Code skills (`.claude/skills/`) — with [Claude Code](https://claude.com/claude-code) installed, one sentence lets AI wire the source in for you:
+
+| Skill | 什么时候用 When | 一句话示例 Example |
+|---|---|---|
+| `discover-intel-sources` | 还没想好加哪个源，先要候选清单与评估 | “帮我找几个值得加的威胁情报源” |
+| `add-intel-source` | 已选定某个源，要完整接入 | “把 GreyNoise 加进来” |
+| `manage-intel-source` | 管理现有源：体检、更新、替换 | “看看各源的健康状况” |
+
+- **discover-intel-sources** —— 没想好加什么？说说你的要求（免费/密钥、数据类型、覆盖面），它去调研，带回一份附评估的候选清单。
+- **add-intel-source** —— 定了加谁就交给它：按仓库既有的接法一次到位——源文件、自动注册、分类映射、融合权重、回归测试。
+- **manage-intel-source** —— 发现→接入→评估，整个生命周期都管：给现有源做体检，把低信号的换掉。
+
+> - **discover-intel-sources** — not sure what to add? State your constraints (free/keyed, data type, coverage); it does the research and comes back with an evaluated shortlist.
+> - **add-intel-source** — once you've picked one, hand it over: wired in one go under the repo's established pattern — source file, auto-registration, classification map, fusion weight, regression tests.
+> - **manage-intel-source** — owns the whole discover→add→evaluate lifecycle: health-checks existing sources, swaps out the low-signal ones.
 
 ## 数据源与致谢 | Data Sources & Acknowledgments
 
-以下每一份数据都属于其提供方——感谢它们的开放与持续维护。🔑 = 需要免费/付费密钥；`*` = 聚合源，荣誉归其上游列表的维护者。
+下面每一份数据都属于它的提供方——感谢它们一直开放、一直维护。🔑 = 要免费/付费密钥（去哪填见[快速开始](#快速开始--quick-start)）；`*` = 聚合源，荣誉归于上游列表的维护者。
 
-> Every dataset below belongs to its provider — thank you for keeping them open. 🔑 = requires an API key; `*` = aggregator, where credit flows to the upstream list maintainers.
+> Every dataset below belongs to its provider — thank you for keeping them open and maintained. 🔑 = needs a free/paid API key (where to put it: [Quick Start](#快速开始--quick-start)); `*` = aggregator, credit flows to the upstream list maintainers.
 
 ### 威胁信誉 | Threat Reputation
 
@@ -210,15 +242,15 @@ cd frontend && npm test
 
 ## 许可证 | License
 
-AGPL-3.0 —— 见 [LICENSE](LICENSE)。各情报源保留各自的使用条款。
+AGPL-3.0，见 [LICENSE](LICENSE)；各情报源有自己的使用条款。
 
-> AGPL-3.0 — see [LICENSE](LICENSE). Intelligence feeds keep their own terms.
+> AGPL-3.0, see [LICENSE](LICENSE); each intelligence feed keeps its own terms.
 
 ## 关于这份代码 | About This Code
 
-这个项目是 vibe coding 写出来的——与人结对的不是人，是 AI。它必然有这样那样的问题；请多包涵，也欢迎到 [Issues](https://github.com/steponeerror/ip-lookup-tool/issues) 告诉我哪里不对。
+这个项目是 vibe coding 写出来的。它必然有这样那样的问题；请多包涵，也欢迎到 [Issues](https://github.com/steponeerror/ip-radar/issues) 告诉我哪里不对。
 
-> This project was written by vibe coding — the pair partner wasn't human, it was AI. It surely has its quirks and rough edges; please be understanding, and file an [issue](https://github.com/steponeerror/ip-lookup-tool/issues) when you spot one.
+> This project was written by vibe coding. It surely has its quirks and rough edges; please be understanding, and file an [issue](https://github.com/steponeerror/ip-radar/issues) when you spot one.
 
 ## 后记 | Epilogue
 

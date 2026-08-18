@@ -56,9 +56,11 @@ function LookupViewInner() {
         invalid: r.invalidLines,
         ipv6: r.ipv6Unsupported,
       });
+      if (r.error != null) setError(r.error);
     } else {
       setResults(r.results);
       if (r.enrichError) setEnrichError(r.enrichError);
+      if (r.error != null) setError(r.error);
     }
   };
 

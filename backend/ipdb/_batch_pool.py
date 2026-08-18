@@ -8,9 +8,11 @@ docs/superpowers/specs/2026-08-06-batch-process-pool-design.md.
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+import functools
 
 _log = logging.getLogger(__name__)
 
@@ -133,21 +135,55 @@ def resolve_layout(cpu: int, ram_avail_mb: int, env: dict, perf_config: dict | N
 def _init_worker():
     """ProcessPoolExecutor initializer: load the DB once per worker process.
     Spawn-safe: this module is imported as ipdb._batch_pool in the child."""
+    global _IN_POOL_WORKER
+    _IN_POOL_WORKER = True
     from ipdb import _registry
     _registry.load_db()
 
 
+def _epoch_fingerprint():
+    """离线源 epoch 指纹 + 5 分钟时间桶。
+
+    指纹: 任一源后台刷新换 epoch → 失效。时间桶: 瞬态降质(mid-reload 空贡献)
+    结果的冻结窗口从 epoch 长度(≤30min+)封顶到 ≤5min, 在线源数据时效同封顶。
+    只含离线源(有 _lmdb_base 者); ApiSource 不参与。
+    """
+    from ipdb import _registry
+    from ipdb._sources._lmdb import read_ptr
+    fp = tuple(
+        (s.name, read_ptr(s._lmdb_base))
+        for s in _registry._enabled_sources()
+        if hasattr(s, "_lmdb_base")
+    )
+    return fp + (int(time.time()) // 300,)
+
+
+@functools.lru_cache(maxsize=2048)
+def _cached_lookup(ip: str, epoch_fp: tuple) -> dict:
+    """有界 LRU: 只读契约 —— 返回 dict 不 mutate。epoch_fp 进键保时效。"""
+    from ipdb import _registry
+    return _registry.lookup(ip).to_dict()
+
+
 def _dedup_lookup(ips: list[str]) -> list[dict]:
     """Chunk 级去重:唯一 IP 只走一次全管线,结果按输入顺序展开。
-    返回长度 == 输入长度(协议不变,main.py 三条路径零改动)。"""
+    返回长度 == 输入长度(协议不变)。主进程 inline 路径(无池全量 + 有池
+    ≤200 小批,顺序 chunk)走 LRU;池 worker(_IN_POOL_WORKER)直查零驻留。"""
     from ipdb import _registry
+    if _IN_POOL_WORKER:
+        def _get(ip):
+            return _registry.lookup(ip).to_dict()
+    else:
+        epoch_fp = _epoch_fingerprint()
+        def _get(ip):
+            return _cached_lookup(ip, epoch_fp)
     unique: list[str] = []
     seen: dict[str, int] = {}
     for ip in ips:
         if ip not in seen:
             seen[ip] = len(unique)
             unique.append(ip)
-    results = [_registry.lookup(ip).to_dict() for ip in unique]
+    results = [_get(ip) for ip in unique]
     return [results[seen[ip]] for ip in ips]
 
 
@@ -158,6 +194,7 @@ def _work_chunk(ips: list[str]) -> list[dict]:
 
 # ── Module-level pool handle (managed by lifespan) ──
 _POOL: ProcessPoolExecutor | None = None
+_IN_POOL_WORKER = False
 
 
 def set_pool(pool: ProcessPoolExecutor | None) -> None:

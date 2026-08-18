@@ -49,10 +49,9 @@ ENRICH_CHUNK = 100
 # (cold-start thread, banner Retry via /api/update-db, single-source update,
 # registry PATCH-enable, scheduler refresh). _BUILD_DEADLINE only bounds the
 # window: past it the gate releases (超时即放行 — a wedged or paused build
-# must not hold the server hostage). It is armed at cold start; a rebuild
-# starting later from zero coverage lazily re-arms it (see _db_ready), and
-# non-cold rebuilds that begin with partial coverage are settle-bounded by
-# the tasks' own socket timeouts.
+# must not hold the server hostage). Armed at cold start; every NEW build
+# episode arms a fresh window via the _coverage_episode transition, while a
+# continuing episode keeps its original (expiring) deadline.
 _BUILD_DEADLINE = math.inf
 # True while the last _db_ready() probe saw coverage being built — detects
 # build-episode STARTS (False→True) so each new episode gets a fresh
@@ -140,6 +139,31 @@ def require_ready():
             headers={"X-IPRadar-Reason": "warming"})
 
 
+async def _emit_chunks(src, total, done_start=0):
+    """src: 产出 (idx, ip) 的可迭代对象; 低层流式吐行 helper。
+
+    islice 按 CHUNK 分片(不整体物化), 逐片 asyncio.to_thread 计算,
+    片完成即吐 row + progress。整批一个 try —— 异常向上抛, 由调用方终止。
+    """
+    import itertools
+    it = iter(src)
+    done = done_start
+    while True:
+        batch = list(itertools.islice(it, _batch_pool.CHUNK))
+        if not batch:
+            break
+        ips = [ip for _, ip in batch]
+        start_idx = batch[0][0]
+        dicts = await asyncio.to_thread(_batch_pool._work_chunk, ips)
+        for i, d in enumerate(dicts):
+            yield orjson.dumps({"type": "row", "idx": start_idx + i,
+                                "result": d}) + b"\n"
+        done += len(dicts)
+        yield orjson.dumps({"type": "progress",
+                            "done": min(done, total), "total": total}) + b"\n"
+        await asyncio.sleep(0)
+
+
 async def _stream_lookup(expansion):
     """Stream lookup results row-by-row as NDJSON (protocol v2).
 
@@ -163,21 +187,29 @@ async def _stream_lookup(expansion):
     pool = _batch_pool.get_pool()
     chunk_size = _batch_pool.CHUNK
 
-    # Inline path: small batches or no pool — run in a thread, emit rows.
+    # Inline path: small batches or no pool — stream chunk-by-chunk.
     if total <= _batch_pool.INLINE_THRESHOLD or pool is None:
-        ips_inline = [ip for _, ip in expansion]
-        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips_inline)
-        for i, d in enumerate(dicts):
-            yield orjson.dumps({"type": "row", "idx": i, "result": d}) + b"\n"
-        yield orjson.dumps({
-            "type": "progress", "done": len(dicts), "total": total}) + b"\n"
-        yield orjson.dumps({
+        yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
+               + b"\n")
+        try:
+            async for evt in _emit_chunks(expansion, total):
+                yield evt
+        except Exception as e:            # done-error 不静默 (spec §4)
+            logging.getLogger(__name__).exception("inline stream error")
+            yield (orjson.dumps({
+                "type": "done", "invalid_lines": expansion.invalid,
+                "ipv6_unsupported": expansion.ipv6,
+                "enrich_error": None, "error": str(e) or type(e).__name__}) + b"\n")
+            return
+        yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
             "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
-        }) + b"\n"
+        }) + b"\n")
         return
 
     # Pooled path: chunk the lazy generator, submit all, emit rows as they finish.
+    yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
+           + b"\n")
     loop = asyncio.get_running_loop()
     it = iter(expansion)
     fut_to_chunk: dict = {}  # {future: (start_idx, ips)}
@@ -192,15 +224,23 @@ async def _stream_lookup(expansion):
             fut_to_chunk[fut] = (start_idx, ips)
     except BrokenProcessPool:
         logging.getLogger(__name__).warning(
-            "stream batch pool broke during submit; falling back to inline")
-        ips_all = [ip for _, ip in expansion]
-        dicts = await asyncio.to_thread(_batch_pool.fan_out_lookup, ips_all)
-        for i, d in enumerate(dicts):
-            yield orjson.dumps({"type": "row", "idx": i, "result": d}) + b"\n"
-        yield orjson.dumps({
+            "stream batch pool broke during submit; streaming inline")
+        yield (orjson.dumps({"type": "progress", "done": 0, "total": total})
+               + b"\n")   # 提交期一行未吐, 从头流式
+        try:
+            async for evt in _emit_chunks(expansion, total):
+                yield evt
+        except Exception as e:
+            logging.getLogger(__name__).exception("submit-fallback stream error")
+            yield (orjson.dumps({
+                "type": "done", "invalid_lines": expansion.invalid,
+                "ipv6_unsupported": expansion.ipv6,
+                "enrich_error": None, "error": str(e) or type(e).__name__}) + b"\n")
+            return
+        yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
             "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
-        }) + b"\n"
+        }) + b"\n")
         return
 
     emitted: set = set()
@@ -236,20 +276,28 @@ async def _stream_lookup(expansion):
                       for fut, (start_idx, ips) in fut_to_chunk.items()
                       if fut not in emitted]
         if un_emitted:
-            all_ips = [ip for _, ips in un_emitted for ip in ips]
-            dicts = await asyncio.to_thread(
-                _batch_pool.fan_out_lookup, all_ips)
-            offset = 0
-            for start_idx, ips in un_emitted:
-                chunk_dicts = dicts[offset:offset + len(ips)]
-                offset += len(ips)
-                for i, d in enumerate(chunk_dicts):
-                    yield orjson.dumps({
-                        "type": "row", "idx": start_idx + i,
-                        "result": d}) + b"\n"
-    except Exception as e:
+            # done_start = 已吐计数 = done_count (残局续发, 进度不回跳)
+            un_emitted_stream = (
+                (si + i, ip) for si, ips in un_emitted for i, ip in enumerate(ips))
+            try:
+                async for evt in _emit_chunks(
+                        un_emitted_stream, total, done_start=done_count):
+                    yield evt
+            except Exception as e:
+                logging.getLogger(__name__).exception(
+                    "wait-fallback stream error")
+                yield (orjson.dumps({
+                    "type": "done", "invalid_lines": expansion.invalid,
+                    "ipv6_unsupported": expansion.ipv6,
+                    "enrich_error": None, "error": str(e) or type(e).__name__}) + b"\n")
+                return
+    except Exception as e:            # 非 BPP 异常: done-error 终态, 不静默截断
         logging.getLogger(__name__).exception("stream lookup error")
-        yield orjson.dumps({"type": "error", "message": str(e)}) + b"\n"
+        yield (orjson.dumps({
+            "type": "done", "invalid_lines": expansion.invalid,
+            "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
+            "error": str(e) or type(e).__name__}) + b"\n")
+        return
 
     yield orjson.dumps({
         "type": "done", "invalid_lines": expansion.invalid,

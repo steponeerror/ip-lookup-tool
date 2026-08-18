@@ -33,3 +33,15 @@ def test_nested_lookup_unchanged_by_flag_default(tmp_path):
     assert lookup(env, int.from_bytes(b"\x0b\x00\x00\x01", "big")) is None
     # 尾段命中:ip 落在最后一个 range 内(set_range False → prev 分支)
     assert lookup(env, int.from_bytes(b"\x14\x00\xff\xff", "big"))["v"] == "other"
+
+def test_read_ptr_returns_none_on_read_race(monkeypatch, tmp_path):
+    """exists()→read_text() 竞态(Windows AV/TOCTOU): FileNotFoundError/
+    PermissionError 返回 None 不抛 —— 一次竞态不再炸掉整批流(_epoch_fingerprint)。"""
+    from pathlib import Path
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+
+    def _raise_fnoe(self):
+        raise FileNotFoundError(str(self))
+
+    monkeypatch.setattr(Path, "read_text", _raise_fnoe)
+    assert read_ptr(tmp_path / "race.lmdb") is None

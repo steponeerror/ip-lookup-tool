@@ -64,7 +64,7 @@ class AbuseIPDBSource(IpListSource):
         if not self._key:
             raise RuntimeError(
                 "ABUSEIPDB_API_KEY not set — register at "
-                "https://www.abuseipdb.com/account/api and add the key to .env")
+                "https://www.abuseipdb.com/account and add the key to .env")
         self._data_dir.mkdir(parents=True, exist_ok=True)
         url = (
             f"{_API_BASE}?confidenceMinimum={self._confidence_minimum}"
