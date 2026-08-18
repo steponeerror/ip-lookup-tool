@@ -127,3 +127,16 @@ def test_ip2proxy_country_columns_absent_ok(tmp_path):
     s.rebuild()
     rec = s.query("1.0.19.98")[0]                       # 16782178 = 1.0.19.98
     assert "country_code" not in rec
+
+
+def test_ip2proxy_headerless_csv_keeps_first_row(tmp_path):
+    """PX2 LITE 实际下发的 CSV 没有表头(2026-08-18 线上发现):无条件
+    跳首行会把 row 1 静默丢掉——每次重建恰丢一条数据。"""
+    from ipdb._sources.ip2proxy import IP2ProxySource
+    rows = ('"16782178","16782178","PUB","JP","Japan"\n'
+            '"16782320","16782320","PUB","JP","Japan"\n')
+    (tmp_path / "ip2proxy_px2.csv").write_text(rows)
+    s = IP2ProxySource(data_dir=tmp_path)
+    s.rebuild()
+    assert s.query("1.0.19.98")[0]["is_proxy"] is True   # row 1 不再被吃
+    assert s.query("1.0.19.240")[0]["is_proxy"] is True

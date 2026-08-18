@@ -88,33 +88,53 @@ class IP2ProxySource(Source):
             return
         with open(self._path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-            next(reader, None)  # skip header
+            first = next(reader, None)
+            # PX2 LITE 实际下发无表头:首列是范围端点即数据行,不能丢
+            # (带表头变体的首列是 "ip_from" 之类的标签,自然落入跳过分支)
+            if first is not None and _is_range_start(first[0] if first else ""):
+                yield from self._row_to_cidrs(first)
             for row in reader:
-                if len(row) < 3:
-                    continue
-                raw_start, raw_end, proxy_type = (
-                    row[0].strip(), row[1].strip(), row[2].strip())
-                country_code = row[3].strip() if len(row) > 3 else ""
-                country_name = row[4].strip() if len(row) > 4 else ""
-                start_ip = _int_to_ip(raw_start) or raw_start
-                end_ip = _int_to_ip(raw_end) or raw_end
-                try:
-                    sa = ipaddress.IPv4Address(start_ip)
-                    ea = ipaddress.IPv4Address(end_ip)
-                except (ipaddress.AddressValueError, ValueError):
-                    continue
-                ev = _proxy_evidence(proxy_type)
-                if ev is None:
-                    continue
-                if country_code:
-                    ev.country_code = country_code.upper()
-                if country_name or proxy_type:
-                    ev.extra = dict(ev.extra or {})
-                    if country_name:
-                        ev.extra["country_name"] = country_name
-                    ev.extra["proxy_type"] = proxy_type
-                for cidr in ipaddress.summarize_address_range(sa, ea):
-                    yield str(cidr), ev
+                yield from self._row_to_cidrs(row)
+
+    @staticmethod
+    def _row_to_cidrs(row):
+        if len(row) < 3:
+            return
+        raw_start, raw_end, proxy_type = (
+            row[0].strip(), row[1].strip(), row[2].strip())
+        country_code = row[3].strip() if len(row) > 3 else ""
+        country_name = row[4].strip() if len(row) > 4 else ""
+        start_ip = _int_to_ip(raw_start) or raw_start
+        end_ip = _int_to_ip(raw_end) or raw_end
+        try:
+            sa = ipaddress.IPv4Address(start_ip)
+            ea = ipaddress.IPv4Address(end_ip)
+        except (ipaddress.AddressValueError, ValueError):
+            return
+        ev = _proxy_evidence(proxy_type)
+        if ev is None:
+            return
+        if country_code:
+            ev.country_code = country_code.upper()
+        if country_name or proxy_type:
+            ev.extra = dict(ev.extra or {})
+            if country_name:
+                ev.extra["country_name"] = country_name
+            ev.extra["proxy_type"] = proxy_type
+        for cidr in ipaddress.summarize_address_range(sa, ea):
+            yield str(cidr), ev
+
+
+def _is_range_start(tok: str) -> bool:
+    """数据行首列是范围端点:十进制整数或点分 IPv4;表头("ip_from" 等)不是。"""
+    t = tok.strip().strip('"').strip()
+    if t.isdigit():
+        return True
+    try:
+        ipaddress.IPv4Address(t)
+        return True
+    except ValueError:
+        return False
 
 
 def _int_to_ip(s: str) -> str | None:
