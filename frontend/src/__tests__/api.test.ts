@@ -258,4 +258,40 @@ describe("queryIpsStream (row protocol v2)", () => {
     expect(out.invalidLines).toBe(2);
     expect(out.ipv6Unsupported).toBe(1);
   });
+
+  it("done surfaces error into outcome", async () => {
+    const ndjson = [
+      `{"type":"start","total":2}`,
+      `{"type":"row","idx":0,"result":{"ip":"8.8.8.8"}}`,
+      `{"type":"done","invalid_lines":0,"ipv6_unsupported":0,"enrich_error":null,"error":"boom"}`,
+    ].join("\n");
+    const reader = (async function* () {
+      yield new TextEncoder().encode(ndjson + "\n");
+    })();
+    (globalThis.fetch as any).mockResolvedValue({
+      ok: true,
+      body: { getReader: () => ({ read: () => reader.next() }) },
+    });
+
+    const out = await queryIpsStream(["8.8.8.8"], () => {});
+    expect(out.error).toBe("boom");
+  });
+
+  it("clean EOF without done → error 'stream ended before done'", async () => {
+    // 代理截断/进程被杀的干净关闭: start+row 已到但 done 永不到来
+    const ndjson = [
+      `{"type":"start","total":2}`,
+      `{"type":"row","idx":0,"result":{"ip":"8.8.8.8"}}`,
+    ].join("\n");
+    const reader = (async function* () {
+      yield new TextEncoder().encode(ndjson + "\n");
+    })();
+    (globalThis.fetch as any).mockResolvedValue({
+      ok: true,
+      body: { getReader: () => ({ read: () => reader.next() }) },
+    });
+
+    const out = await queryIpsStream(["8.8.8.8", "1.1.1.1"], () => {});
+    expect(out.error).toBe("stream ended before done");
+  });
 });
