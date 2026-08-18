@@ -45,8 +45,8 @@ def _make_manager(sources, concurrency=3):
 
 
 def _wait_states(mgr, predicate, timeout=5):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         snap = mgr.snapshot()
         if predicate(snap):
             return snap
@@ -287,8 +287,8 @@ def test_snapshot_returns_one_task_per_source_after_reupdate():
     mgr.enqueue_one("a")
     _wait_states(mgr, lambda s: all(t["state"] in ("done", "failed", "cancelled") for t in s["tasks"]))
     mgr.enqueue_one("a")  # re-enqueue now that the first task is terminal
-    deadline = time.time() + 5
-    while time.time() < deadline and src.download_calls < 2:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and src.download_calls < 2:
         time.sleep(0.02)
     snap = mgr.snapshot()
     a_tasks = [t for t in snap["tasks"] if t["source"] == "a"]

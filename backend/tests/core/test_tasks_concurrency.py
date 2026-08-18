@@ -37,8 +37,8 @@ def _mgr(sources, concurrency=3, valve=None):
 
 
 def _wait(mgr, predicate, timeout=5):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         if predicate():
             return True
         time.sleep(0.01)

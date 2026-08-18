@@ -33,8 +33,8 @@ def test_cold_start_no_oom():
 
     names = ["iptoasn"]   # 最小源先测,ip2proxy/ipinfo_lite 手动验证
     bid = manager.enqueue_batch(names)
-    deadline = time.time() + 300
-    while time.time() < deadline:
+    deadline = time.monotonic() + 300
+    while time.monotonic() < deadline:
         if manager._batches[bid].state == "done":
             break
         time.sleep(1)

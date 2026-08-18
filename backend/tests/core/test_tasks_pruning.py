@@ -32,8 +32,8 @@ def _mgr(sources, concurrency=2):
 
 
 def _wait_terminal(mgr, timeout=5):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         if all(t.state in ("done", "failed", "cancelled") for t in mgr._tasks.values()):
             return True
         time.sleep(0.01)

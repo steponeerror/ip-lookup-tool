@@ -200,9 +200,9 @@ def test_batch_flows_through_manager_and_snapshot(monkeypatch):
             # active slot, so snapshot stops reporting it; completion is confirmed
             # via tasks reaching terminal plus the SSE `done` event (asserted below).
             terminal = {"done", "failed", "cancelled"}
-            deadline = time.time() + 10
+            deadline = time.monotonic() + 10
             snap = before
-            while time.time() < deadline:
+            while time.monotonic() < deadline:
                 snap = c.get("/api/tasks").json()
                 states = {t["state"] for t in snap["tasks"]}
                 if states and states <= terminal:
