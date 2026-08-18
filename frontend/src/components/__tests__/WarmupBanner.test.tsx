@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { screen, waitFor, act, fireEvent } from "@testing-library/react";
 import { WarmupBanner } from "../WarmupBanner";
 import { TaskProvider } from "../../tasks/TaskProvider";
+import { WarmingProvider } from "../../warming";
 import { renderWithI18n } from "../../test/i18nTestUtils";
 import { getDbStatus, enqueueBatch } from "../../api";
 
@@ -25,7 +26,11 @@ vi.mock("../../api", async () => {
 });
 
 function render(el: React.ReactElement) {
-  return renderWithI18n(<TaskProvider>{el}</TaskProvider>);
+  return renderWithI18n(
+    <TaskProvider>
+      <WarmingProvider>{el}</WarmingProvider>
+    </TaskProvider>
+  );
 }
 
 describe("WarmupBanner", () => {
@@ -55,7 +60,7 @@ describe("WarmupBanner", () => {
     vi.useFakeTimers();
     (getDbStatus as any).mockResolvedValue({ warming_up: true, total_records: 0 });
     render(<WarmupBanner />);
-    // flush 初始 db-status 轮询的微任务,让 warming 状态先落地
+    // flush WarmingProvider 初始轮询的微任务,让 warming 状态先落地
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     // batch settle(done) 但仍 warming(零源)
     act(() => {
@@ -81,31 +86,11 @@ describe("WarmupBanner", () => {
       sse.onEvent?.({ type: "batch", batch: { id: "b1", state: "running", done: 1, total: 2 }});
     });
     expect(await screen.findByText(/1\/2/)).toBeInTheDocument();
-    // batch done 触发重拉 db-status → warming 翻 false
+    // batch done 触发 recheck(warming_up 可能翻 false,由 WarmingProvider 落地)
     warming = false;
     act(() => {
       sse.onEvent?.({ type: "done", batch: { id: "b1", state: "done", done: 2, total: 2 }});
     });
     await waitFor(() => expect(container.querySelector("[data-warmup]")).toBeNull());
-  });
-
-  it("stops polling db-status after the first warming_up=false (review #8)", async () => {
-    vi.useFakeTimers();
-    (getDbStatus as any).mockClear();
-    let warming = true;
-    (getDbStatus as any).mockImplementation(() => Promise.resolve({
-      warming_up: warming, total_records: 0,
-    }));
-    render(<WarmupBanner />);
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });   // 初始 poll
-    expect(getDbStatus).toHaveBeenCalledTimes(1);
-    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-    expect(getDbStatus).toHaveBeenCalledTimes(3);   // 初始 + 2 个 tick
-    warming = false;
-    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });  // 翻 false → 停轮
-    expect(getDbStatus).toHaveBeenCalledTimes(4);
-    await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
-    expect(getDbStatus).toHaveBeenCalledTimes(4);   // 稳态零轮询
   });
 });

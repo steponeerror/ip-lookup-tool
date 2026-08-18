@@ -70,7 +70,7 @@ describe("LookupView 503 self-correction", () => {
     let resolveStatus!: (v: any) => void;
     const pending = new Promise<any>(r => { resolveStatus = r; });
     (getDbStatus as any).mockReturnValue(pending);
-    const err503 = Object.assign(new Error("database is warming up"), { status: 503 });
+    const err503 = Object.assign(new Error("database is warming up"), { status: 503, reason: "warming" });
     (queryIpsStream as any).mockRejectedValue(err503);
 
     const { container } = renderLookup();
@@ -96,7 +96,7 @@ describe("LookupView 503 self-correction", () => {
     // 旧实现只 setWarming(false) 静默丢弃查询;现在原样重试一次成功。
     (queryIpsStream as any).mockClear();
     (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
-    const err503 = Object.assign(new Error("database is warming up"), { status: 503 });
+    const err503 = Object.assign(new Error("database is warming up"), { status: 503, reason: "warming" });
     const mf = <T,>(value: T, confidence = 95) => ({
       value, confidence, algorithm: "cascade", sources: [],
     });
@@ -129,7 +129,7 @@ describe("LookupView 503 self-correction", () => {
   it("gives up with the generic error when the retried attempt 503s again (no ping-pong)", async () => {
     (queryIpsStream as any).mockClear();
     (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 100 });
-    const err503 = Object.assign(new Error("database is warming up"), { status: 503 });
+    const err503 = Object.assign(new Error("database is warming up"), { status: 503, reason: "warming" });
     (queryIpsStream as any).mockRejectedValue(err503);   // 每次都 503
 
     const { container } = renderLookup();
@@ -143,6 +143,30 @@ describe("LookupView 503 self-correction", () => {
 
     await waitFor(() => expect(screen.getByText("database is warming up")).not.toBeNull());
     expect(queryIpsStream).toHaveBeenCalledTimes(2);   // 恰好重试一次,不再多
+    expect(container.querySelector("[data-warmup]")).toBeNull();
+  });
+
+  it("a no-sources 503 shows the localized message once, without retrying (F3)", async () => {
+    // 全源禁用的 503 是配置态而非瞬时门:不重试(50MB 上传不再重发),
+    // 用户看到本地化文案而非后端裸英文串。
+    (queryIpsStream as any).mockClear();
+    (getDbStatus as any).mockResolvedValue({ warming_up: false, total_records: 0 });
+    const errNoSources = Object.assign(
+      new Error("no data sources enabled"), { status: 503, reason: "no-sources" });
+    (queryIpsStream as any).mockRejectedValue(errNoSources);
+
+    const { container } = renderLookup();
+    const textarea = await waitFor(() => {
+      const el = container.querySelector("textarea") as HTMLTextAreaElement;
+      expect(el).not.toBeNull();
+      return el;
+    });
+    fireEvent.change(textarea, { target: { value: "1.1.1.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+
+    await waitFor(() => expect(screen.getByText(/No data sources enabled/)).not.toBeNull());
+    expect(screen.queryByText("no data sources enabled")).toBeNull();  // 非裸串
+    expect(queryIpsStream).toHaveBeenCalledTimes(1);   // 不重试
     expect(container.querySelector("[data-warmup]")).toBeNull();
   });
 

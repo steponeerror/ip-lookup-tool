@@ -28,8 +28,14 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   // fetch start so reconnect-time resyncs still apply when no SSE interleaves.
   const sseSawRef = useRef(false);
 
+  // 仅状态事件使能 saw(这类事件会取代快照);task_progress 只携带字节
+  // 计数、不含快照会过期的状态 — 下载洪峰期 ~0.15s 一次的 progress tick
+  // 若也置位,resync 快照将几乎总被丢弃(SSE 溢出丢掉 done 事件时,UI
+  // 中的 batch 会永远卡在 running)。
+  const SAW_EVENTS = new Set(["snapshot", "task", "batch", "done"]);
+
   const applyEvent = (e: any) => {
-    sseSawRef.current = true;
+    if (SAW_EVENTS.has(e.type)) sseSawRef.current = true;
     if (e.type === "snapshot" && e.data) {
       tasksRef.current = Object.fromEntries(e.data.tasks.map((t: TaskState) => [t.id, t]));
       setTasks(Object.values(tasksRef.current));

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { IpInput } from "./components/IpInput";
 import { FileUpload } from "./components/FileUpload";
@@ -6,16 +6,27 @@ import { ResultTable } from "./components/ResultTable";
 import { ExportCsv } from "./components/ExportCsv";
 import { Modal } from "./components/Modal";
 import { WarmupBanner } from "./components/WarmupBanner";
-import { getDbStatus, queryIpsStream, uploadFileStream } from "./api";
+import { WarmingProvider, useWarming } from "./warming";
+import { queryIpsStream, uploadFileStream } from "./api";
 import type { LookupResult, Progress, StreamOutcome } from "./api";
 import { useI18n } from "./i18n";
 
 type InputTab = "text" | "file";
 
-// api 层非 2xx 抛错统一带 e.status(见 api.ts apiError);503 = warming 门
-const isWarming503 = (e: unknown) => (e as any)?.status === 503;
+// api 层非 2xx 抛错统一带 e.status + e.reason(见 api.ts throwApiError);
+// 503 且 reason==="warming" 才是 warming 门(no-sources 是另一种 503)。
+const isWarming503 = (e: unknown) =>
+  (e as any)?.status === 503 && (e as any)?.reason === "warming";
 
 export default function LookupView() {
+  return (
+    <WarmingProvider>
+      <LookupViewInner />
+    </WarmingProvider>
+  );
+}
+
+function LookupViewInner() {
   const { t } = useI18n();
   const [tab, setTab] = useState<InputTab>("text");
   const [results, setResults] = useState<LookupResult[]>([]);
@@ -31,27 +42,7 @@ export default function LookupView() {
     ipv6: number;
   } | null>(null);
   const reduce = useReducedMotion();
-  const [warming, setWarming] = useState(false);
-
-  // 查询控件置灰联动:与 WarmupBanner 的轮询解耦(各持一份,避免跨组件状态提升)。
-  // warming_up 在后端进程生命周期内只会 true→false(构建窗口只关不开),
-  // 首个 false 即停轮 — 稳态零轮询;后端重启进入新冷启动时由查询 503 自纠兜底。
-  useEffect(() => {
-    let alive = true;
-    let timer: number | undefined;
-    const poll = () => getDbStatus().then(s => {
-      if (!alive) return;
-      setWarming(s.warming_up);
-      if (!s.warming_up && timer !== undefined) {
-        clearInterval(timer);
-        timer = undefined;
-      }
-    }).catch(() => {});
-    poll();
-    // 兜底 5s 轮询(与 WarmupBanner 一致,失败/断连时也能解锁)
-    timer = setInterval(poll, 5000);
-    return () => { alive = false; if (timer !== undefined) clearInterval(timer); };
-  }, []);
+  const { warming, recheck } = useWarming();
 
   const applyOutcome = (r: StreamOutcome) => {
     if (r.invalidLines > 0 || r.ipv6Unsupported > 0) {
@@ -71,9 +62,11 @@ export default function LookupView() {
     }
   };
 
-  // 503 自纠:乐观提交漏过初始加载窗口撞上 warming 门时,重拉 db-status —
-  // 仍在 warming 则横幅接管;门已开则原样重试一次(503 在依赖处抛出,
-  // 服务端零副作用,重试安全)。第二次仍 503 不再重试(防乒乓)。
+  // 503 自纠:乐观提交漏过初始加载窗口撞上 warming 门时,recheck 确认 —
+  // 仍在 warming 则横幅接管(recheck 同时重臂轮询,后端重启亦能恢复);
+  // 门已开则原样重试一次(503 在依赖处抛出,服务端零副作用,重试安全)。
+  // 第二次仍 503 不再重试(防乒乓)。no-sources 是配置态非瞬时门:本地化
+  // 提示、不重试。
   const runLookup = async (fetcher: () => Promise<StreamOutcome>, failMsg: string) => {
     setLoading(true);
     setError(null);
@@ -90,13 +83,15 @@ export default function LookupView() {
             setError(t("lookup.cancelled"));
             break;
           }
+          if ((e as any)?.status === 503 && (e as any)?.reason === "no-sources") {
+            setError(t("lookup.noSources"));
+            break;
+          }
           if (!isWarming503(e)) {
             setError(e instanceof Error ? e.message : failMsg);
             break;
           }
-          const s = await getDbStatus().catch(() => null);
-          if (s?.warming_up) {
-            setWarming(true);
+          if (await recheck()) {
             break;
           }
           if (attempt > 0) {

@@ -266,16 +266,17 @@ describe("apiError status attachment (review #10)", () => {
     globalThis.fetch = vi.fn() as any;
   });
 
-  it("getDbStatus throws an error carrying the HTTP status", async () => {
+  it("getDbStatus throws an error carrying the HTTP status and reason", async () => {
     (globalThis.fetch as any).mockResolvedValue(
       new Response(JSON.stringify({ detail: "database is warming up" }), {
         status: 503,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-IPRadar-Reason": "warming" },
       }),
     );
     const err: any = await getDbStatus().then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(Error);
     expect(err.status).toBe(503);
+    expect(err.reason).toBe("warming");
     expect(err.message).toBe("database is warming up");
   });
 

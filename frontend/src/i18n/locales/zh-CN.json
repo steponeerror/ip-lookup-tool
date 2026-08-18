@@ -16,6 +16,7 @@
   "lookup.queryFailed": "查询失败",
   "lookup.uploadFailed": "上传失败",
   "lookup.cancelled": "查询已取消",
+  "lookup.noSources": "没有启用的数据源 — 请先在「源管理」页启用至少一个源",
 
   "ipInput.label": "IP 地址",
   "ipInput.query": "查询",
