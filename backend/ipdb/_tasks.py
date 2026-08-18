@@ -189,36 +189,19 @@ class UpdateManager:
             return None
         return self.enqueue_batch(stale_names)
 
-    def run_batch_blocking(self, names: list[str], timeout: float = 600) -> str:
-        """Enqueue a batch and block the caller until it reaches `done` or timeout.
-
-        Used for cold-start: the server cannot serve queries until at least one
-        download completes, so we synchronously wait on the first batch. Returns
-        the batch id (state may still be `running` if the deadline elapsed).
-        """
-        bid = self.enqueue_batch(names)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            b = self._batches.get(bid)
-            if b and b.state == "done":
-                return bid
-            time.sleep(0.1)
-        return bid
-
-    def wait_batch_settled(self, batch_id: str, timeout: float = 600) -> None:
-        """Block until `batch_id` reaches state "done" or `timeout` elapses.
-
-        Used by cold-start's background thread after run_batch_blocking times
-        out: the batch may still be running, and we wait for it to settle
-        before the caller re-checks _db_loaded() for the final ready verdict.
-        Does NOT raise on timeout — the caller decides via _db_loaded().
-        """
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            b = self._batches.get(batch_id)
-            if b is None or b.state == "done":
-                return
-            time.sleep(0.1)
+    def has_active_offline_tasks(self) -> bool:
+        """True while any offline-source task is queued/downloading/
+        loading/throttled. The cold-start gate holds the integral window on
+        this: a paused batch keeps its tasks in these states (so pausing
+        holds the gate until the deadline releases it), and a retry batch's
+        tasks re-arm the window for the whole rebuild."""
+        with self._lock:
+            for t in self._tasks.values():
+                if t.state in ("queued", "downloading", "loading", "throttled"):
+                    src = self._resolve(t.source_name)
+                    if src is not None and self._archetype_of(src) == "offline":
+                        return True
+            return False
 
     def _maybe_finish_batch(self):
         with self._lock:

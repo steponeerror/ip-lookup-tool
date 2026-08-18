@@ -1,29 +1,25 @@
 """Lifespan decouple (Task 8): warm = immediate disk load + background refresh;
-cold = background daemon thread via run_batch_blocking until the first batch settles.
+cold = build window armed + background daemon thread enqueues the batch.
 
-Tests focus on BRANCHING (cold→_cold_start_background daemon thread,
-warm→_startup_warm) and on the _is_cold_start predicate's logic, not on
-load_db internals.
+Tests focus on BRANCHING (cold→window+thread, warm→_startup_warm) and on the
+_is_cold_start predicate's logic, not on load_db internals.
 """
 from unittest.mock import patch
 
 
 # ── _startup branching ────────────────────────────────────────────────
 
-def test_startup_cold_branch_starts_cold_start_background_thread():
+def test_startup_cold_branch_opens_window_and_starts_thread():
     import threading
     import time
     import main
-    # Runs the REAL _startup(), whose cold branch sets _COLD_START_TRIGGERED=True
-    # while the fake background below never sets _COLD_START_DONE — save/restore
-    # both so no stuck integral window leaks into other test files (mirrors
+    # Runs the REAL _startup(), whose cold branch opens the build window
+    # (_BUILD_PHASE=True) while the fake background below does nothing —
+    # save/restore so no open window leaks into other test files (mirrors
     # TestLifespanColdStartNonBlocking in test_main_routes.py).
-    saved_triggered = main._COLD_START_TRIGGERED
-    saved_done = main._COLD_START_DONE
-    fresh_done = threading.Event()
-    fresh_done.set()
-    main._COLD_START_TRIGGERED = False
-    main._COLD_START_DONE = fresh_done
+    saved_phase = main._BUILD_PHASE
+    saved_deadline = main._BUILD_DEADLINE
+    main._BUILD_PHASE = False
     try:
         started = threading.Event()
         def _fake_background():
@@ -33,12 +29,13 @@ def test_startup_cold_branch_starts_cold_start_background_thread():
              patch.object(main, "_startup_warm") as warm:
             main._startup()
         warm.assert_not_called()
-        assert main._COLD_START_TRIGGERED is True  # cold branch marks the integral window
+        assert main._BUILD_PHASE is True   # cold branch opens the integral window
+        assert main._BUILD_DEADLINE > time.time()
         time.sleep(0.05)  # let the daemon thread spin up and set the Event
         assert started.is_set(), "background _cold_start_background thread not started"
     finally:
-        main._COLD_START_TRIGGERED = saved_triggered
-        main._COLD_START_DONE = saved_done
+        main._BUILD_PHASE = saved_phase
+        main._BUILD_DEADLINE = saved_deadline
 
 
 def test_startup_warm_branch_calls_startup_warm():
@@ -49,6 +46,7 @@ def test_startup_warm_branch_calls_startup_warm():
         main._startup()
     warm.assert_called_once()
     cold_bg.assert_not_called()   # warm branch must not spawn a background build
+    assert main._BUILD_PHASE is False  # warm branch never opens the window
 
 
 # ── _startup_warm body ────────────────────────────────────────────────
@@ -79,32 +77,41 @@ def test_startup_warm_skips_enqueue_when_no_stale():
 
 # ── _cold_start_background body ───────────────────────────────────────
 
-def test_cold_start_background_blocks_then_waits_settle():
+def test_cold_start_background_enqueues_batch():
+    """The thread's whole job is enqueueing — settle/deadline handling lives
+    in the task-state-driven gate, not in blocking waits here."""
     import main
-    main._COLD_START_DONE.clear()
     with patch.object(main, "_ensure_valve_sampler"), \
          patch.object(main, "_offline_enabled_names", return_value=["a", "b"]), \
-         patch.object(main, "_cold_start_timeout", return_value=600), \
-         patch.object(main.manager, "run_batch_blocking", return_value="bid1") as rbb, \
-         patch.object(main.manager, "wait_batch_settled") as wbs:
+         patch.object(main.manager, "enqueue_batch", return_value="bid1") as enq:
         main._cold_start_background()
-    rbb.assert_called_once_with(["a", "b"], timeout=600)
-    wbs.assert_called_once_with("bid1")
-    assert main._COLD_START_DONE.is_set()  # settle path always closes the window
+    enq.assert_called_once_with(["a", "b"])
 
 
 def test_cold_start_background_noop_when_no_offline_sources():
-    """Empty offline list → no blocking call (avoids needless wait)."""
+    """Empty offline list → no enqueue (all-online deployment)."""
     import main
-    main._COLD_START_DONE.clear()
     with patch.object(main, "_ensure_valve_sampler"), \
          patch.object(main, "_offline_enabled_names", return_value=[]), \
-         patch.object(main.manager, "run_batch_blocking") as rbb, \
-         patch.object(main.manager, "wait_batch_settled") as wbs:
+         patch.object(main.manager, "enqueue_batch") as enq:
         main._cold_start_background()
-    rbb.assert_not_called()
-    wbs.assert_not_called()
-    assert main._COLD_START_DONE.is_set()  # early return also closes the window
+    enq.assert_not_called()
+
+
+def test_cold_start_background_logs_and_swallows_exceptions(caplog):
+    """Review #7: thread death must leave a diagnosable log record instead
+    of a silent excepthook-only stderr trace (the gate degrades to the
+    zero-coverage failure state, which the banner frames as a network
+    problem — the log is the only honest trace)."""
+    import logging
+    import main
+    with patch.object(main, "_ensure_valve_sampler"), \
+         patch.object(main, "_offline_enabled_names",
+                      side_effect=RuntimeError("boom")):
+        with caplog.at_level(logging.ERROR, logger="main"):
+            main._cold_start_background()  # must not raise
+    assert any("cold-start background thread failed" in r.message
+               for r in caplog.records)
 
 
 # ── _is_cold_start predicate ──────────────────────────────────────────

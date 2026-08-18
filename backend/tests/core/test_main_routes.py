@@ -199,19 +199,16 @@ class TestWarmingUpGate:
         cls.client = TestClient(main.app)
 
     def setup_method(self):
-        """Default per-test module state: warm-start view (not inside the
-        cold-start integral window). Swaps in a fresh Event so a test that
-        clears it can never touch the module's original object."""
+        """Default per-test module state: warm-start view (build phase
+        closed). Saved/restored so a test that opens the phase can never
+        leak it into other test files."""
         import main
-        self._orig_event = main._COLD_START_DONE
-        main._COLD_START_DONE = threading.Event()
-        main._COLD_START_DONE.set()          # default: not in cold-start window
-        main._COLD_START_TRIGGERED = False
+        self._orig_phase = main._BUILD_PHASE
+        main._BUILD_PHASE = False
 
     def teardown_method(self):
         import main
-        main._COLD_START_DONE = self._orig_event
-        main._COLD_START_TRIGGERED = False
+        main._BUILD_PHASE = self._orig_phase
 
     def test_db_status_has_warming_up_field(self):
         resp = self.client.get("/api/db-status")
@@ -255,17 +252,18 @@ class TestWarmingUpGate:
             assert self.client.get("/api/tasks").status_code == 200
             assert self.client.get("/api/sources").status_code == 200
 
-    def test_integral_window_503_until_batch_settles(self):
+    def test_integral_window_503_until_tasks_settle(self):
         """Regression (integral gate): once the first source's rebuild flips
-        _db_loaded() True, ALL query endpoints STILL return 503 until the
-        cold-start batch settles (_COLD_START_DONE). The old gate released
+        _db_loaded() True, ALL query endpoints STILL return 503 while build
+        tasks remain active within the deadline. The pre-gate code released
         here and served partial-coverage verdicts (malicious IPs read clean)."""
         import main
         from ipdb import load_db
         load_db()  # real readers exist so the post-settle lookup returns 200
-        main._COLD_START_TRIGGERED = True
-        main._COLD_START_DONE.clear()        # batch still building
-        with patch("ipdb._registry._db_loaded", return_value=True):
+        main._BUILD_PHASE = True
+        main._BUILD_DEADLINE = time.time() + 600
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch.object(main, "_build_tasks_active", return_value=True):
             r1 = self.client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
             assert r1.status_code == 503
             r2 = self.client.post("/api/upload/stream",
@@ -275,23 +273,79 @@ class TestWarmingUpGate:
             assert r3.status_code == 503
             r4 = self.client.get("/api/lookup/8.8.8.8/stix")
             assert r4.status_code == 503
-            # batch settles → integral window closes → gate opens
-            main._COLD_START_DONE.set()
+        # tasks settle → window closes → gate opens, permanently.
+        # _build_tasks_active is patched False (not left bare): earlier tests
+        # running the real lifespan (e.g. test_perf_layout_route) enqueue
+        # real stale-rebuild tasks on the singleton manager, which would
+        # otherwise hold the gate here.
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch.object(main, "_build_tasks_active", return_value=False):
             r5 = self.client.get("/api/lookup/8.8.8.8")
             assert r5.status_code == 200
+        assert main._BUILD_PHASE is False
 
     def test_db_status_warming_up_tracks_integral_gate(self):
-        """db-status warming_up reflects the integral gate: True mid-batch
-        even when _db_loaded() is already True; False once the batch settles."""
+        """db-status warming_up reflects the integral gate: True mid-build
+        even when _db_loaded() is already True; False once tasks settle."""
         import main
-        main._COLD_START_TRIGGERED = True
-        main._COLD_START_DONE.clear()
-        with patch("ipdb._registry._db_loaded", return_value=True):
+        main._BUILD_PHASE = True
+        main._BUILD_DEADLINE = time.time() + 600
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch.object(main, "_build_tasks_active", return_value=True):
             resp = self.client.get("/api/db-status")
             assert resp.status_code == 200
             assert resp.json()["warming_up"] is True
-            main._COLD_START_DONE.set()
+        main._BUILD_PHASE = True  # probe above closed it; re-open for part 2
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch.object(main, "_build_tasks_active", return_value=False):
             resp = self.client.get("/api/db-status")
+            assert resp.status_code == 200
+            assert resp.json()["warming_up"] is False
+
+    def test_deadline_releases_gate_even_with_active_tasks(self):
+        """超时即放行 (grilled decision): a wedged or paused build cannot
+        hold the server hostage — past the deadline the gate releases even
+        while tasks are still active (a paused batch keeps tasks active)."""
+        import main
+        from ipdb import load_db
+        load_db()
+        main._BUILD_PHASE = True
+        main._BUILD_DEADLINE = time.time() - 1  # already elapsed
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch.object(main, "_build_tasks_active", return_value=True):
+            r = self.client.get("/api/lookup/8.8.8.8")
+            assert r.status_code == 200
+        assert main._BUILD_PHASE is False  # released + closed permanently
+
+    def test_update_db_re_arms_window_from_failure_state(self):
+        """Regression (review #1): a Retry batch enqueued from the
+        zero-coverage failure state must re-arm the integral window — the
+        old gate had already released, so the first source to land served
+        partial coverage mid-build."""
+        import main
+        main._BUILD_PHASE = True  # cold session still unresolved, 0 loaded
+        with patch("ipdb._registry._db_loaded", return_value=False), \
+             patch.object(main, "_offline_enabled_names", return_value=["a"]), \
+             patch.object(main.manager, "enqueue_batch", return_value="bid1") as enq, \
+             patch.object(main, "_cold_start_timeout", return_value=600), \
+             patch("psutil.virtual_memory") as vm:
+            vm.return_value.total = 8e9
+            r = self.client.post("/api/update-db")
+        assert r.status_code == 200
+        enq.assert_called_once_with(["a"])
+        assert main._BUILD_PHASE is True
+        assert main._BUILD_DEADLINE > time.time()  # fresh window armed
+
+    def test_all_sources_disabled_honest_503_not_warming(self):
+        """Regression (review #3): zero enabled sources must not report
+        'warming up' forever with a dead retry — queries get an honest
+        no-sources 503 and warming_up stays False so the banner hides."""
+        with patch("ipdb._registry._enabled_sources", return_value=[]):
+            r = self.client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
+            assert r.status_code == 503
+            assert "no data sources enabled" in r.json()["detail"]
+            resp = self.client.get("/api/db-status")
+            assert resp.status_code == 200
             assert resp.json()["warming_up"] is False
 
 
@@ -299,18 +353,15 @@ class TestLifespanColdStartNonBlocking:
     """Cold-start lifespan must not block: background thread started, HTTP up."""
 
     def setup_method(self):
-        """The cold-branch test runs the REAL _startup(), which sets
-        _COLD_START_TRIGGERED=True, while the patched fake background never
-        sets _COLD_START_DONE — reset both so no stuck integral window leaks
+        """The cold-branch test runs the REAL _startup(), which opens the
+        build window (_BUILD_PHASE=True) — reset it so no open window leaks
         into the next test."""
         import main
-        main._COLD_START_TRIGGERED = False
-        main._COLD_START_DONE.set()
+        main._BUILD_PHASE = False
 
     def teardown_method(self):
         import main
-        main._COLD_START_TRIGGERED = False
-        main._COLD_START_DONE.set()
+        main._BUILD_PHASE = False
 
     def test_cold_start_branch_starts_background_thread(self, monkeypatch):
         """When _is_cold_start() is True, lifespan yields without waiting on

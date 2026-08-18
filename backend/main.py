@@ -17,6 +17,7 @@ from pydantic import BaseModel
 import os
 import sys
 import threading
+import time
 
 # Release runs `uvicorn app.main:app` from the package root, so this file's
 # directory (holding the sibling `ipdb/` package) isn't on sys.path. Dev runs
@@ -41,38 +42,77 @@ logging.basicConfig(level=logging.INFO)
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
 ENRICH_CHUNK = 100
 
-# Integral cold-start gate state. _COLD_START_DONE is set when the cold-start
-# batch settles/times out (or exits for any other reason); _COLD_START_TRIGGERED
-# is True only when the cold branch of _startup() actually ran. Together with
-# _db_loaded() they form _db_ready(): on a cold start queries stay 503 until
-# the WHOLE batch finishes, not merely until the first source hot-swaps its
-# reader (partial coverage must never serve "clean" verdicts).
-_COLD_START_DONE = threading.Event()
-_COLD_START_TRIGGERED = False
+# Integral build-window gate state. _BUILD_PHASE is True from the cold branch
+# of _startup() until the first settled-with-coverage verdict (or a forced
+# deadline release). While it holds, ANY active offline task keeps queries at
+# 503 — covering the first cold batch, a retry batch enqueued from the
+# zero-coverage failure state, and single-source updates from the Sources
+# page (partial coverage must never serve "clean" verdicts). _BUILD_DEADLINE
+# bounds the window: past it the gate releases (超时即放行 — a wedged or
+# paused build must not hold the server hostage) even if tasks are still
+# active. Once closed, the phase never re-opens on its own: routine
+# scheduled refresh must not re-gate queries.
+_BUILD_PHASE = False
+_BUILD_DEADLINE = 0.0
+
+
+def _arm_build_window(timeout_sec: float):
+    """Open (or re-arm) the integral build window with a fresh deadline."""
+    global _BUILD_PHASE, _BUILD_DEADLINE
+    _BUILD_PHASE = True
+    _BUILD_DEADLINE = time.time() + timeout_sec
 
 
 class SourceEnabledPatch(BaseModel):
     enabled: bool
 
 
+def _build_tasks_active() -> bool:
+    """Any queued/downloading/loading/throttled offline task in the update
+    manager (paused batches keep tasks in these states by design)."""
+    return manager.has_active_offline_tasks()
+
+
 def _db_ready() -> bool:
-    """Integral gate: queries pass only when the DB is loaded AND (a warm start,
-    or the cold-start batch has settled/timed out). Reuses _db_loaded() for the
-    loaded check; _COLD_START_DONE bounds the integral window on cold starts."""
-    if _COLD_START_TRIGGERED and not _COLD_START_DONE.is_set():
-        return False
+    """Integral gate: during the build phase, hold while offline tasks are
+    still active and the deadline hasn't passed — so neither the first cold
+    batch nor a later retry can open the gate onto partial coverage
+    mid-build (the first source's rebuild hot-swap flipping _db_loaded()
+    True is NOT sufficient). Past the deadline the window force-releases.
+    Closes permanently at the first released verdict with coverage.
+    Reuses _db_loaded() for the loaded check."""
+    global _BUILD_PHASE
+    if _BUILD_PHASE:
+        if _build_tasks_active() and time.time() < _BUILD_DEADLINE:
+            return False
+        if not _ipdb_registry._db_loaded():
+            return False
+        _BUILD_PHASE = False  # idempotent close; benign under concurrent probes
     return _ipdb_registry._db_loaded()
 
 
+def _rearm_build_window_if_unresolved():
+    """Re-open the integral window when a rebuild is requested from the
+    zero-coverage failure state (build phase still open, nothing loaded) —
+    so a Retry batch or a single-source update cannot serve partial
+    verdicts mid-build. Routine refresh on a loaded DB never re-arms."""
+    if _BUILD_PHASE and not _ipdb_registry._db_loaded():
+        import psutil
+        _arm_build_window(_cold_start_timeout(psutil.virtual_memory().total / 1e9))
+
+
 def require_ready():
-    """Gate query endpoints during cold-start DB construction. Delegates to
-    _db_ready() so this gate and db-status's warming_up field share a single
-    source of truth for "is the DB queryable" — on cold starts queries stay
-    503 until the batch settles (integral), not until the first source loads.
+    """Gate query endpoints during cold-start DB construction. Zero enabled
+    sources is reported honestly (that state is not "warming"); otherwise
+    delegates to _db_ready() so this gate and db-status's warming_up field
+    share a single source of truth for "is the DB queryable".
 
     Resolves _db_loaded via the registry module attribute at call time (not a
     name bound at import) so a single patched reference reaches both this gate
     and lookup()'s internal check identically."""
+    from ipdb._registry import _enabled_sources
+    if not _enabled_sources():
+        raise HTTPException(503, detail="no data sources enabled")
     if not _db_ready():
         raise HTTPException(503, detail="database is warming up")
 
@@ -288,25 +328,20 @@ def _is_cold_start() -> bool:
 
 
 def _cold_start_background():
-    """Background-thread cold start: download + build all offline sources
-    without blocking lifespan. ALWAYS sets _COLD_START_DONE on exit (settle,
-    timeout-return, zero-offline-sources early return, or exception) so the
-    integral gate _db_ready() can never wedge shut: once this thread is done,
-    _db_loaded() gives the final verdict (zero sources loaded → gate holds;
-    the frontend WarmupBanner shows a failure/retry state)."""
+    """Cold start reduced to enqueueing the build batch: the integral gate
+    (_db_ready) is driven by live task state, so this thread needs no
+    blocking waits — settle and deadline handling live in the gate itself.
+    An exception here only abandons the build attempt: zero sources loaded
+    → gate holds → WarmupBanner shows failure/retry, with a log record."""
     try:
-        import psutil
         _ensure_valve_sampler()
         names = _offline_enabled_names()
         if not names:
             return  # 全在线源部署:_db_loaded() 恒 True,require_ready 直放行
-        total_gb = psutil.virtual_memory().total / 1e9
-        bid = manager.run_batch_blocking(names, timeout=_cold_start_timeout(total_gb))
-        # 超时返回后批次可能仍在跑;等 settle 后让 _db_loaded() 给终判。
-        # 不重排队列(防无限重试打配额源);任务级 30s socket 超时保证 settle 有界。
-        manager.wait_batch_settled(bid)
-    finally:
-        _COLD_START_DONE.set()
+        manager.enqueue_batch(names)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "cold-start background thread failed")
 
 
 def _startup_warm():
@@ -323,9 +358,10 @@ def _startup_warm():
 
 
 def _startup():
-    global _COLD_START_TRIGGERED
     if _is_cold_start():
-        _COLD_START_TRIGGERED = True
+        import psutil
+        total_gb = psutil.virtual_memory().total / 1e9
+        _arm_build_window(_cold_start_timeout(total_gb))
         threading.Thread(daemon=True, target=_cold_start_background,
                          name="cold-start").start()
     else:
@@ -432,8 +468,10 @@ async def upload_file_stream(file: UploadFile = File(...)):
 
 @app.get("/api/db-status")
 async def db_status():
+    from ipdb._registry import _enabled_sources
     status = get_status()
-    status["warming_up"] = not _db_ready()
+    # 全源禁用不是 warming:报 False 隐藏横幅,查询走 require_ready 的诚实报错
+    status["warming_up"] = bool(_enabled_sources()) and not _db_ready()
     return status
 
 
@@ -465,6 +503,7 @@ async def update_db():
     names = _offline_enabled_names()
     if not names:
         return {"batch_id": None, "refreshed": 0}
+    _rearm_build_window_if_unresolved()
     bid = manager.enqueue_batch(names)
     return {"batch_id": bid, "refreshed": len(names)}
 
@@ -530,6 +569,7 @@ async def set_source_enabled_route(name: str, patch: SourceEnabledPatch):
 @app.post("/api/sources/{name}/update")
 async def update_source_route(name: str):
     try:
+        _rearm_build_window_if_unresolved()
         t = manager.enqueue_one(name)
     except ValueError:
         raise HTTPException(404, f"unknown source: {name}")
