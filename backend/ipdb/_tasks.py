@@ -189,17 +189,21 @@ class UpdateManager:
             return None
         return self.enqueue_batch(stale_names)
 
-    def has_active_offline_tasks(self) -> bool:
+    def has_active_offline_tasks(self, source_filter=None) -> bool:
         """True while any offline-source task is queued/downloading/
         loading/throttled. The cold-start gate holds the integral window on
         this: a paused batch keeps its tasks in these states (so pausing
-        holds the gate until the deadline releases it), and a retry batch's
-        tasks re-arm the window for the whole rebuild."""
+        holds the gate until the deadline releases it), and a rebuild
+        batch's tasks re-arm the window for the whole rebuild.
+        `source_filter(name)` further restricts which sources count — the
+        gate passes a "source not yet loaded" filter so refresh of
+        already-loaded sources never holds queries."""
         with self._lock:
             for t in self._tasks.values():
                 if t.state in ("queued", "downloading", "loading", "throttled"):
                     src = self._resolve(t.source_name)
-                    if src is not None and self._archetype_of(src) == "offline":
+                    if src is not None and self._archetype_of(src) == "offline" \
+                            and (source_filter is None or source_filter(t.source_name)):
                         return True
             return False
 

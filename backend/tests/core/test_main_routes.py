@@ -157,16 +157,19 @@ def test_lookup_single_runs_via_to_thread(monkeypatch):
     import main as main_mod
     from ipdb import load_db
     load_db()
-    called_via = []
-    orig_to_thread = asyncio.to_thread
-    async def spy_to_thread(fn, *a, **kw):
-        called_via.append(fn is main_mod.lookup)
-        return await orig_to_thread(fn, *a, **kw)
-    monkeypatch.setattr(asyncio, "to_thread", spy_to_thread)
-    client = TestClient(main_mod.app)
-    r = client.get("/api/lookup/8.8.8.8")
-    assert r.status_code == 200
-    assert called_via == [True]
+    # 密闭:_coverage_building 走真 manager,早期 lifespan 测试残留的过期
+    # 重建任务(测试环境双载 load_db 使个别源 unloaded)会误扣门。
+    with patch.object(main_mod, "_coverage_building", return_value=False):
+        called_via = []
+        orig_to_thread = asyncio.to_thread
+        async def spy_to_thread(fn, *a, **kw):
+            called_via.append(fn is main_mod.lookup)
+            return await orig_to_thread(fn, *a, **kw)
+        monkeypatch.setattr(asyncio, "to_thread", spy_to_thread)
+        client = TestClient(main_mod.app)
+        r = client.get("/api/lookup/8.8.8.8")
+        assert r.status_code == 200
+        assert called_via == [True]
 
 
 def test_lookup_stix_runs_via_to_thread(monkeypatch):
@@ -178,16 +181,17 @@ def test_lookup_stix_runs_via_to_thread(monkeypatch):
     import main as main_mod
     from ipdb import load_db
     load_db()
-    called_via = []
-    orig_to_thread = asyncio.to_thread
-    async def spy_to_thread(fn, *a, **kw):
-        called_via.append(fn is main_mod.lookup)
-        return await orig_to_thread(fn, *a, **kw)
-    monkeypatch.setattr(asyncio, "to_thread", spy_to_thread)
-    client = TestClient(main_mod.app)
-    r = client.get("/api/lookup/8.8.8.8/stix")
-    assert r.status_code in (200, 501)   # 200=stix2 已装;501=未装(分发不涉响应体)
-    assert called_via == [True]
+    with patch.object(main_mod, "_coverage_building", return_value=False):
+        called_via = []
+        orig_to_thread = asyncio.to_thread
+        async def spy_to_thread(fn, *a, **kw):
+            called_via.append(fn is main_mod.lookup)
+            return await orig_to_thread(fn, *a, **kw)
+        monkeypatch.setattr(asyncio, "to_thread", spy_to_thread)
+        client = TestClient(main_mod.app)
+        r = client.get("/api/lookup/8.8.8.8/stix")
+        assert r.status_code in (200, 501)   # 200=stix2 已装;501=未装(分发不涉响应体)
+        assert called_via == [True]
 
 
 class TestWarmingUpGate:
@@ -199,16 +203,17 @@ class TestWarmingUpGate:
         cls.client = TestClient(main.app)
 
     def setup_method(self):
-        """Default per-test module state: warm-start view (build phase
-        closed). Saved/restored so a test that opens the phase can never
-        leak it into other test files."""
+        """Default per-test module state: no armed build window (deadline
+        infinite — warm view). Saved/restored so a test that arms the window
+        can never leak it into other test files."""
+        import math
         import main
-        self._orig_phase = main._BUILD_PHASE
-        main._BUILD_PHASE = False
+        self._orig_deadline = main._BUILD_DEADLINE
+        main._BUILD_DEADLINE = math.inf
 
     def teardown_method(self):
         import main
-        main._BUILD_PHASE = self._orig_phase
+        main._BUILD_DEADLINE = self._orig_deadline
 
     def test_db_status_has_warming_up_field(self):
         resp = self.client.get("/api/db-status")
@@ -223,6 +228,7 @@ class TestWarmingUpGate:
             r1 = self.client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
             assert r1.status_code == 503
             assert "warming up" in r1.json()["detail"].lower()
+            assert r1.headers["x-ipradar-reason"] == "warming"
             # /api/upload/stream
             r2 = self.client.post("/api/upload/stream",
                                   files={"file": ("ips.txt", b"8.8.8.8\n", "text/plain")})
@@ -235,12 +241,16 @@ class TestWarmingUpGate:
             assert r4.status_code == 503
 
     def test_query_endpoints_pass_when_db_loaded(self):
-        """When _db_loaded() is True, query endpoints proceed past the gate."""
+        """When _db_loaded() is True (and no coverage is being built), query
+        endpoints proceed past the gate. _coverage_building is patched False
+        for hermeticity — earlier tests running the real lifespan enqueue
+        real stale-rebuild tasks on the singleton manager."""
         import main
         # load_db so lookup() won't raise RuntimeError; patch _db_loaded True
         from ipdb import load_db
         load_db()
-        with patch("ipdb._registry._db_loaded", return_value=True):
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch.object(main, "_coverage_building", return_value=False):
             r = self.client.get("/api/lookup/8.8.8.8")
             assert r.status_code == 200
 
@@ -252,18 +262,18 @@ class TestWarmingUpGate:
             assert self.client.get("/api/tasks").status_code == 200
             assert self.client.get("/api/sources").status_code == 200
 
-    def test_integral_window_503_until_tasks_settle(self):
+    def test_integral_window_503_while_coverage_building(self):
         """Regression (integral gate): once the first source's rebuild flips
-        _db_loaded() True, ALL query endpoints STILL return 503 while build
-        tasks remain active within the deadline. The pre-gate code released
-        here and served partial-coverage verdicts (malicious IPs read clean)."""
+        _db_loaded() True, ALL query endpoints STILL return 503 while
+        coverage is being built within the deadline. The pre-gate code
+        released here and served partial-coverage verdicts (malicious IPs
+        read clean)."""
         import main
         from ipdb import load_db
         load_db()  # real readers exist so the post-settle lookup returns 200
-        main._BUILD_PHASE = True
         main._BUILD_DEADLINE = time.time() + 600
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_build_tasks_active", return_value=True):
+             patch.object(main, "_coverage_building", return_value=True):
             r1 = self.client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
             assert r1.status_code == 503
             r2 = self.client.post("/api/upload/stream",
@@ -273,77 +283,72 @@ class TestWarmingUpGate:
             assert r3.status_code == 503
             r4 = self.client.get("/api/lookup/8.8.8.8/stix")
             assert r4.status_code == 503
-        # tasks settle → window closes → gate opens, permanently.
-        # _build_tasks_active is patched False (not left bare): earlier tests
-        # running the real lifespan (e.g. test_perf_layout_route) enqueue
-        # real stale-rebuild tasks on the singleton manager, which would
-        # otherwise hold the gate here.
+        # build settles → gate opens
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_build_tasks_active", return_value=False):
+             patch.object(main, "_coverage_building", return_value=False):
             r5 = self.client.get("/api/lookup/8.8.8.8")
             assert r5.status_code == 200
-        assert main._BUILD_PHASE is False
 
     def test_db_status_warming_up_tracks_integral_gate(self):
         """db-status warming_up reflects the integral gate: True mid-build
-        even when _db_loaded() is already True; False once tasks settle."""
+        even when _db_loaded() is already True; False once the build settles."""
         import main
-        main._BUILD_PHASE = True
         main._BUILD_DEADLINE = time.time() + 600
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_build_tasks_active", return_value=True):
+             patch.object(main, "_coverage_building", return_value=True):
             resp = self.client.get("/api/db-status")
             assert resp.status_code == 200
             assert resp.json()["warming_up"] is True
-        main._BUILD_PHASE = True  # probe above closed it; re-open for part 2
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_build_tasks_active", return_value=False):
+             patch.object(main, "_coverage_building", return_value=False):
             resp = self.client.get("/api/db-status")
             assert resp.status_code == 200
             assert resp.json()["warming_up"] is False
 
-    def test_deadline_releases_gate_even_with_active_tasks(self):
+    def test_deadline_releases_gate_even_while_building(self):
         """超时即放行 (grilled decision): a wedged or paused build cannot
         hold the server hostage — past the deadline the gate releases even
-        while tasks are still active (a paused batch keeps tasks active)."""
+        while coverage is still being built."""
         import main
         from ipdb import load_db
         load_db()
-        main._BUILD_PHASE = True
         main._BUILD_DEADLINE = time.time() - 1  # already elapsed
         with patch("ipdb._registry._db_loaded", return_value=True), \
-             patch.object(main, "_build_tasks_active", return_value=True):
+             patch.object(main, "_coverage_building", return_value=True):
             r = self.client.get("/api/lookup/8.8.8.8")
             assert r.status_code == 200
-        assert main._BUILD_PHASE is False  # released + closed permanently
 
-    def test_update_db_re_arms_window_from_failure_state(self):
-        """Regression (review #1): a Retry batch enqueued from the
-        zero-coverage failure state must re-arm the integral window — the
-        old gate had already released, so the first source to land served
-        partial coverage mid-build."""
+    def test_unloaded_rebuild_refreshes_stale_deadline(self):
+        """Regression (review F1): a rebuild starting from zero coverage
+        (Retry / PATCH-enable / scheduler — any door; the gate is
+        state-driven) must hold the integral window even after the original
+        cold deadline went stale: the first probe lazily re-arms it, so the
+        gate stays closed when the first source's rebuild flips
+        _db_loaded() True mid-rebuild."""
         import main
-        main._BUILD_PHASE = True  # cold session still unresolved, 0 loaded
         with patch("ipdb._registry._db_loaded", return_value=False), \
-             patch.object(main, "_offline_enabled_names", return_value=["a"]), \
-             patch.object(main.manager, "enqueue_batch", return_value="bid1") as enq, \
-             patch.object(main, "_cold_start_timeout", return_value=600), \
-             patch("psutil.virtual_memory") as vm:
-            vm.return_value.total = 8e9
-            r = self.client.post("/api/update-db")
-        assert r.status_code == 200
-        enq.assert_called_once_with(["a"])
-        assert main._BUILD_PHASE is True
-        assert main._BUILD_DEADLINE > time.time()  # fresh window armed
+             patch.object(main, "_coverage_building", return_value=True), \
+             patch.object(main, "_window_sec", return_value=600):
+            main._BUILD_DEADLINE = time.time() - 1  # stale
+            r = self.client.get("/api/lookup/8.8.8.8")
+            assert r.status_code == 503
+            assert main._BUILD_DEADLINE > time.time()  # lazily re-armed
+        # first source lands → still held within the fresh window
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch.object(main, "_coverage_building", return_value=True):
+            r2 = self.client.get("/api/lookup/8.8.8.8")
+            assert r2.status_code == 503
 
     def test_all_sources_disabled_honest_503_not_warming(self):
         """Regression (review #3): zero enabled sources must not report
         'warming up' forever with a dead retry — queries get an honest
-        no-sources 503 and warming_up stays False so the banner hides."""
+        no-sources 503 (machine-readable header) and warming_up stays False
+        so the banner hides."""
         with patch("ipdb._registry._enabled_sources", return_value=[]):
             r = self.client.post("/api/query/stream", json={"ips": ["8.8.8.8"]})
             assert r.status_code == 503
             assert "no data sources enabled" in r.json()["detail"]
+            assert r.headers["x-ipradar-reason"] == "no-sources"
             resp = self.client.get("/api/db-status")
             assert resp.status_code == 200
             assert resp.json()["warming_up"] is False
@@ -353,15 +358,17 @@ class TestLifespanColdStartNonBlocking:
     """Cold-start lifespan must not block: background thread started, HTTP up."""
 
     def setup_method(self):
-        """The cold-branch test runs the REAL _startup(), which opens the
-        build window (_BUILD_PHASE=True) — reset it so no open window leaks
-        into the next test."""
+        """The cold-branch test runs the REAL _startup(), which arms a
+        finite build deadline — reset to inf so no armed window leaks into
+        the next test."""
+        import math
         import main
-        main._BUILD_PHASE = False
+        main._BUILD_DEADLINE = math.inf
 
     def teardown_method(self):
+        import math
         import main
-        main._BUILD_PHASE = False
+        main._BUILD_DEADLINE = math.inf
 
     def test_cold_start_branch_starts_background_thread(self, monkeypatch):
         """When _is_cold_start() is True, lifespan yields without waiting on
@@ -388,7 +395,11 @@ class TestLifespanColdStartNonBlocking:
         """Warm path still works (load_db already makes _db_loaded True)."""
         import main
         from ipdb import load_db
-        with patch.object(main, "_is_cold_start", return_value=False):
+        # 密闭:真 _startup_warm 会 enqueue_stale 重建任务,测试环境双载
+        # load_db 使个别源 unloaded → 真 _coverage_building 误判扣门。
+        # 生产单载下这些源 loaded,重建不扣门。
+        with patch.object(main, "_is_cold_start", return_value=False), \
+             patch.object(main, "_coverage_building", return_value=False):
             with TestClient(main.app) as client:
                 load_db()  # warm path 走 _startup_warm → load_db
                 r = client.get("/api/db-status")

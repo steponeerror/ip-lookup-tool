@@ -10,16 +10,16 @@ from unittest.mock import patch
 # ── _startup branching ────────────────────────────────────────────────
 
 def test_startup_cold_branch_opens_window_and_starts_thread():
+    import math
     import threading
     import time
     import main
-    # Runs the REAL _startup(), whose cold branch opens the build window
-    # (_BUILD_PHASE=True) while the fake background below does nothing —
-    # save/restore so no open window leaks into other test files (mirrors
+    # Runs the REAL _startup(), whose cold branch arms a finite build
+    # deadline while the fake background below does nothing — save/restore
+    # so no armed window leaks into other test files (mirrors
     # TestLifespanColdStartNonBlocking in test_main_routes.py).
-    saved_phase = main._BUILD_PHASE
     saved_deadline = main._BUILD_DEADLINE
-    main._BUILD_PHASE = False
+    main._BUILD_DEADLINE = math.inf
     try:
         started = threading.Event()
         def _fake_background():
@@ -29,24 +29,28 @@ def test_startup_cold_branch_opens_window_and_starts_thread():
              patch.object(main, "_startup_warm") as warm:
             main._startup()
         warm.assert_not_called()
-        assert main._BUILD_PHASE is True   # cold branch opens the integral window
-        assert main._BUILD_DEADLINE > time.time()
+        assert main._BUILD_DEADLINE > time.time()  # cold branch arms the window
         time.sleep(0.05)  # let the daemon thread spin up and set the Event
         assert started.is_set(), "background _cold_start_background thread not started"
     finally:
-        main._BUILD_PHASE = saved_phase
         main._BUILD_DEADLINE = saved_deadline
 
 
 def test_startup_warm_branch_calls_startup_warm():
+    import math
     import main
-    with patch.object(main, "_is_cold_start", return_value=False), \
-         patch.object(main, "_startup_warm") as warm, \
-         patch.object(main, "_cold_start_background") as cold_bg:
-        main._startup()
-    warm.assert_called_once()
-    cold_bg.assert_not_called()   # warm branch must not spawn a background build
-    assert main._BUILD_PHASE is False  # warm branch never opens the window
+    saved_deadline = main._BUILD_DEADLINE
+    main._BUILD_DEADLINE = math.inf
+    try:
+        with patch.object(main, "_is_cold_start", return_value=False), \
+             patch.object(main, "_startup_warm") as warm, \
+             patch.object(main, "_cold_start_background") as cold_bg:
+            main._startup()
+        warm.assert_called_once()
+        cold_bg.assert_not_called()   # warm branch must not spawn a background build
+        assert main._BUILD_DEADLINE == math.inf  # warm branch never arms the window
+    finally:
+        main._BUILD_DEADLINE = saved_deadline
 
 
 # ── _startup_warm body ────────────────────────────────────────────────
