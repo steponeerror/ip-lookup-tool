@@ -4,6 +4,7 @@ import sys
 import os
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 # Add backend directory to sys.path so 'import main' works
@@ -194,8 +195,44 @@ def test_lookup_stix_runs_via_to_thread(monkeypatch):
         assert called_via == [True]
 
 
+class _GateSrc:
+    """Fake registry source for gate tests: name + health().loaded."""
+
+    def __init__(self, name, loaded):
+        self.name = name
+        self._loaded = loaded
+
+    def health(self):
+        return SimpleNamespace(loaded=self._loaded)
+
+
 class TestWarmingUpGate:
-    """Cold-start gate: query endpoints 503 + db-status warming_up field."""
+    """Cold-start gate: query endpoints 503 + db-status warming_up field.
+
+    ── 门控状态矩阵（收口工件, 2026-08-18）───────────────────────────
+    入口（cold 线程 / update-db 重试 / 单源更新 / PATCH-enable / 调度
+    器）全部汇聚到同一探测 _coverage_building()；矩阵以探测所见状态
+    为准，不逐入口造测试。可达格共 10，每格一钉：
+
+    #   状态                                  判定               钉
+    1   无 enabled 源                         503 no-sources     all_sources_disabled_honest
+    2   unloaded + 冷启动窗内                 503 warming        query_endpoints_503_when_db_not_loaded
+    3   unloaded + 重建新段(过期窗惰性重臂)   503 warming        unloaded_rebuild_refreshes_stale_deadline
+    4   loaded + 新段覆盖构建、窗内           503 warming        integral_window_503_while_coverage_building
+    5   loaded + 重建目标全部已载(例行刷新)   放行(永不门)       loaded_source_refresh_never_gates
+    6   loaded + 续段、窗已过期               放行(超时即放行)   deadline_releases_gate_even_while_building
+    7   loaded + 温启动新段(False→True 首臂)  503 有界           warm_boot_rebuild_hold_is_deadline_bounded
+    8   loaded + day-2 新段(过期窗重臂)       503 warming        day2_rebuild_arms_fresh_window
+    9   loaded + 续段、newcomer 加入(窗已过)  放行(继承段时钟)   overlapping_newcomer_inherits_episode_clock
+    10  loaded + 无构建(settled)             放行               query_endpoints_pass_when_db_loaded
+
+    裁决记录:
+    · #9 继承段时钟(2026-08-18): 段时钟属「连续构建期」而非单源——
+      按源/按 enqueue 重臂会复活 toggle 滑窗楔死(disable/re-enable 循
+      环无限推迟放行)；「超时即放行」优先于每源新窗。
+    · _db_ready() 全局突变无锁: 并发 probe 在 False→True 沿最坏产生
+      μs 级 deadline 偏移(单进程部署)，接受，不加锁。
+    """
 
     @classmethod
     def setup_class(cls):
@@ -386,6 +423,70 @@ class TestWarmingUpGate:
             resp = self.client.get("/api/db-status")
             assert resp.status_code == 200
             assert resp.json()["warming_up"] is False
+
+    def test_loaded_source_refresh_never_gates(self):
+        """Matrix cell 5: routine refresh of an already-loaded source never
+        holds the gate — settled coverage (e.g. 27/28 sources) stays
+        servable while its rebuild runs. Uses the REAL _coverage_building()
+        (only the ingredients are patched) so the semantics themselves are
+        pinned: active offline tasks whose targets all have loaded readers
+        are not coverage-building."""
+        import main
+        from ipdb import load_db
+        load_db()
+        srcs = [_GateSrc("a", True), _GateSrc("b", True)]
+        calls = []
+
+        def fake_active(source_filter=None):
+            calls.append(source_filter)
+            # tasks ARE running, but every target is loaded → filter empties
+            if source_filter is None:
+                return True
+            return False
+
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch("ipdb._registry._enabled_sources", return_value=srcs), \
+             patch.object(main, "_build_tasks_active", side_effect=fake_active):
+            r = self.client.get("/api/lookup/8.8.8.8")
+        assert r.status_code == 200
+        # the loaded-set filter was actually consulted, not skipped
+        assert calls[-1] is not None
+
+    def test_overlapping_newcomer_inherits_episode_clock(self):
+        """Matrix cell 9 (ruling 2026-08-18): a new rebuild joining a
+        CONTINUING episode (the probe never saw the build stop — no
+        False→True transition) inherits the episode's clock; if that window
+        already elapsed, the newcomer's coverage gap serves immediately and
+        NO fresh window is armed. Re-arming per source/enqueue would
+        resurrect the toggle-slide wedge (disable/re-enable loops
+        postponing release forever)."""
+        import main
+        from ipdb import load_db
+        load_db()
+        main._coverage_episode = True          # continuing episode
+        expired = time.time() - 10
+        main._BUILD_DEADLINE = expired
+        built = {"b"}                          # uncovered source being built
+
+        def fake_active(source_filter=None):
+            if source_filter is None:
+                return bool(built)
+            return any(source_filter(n) for n in built)
+
+        srcs = [_GateSrc("a", True), _GateSrc("b", False)]
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch("ipdb._registry._enabled_sources", return_value=srcs), \
+             patch.object(main, "_build_tasks_active", side_effect=fake_active):
+            r1 = self.client.get("/api/lookup/8.8.8.8")
+            assert r1.status_code == 200            # expired window releases
+            assert main._BUILD_DEADLINE == expired  # no re-arm mid-episode
+
+            # newcomer: source c flips to uncovered-building mid-episode
+            built.add("c")
+            srcs.append(_GateSrc("c", False))
+            r2 = self.client.get("/api/lookup/8.8.8.8")
+            assert r2.status_code == 200            # inherits episode clock
+            assert main._BUILD_DEADLINE == expired  # still no fresh window
 
 
 class TestLifespanColdStartNonBlocking:
