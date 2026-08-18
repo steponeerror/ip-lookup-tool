@@ -54,6 +54,10 @@ ENRICH_CHUNK = 100
 # non-cold rebuilds that begin with partial coverage are settle-bounded by
 # the tasks' own socket timeouts.
 _BUILD_DEADLINE = math.inf
+# True while the last _db_ready() probe saw coverage being built — detects
+# build-episode STARTS (False→True) so each new episode gets a fresh
+# deadline, while a CONTINUING episode keeps (and can outlive) its own.
+_coverage_episode = False
 _build_window_sec: float | None = None
 
 
@@ -96,17 +100,22 @@ def _db_ready() -> bool:
     the armed deadline → hold — so neither the first cold batch nor any
     later rebuild can open the gate onto partial coverage mid-build (the
     first source's rebuild hot-swap flipping _db_loaded() True is NOT
-    sufficient). Past the deadline the window force-releases. Reuses
-    _db_loaded() for the loaded check."""
-    global _BUILD_DEADLINE
+    sufficient). Past the deadline the window force-releases.
+
+    Deadline lifecycle: a NEW build episode (warm-boot PATCH-enable, a
+    day-2 rebuild after the cold window naturally elapsed, a retry after
+    a settle) arms a fresh window on its first probe; a CONTINUING
+    episode keeps its original deadline, so the 超时即放行 release cannot
+    slide forever (a paused build still releases at its deadline).
+    Reuses _db_loaded() for the loaded check."""
+    global _BUILD_DEADLINE, _coverage_episode
+    building = _coverage_building()
+    if building and not _coverage_episode:
+        _BUILD_DEADLINE = time.time() + _window_sec()
+    _coverage_episode = building
     if not _ipdb_registry._db_loaded():
-        # A rebuild is starting from zero coverage (Retry / PATCH-enable /
-        # scheduler after total failure) — lazily re-arm a stale window so
-        # the integral hold survives past the original cold deadline.
-        if _coverage_building() and time.time() >= _BUILD_DEADLINE:
-            _BUILD_DEADLINE = time.time() + _window_sec()
-        return False
-    if _coverage_building() and time.time() < _BUILD_DEADLINE:
+        return False  # zero coverage: hold (never serve empty-DB clean verdicts)
+    if building and time.time() < _BUILD_DEADLINE:
         return False
     return True
 

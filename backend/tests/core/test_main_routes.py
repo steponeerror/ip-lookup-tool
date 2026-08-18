@@ -204,16 +204,19 @@ class TestWarmingUpGate:
 
     def setup_method(self):
         """Default per-test module state: no armed build window (deadline
-        infinite — warm view). Saved/restored so a test that arms the window
-        can never leak it into other test files."""
+        infinite — warm view), no build episode in progress. Saved/restored
+        so a test that arms the window can never leak it into other files."""
         import math
         import main
         self._orig_deadline = main._BUILD_DEADLINE
+        self._orig_episode = main._coverage_episode
         main._BUILD_DEADLINE = math.inf
+        main._coverage_episode = False
 
     def teardown_method(self):
         import main
         main._BUILD_DEADLINE = self._orig_deadline
+        main._coverage_episode = self._orig_episode
 
     def test_db_status_has_warming_up_field(self):
         resp = self.client.get("/api/db-status")
@@ -306,17 +309,48 @@ class TestWarmingUpGate:
             assert resp.json()["warming_up"] is False
 
     def test_deadline_releases_gate_even_while_building(self):
-        """超时即放行 (grilled decision): a wedged or paused build cannot
-        hold the server hostage — past the deadline the gate releases even
-        while coverage is still being built."""
+        """超时即放行 (grilled decision): a CONTINUING build episode past its
+        deadline releases — the episode-start re-arm must not slide the
+        window forever (a paused build still releases at its deadline)."""
         import main
         from ipdb import load_db
         load_db()
+        main._coverage_episode = True     # episode already in progress
         main._BUILD_DEADLINE = time.time() - 1  # already elapsed
         with patch("ipdb._registry._db_loaded", return_value=True), \
              patch.object(main, "_coverage_building", return_value=True):
             r = self.client.get("/api/lookup/8.8.8.8")
             assert r.status_code == 200
+
+    def test_warm_boot_rebuild_hold_is_deadline_bounded(self):
+        """Regression (round-3 F1): a warm-boot rebuild (PATCH-enable of a
+        not-yet-loaded source) must get a finite window — previously the
+        deadline stayed math.inf and a paused build held 503 forever."""
+        import math
+        import main
+        # warm view: deadline never armed (inf), no episode
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch.object(main, "_coverage_building", return_value=True):
+            r = self.client.get("/api/lookup/8.8.8.8")
+            assert r.status_code == 503                    # held...
+            assert main._BUILD_DEADLINE != math.inf        # ...but bounded
+            # episode continues, window elapses → releases (pause wedge ends)
+            main._BUILD_DEADLINE = time.time() - 1
+            r2 = self.client.get("/api/lookup/8.8.8.8")
+            assert r2.status_code == 200
+
+    def test_day2_rebuild_arms_fresh_window(self):
+        """Regression (round-3 F2): after the cold window naturally elapsed
+        (day-2 of a long-lived deployment), a rebuild of a not-yet-loaded
+        source must arm a fresh window and hold — previously the stale
+        deadline let mid-build queries serve partial-coverage verdicts."""
+        import main
+        main._BUILD_DEADLINE = time.time() - 86400        # yesterday's window
+        with patch("ipdb._registry._db_loaded", return_value=True), \
+             patch.object(main, "_coverage_building", return_value=True):
+            r = self.client.get("/api/lookup/8.8.8.8")
+            assert r.status_code == 503                    # no partial verdicts
+            assert main._BUILD_DEADLINE > time.time()      # fresh window armed
 
     def test_unloaded_rebuild_refreshes_stale_deadline(self):
         """Regression (review F1): a rebuild starting from zero coverage
@@ -359,16 +393,18 @@ class TestLifespanColdStartNonBlocking:
 
     def setup_method(self):
         """The cold-branch test runs the REAL _startup(), which arms a
-        finite build deadline — reset to inf so no armed window leaks into
-        the next test."""
+        finite build deadline — reset to inf (and clear any episode) so no
+        armed window leaks into the next test."""
         import math
         import main
         main._BUILD_DEADLINE = math.inf
+        main._coverage_episode = False
 
     def teardown_method(self):
         import math
         import main
         main._BUILD_DEADLINE = math.inf
+        main._coverage_episode = False
 
     def test_cold_start_branch_starts_background_thread(self, monkeypatch):
         """When _is_cold_start() is True, lifespan yields without waiting on
