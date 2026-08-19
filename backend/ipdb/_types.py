@@ -24,13 +24,6 @@ class OfflineSource(Protocol):
     def health(self) -> SourceHealth: ...
 
 
-class OnlineEnricher(Protocol):
-    name: str
-    fields: tuple[str, ...]
-
-    def enrich_batch(self, ips: list[str]) -> dict[str, dict]: ...
-
-
 class MergeStrategy(Protocol):
     field: str
 

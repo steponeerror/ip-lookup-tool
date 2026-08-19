@@ -65,8 +65,6 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "x4bnet_vpn":  0.70,
     "ipsum":       0.55,
     "firehol":     0.50,
-    "ip_api":      0.45,
-    "ipapi_is":    0.50,
     # Phase 4 new sources
     "spamhaus":    0.90,
     "threatfox":   0.85,

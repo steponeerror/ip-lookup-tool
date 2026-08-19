@@ -180,7 +180,7 @@ async def _stream_lookup(expansion):
     if total == 0:
         yield orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
-            "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
+            "ipv6_unsupported": expansion.ipv6,
         }) + b"\n"
         return
 
@@ -199,11 +199,11 @@ async def _stream_lookup(expansion):
             yield (orjson.dumps({
                 "type": "done", "invalid_lines": expansion.invalid,
                 "ipv6_unsupported": expansion.ipv6,
-                "enrich_error": None, "error": str(e) or type(e).__name__}) + b"\n")
+                "error": str(e) or type(e).__name__}) + b"\n")
             return
         yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
-            "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
+            "ipv6_unsupported": expansion.ipv6,
         }) + b"\n")
         return
 
@@ -235,11 +235,11 @@ async def _stream_lookup(expansion):
             yield (orjson.dumps({
                 "type": "done", "invalid_lines": expansion.invalid,
                 "ipv6_unsupported": expansion.ipv6,
-                "enrich_error": None, "error": str(e) or type(e).__name__}) + b"\n")
+                "error": str(e) or type(e).__name__}) + b"\n")
             return
         yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
-            "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
+            "ipv6_unsupported": expansion.ipv6,
         }) + b"\n")
         return
 
@@ -289,19 +289,19 @@ async def _stream_lookup(expansion):
                 yield (orjson.dumps({
                     "type": "done", "invalid_lines": expansion.invalid,
                     "ipv6_unsupported": expansion.ipv6,
-                    "enrich_error": None, "error": str(e) or type(e).__name__}) + b"\n")
+                    "error": str(e) or type(e).__name__}) + b"\n")
                 return
     except Exception as e:            # 非 BPP 异常: done-error 终态, 不静默截断
         logging.getLogger(__name__).exception("stream lookup error")
         yield (orjson.dumps({
             "type": "done", "invalid_lines": expansion.invalid,
-            "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
+            "ipv6_unsupported": expansion.ipv6,
             "error": str(e) or type(e).__name__}) + b"\n")
         return
 
     yield orjson.dumps({
         "type": "done", "invalid_lines": expansion.invalid,
-        "ipv6_unsupported": expansion.ipv6, "enrich_error": None,
+        "ipv6_unsupported": expansion.ipv6,
     }) + b"\n"
 
 
