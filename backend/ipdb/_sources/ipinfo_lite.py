@@ -89,7 +89,7 @@ class IPinfoLiteSource:
         self._loaded_at = time.time()
         return self._count
 
-    def rebuild(self) -> int:
+    def rebuild(self, progress=None) -> int:
         import ipaddress as _ipa
         import csv as _csv
         from ._lmdb import rebuild_lmdb, covered_ip_count
@@ -151,7 +151,7 @@ class IPinfoLiteSource:
             n = rebuild_lmdb(_records(), self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
                              flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov)
+                             covered=cov, progress=progress)
             self._covered_ips = cov
             self._count = n
             self._loaded_at = time.time()

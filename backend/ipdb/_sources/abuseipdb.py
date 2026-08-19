@@ -92,7 +92,7 @@ class AbuseIPDBSource(IpListSource):
             self._path.unlink(missing_ok=True)
             raise
 
-    def rebuild(self) -> int:
+    def rebuild(self, progress=None) -> int:
         """重建 LMDB。JSON 内容 → per-row Evidence（last_seen 逐 IP 不同，
         基类单一 insert_data 不支持，故覆写）。"""
         import ipaddress as _ipa
@@ -128,10 +128,10 @@ class AbuseIPDBSource(IpListSource):
             covered.append(str(net))
         try:
             cov = covered_ip_count(covered)
-            n = rebuild_lmdb(iter(records), self._lmdb_base,
+            n = rebuild_lmdb(records, self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
                              flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov)
+                             covered=cov, progress=progress)
             self._count = n
             self._covered_ips = cov
             self._loaded_at = time.time()

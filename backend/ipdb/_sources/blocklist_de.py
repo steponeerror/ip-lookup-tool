@@ -98,7 +98,7 @@ class BlocklistDeSource(IpListSource):
         self._loaded_at = time.time()
         return self._count
 
-    def rebuild(self) -> int:
+    def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一重建入口)。多列表累积:同 CIDR 按优先级裁决
         classification_type,全部认领列表名进 native_categories。"""
         import ipaddress as _ipa
@@ -149,7 +149,7 @@ class BlocklistDeSource(IpListSource):
             n = rebuild_lmdb(records, self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
                              flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov)
+                             covered=cov, progress=progress)
             self._covered_ips = cov
             self._count = n
             self._loaded_at = time.time()

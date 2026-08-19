@@ -102,7 +102,7 @@ class Source:
         self._loaded_at = time.time()
         return self._count
 
-    def rebuild(self) -> int:
+    def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
         from ._sources._lmdb import covered_ip_count, rebuild_lmdb
         if not self._path.exists():
@@ -124,14 +124,14 @@ class Source:
                 bucket = acc.setdefault(cidr, [])
                 if d not in bucket:
                     bucket.append(d)
-            records = ((k, v) for k, v in acc.items())
+            records = acc.items()
             covered_cidrs = acc.keys()   # dict view,无拷贝
         try:
             cov = covered_ip_count(covered_cidrs)
             n = rebuild_lmdb(records, self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
                              flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov)
+                             covered=cov, progress=progress)
             self._count = n
             self._covered_ips = cov
             self._loaded_at = time.time()

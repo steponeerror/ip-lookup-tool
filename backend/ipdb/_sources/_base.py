@@ -118,7 +118,7 @@ class IpListSource:
         self._loaded_at = time.time()
         return self._count
 
-    def rebuild(self) -> int:
+    def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
         import ipaddress as _ipa
         from ._lmdb import covered_ip_count, rebuild_lmdb
@@ -146,10 +146,10 @@ class IpListSource:
                 covered.append(str(net))
         try:
             cov = covered_ip_count(covered)
-            n = rebuild_lmdb(iter(records), self._lmdb_base,
+            n = rebuild_lmdb(records, self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
                              flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov)
+                             covered=cov, progress=progress)
             self._count = n
             self._covered_ips = cov
             self._loaded_at = time.time()
@@ -221,7 +221,7 @@ class CsvSource(IpListSource):
         """Parse one CSV row → {field: value} dict. Return None to skip."""
         raise NotImplementedError("CsvSource subclasses must implement parse_row()")
 
-    def rebuild(self) -> int:
+    def rebuild(self, progress=None) -> int:
         """重建 LMDB(唯一入口,经 manager 队列调用)。新 epoch + ptr swap。"""
         import csv as _csv
         import ipaddress as _ipa
@@ -265,10 +265,10 @@ class CsvSource(IpListSource):
         try:
             cov = covered_ip_count(acc.keys())
             cnt = sum(len(v) for v in acc.values())
-            n = rebuild_lmdb(((k, v) for k, v in acc.items()), self._lmdb_base,
+            n = rebuild_lmdb(acc.items(), self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
                              flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             count=cnt, covered=cov)
+                             count=cnt, covered=cov, progress=progress)
             self._count = cnt
             self._covered_ips = cov
             self._loaded_at = time.time()

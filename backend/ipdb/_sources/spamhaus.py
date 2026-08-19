@@ -13,7 +13,7 @@ class SpamhausSource(IpListSource):
     reliability = 0.90
     authoritative_for = ["is_malicious"]
 
-    def rebuild(self) -> int:
+    def rebuild(self, progress=None) -> int:
         """重建 LMDB。覆写基类：保留 `;` 后的 SBL 案件编号 → extra.sbl_id
         （基类直接截断丢弃）。"""
         import ipaddress as _ipa
@@ -56,7 +56,7 @@ class SpamhausSource(IpListSource):
             n = rebuild_lmdb(records, self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
                              flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov)
+                             covered=cov, progress=progress)
             self._count = n
             self._covered_ips = cov
             self._loaded_at = time.time()

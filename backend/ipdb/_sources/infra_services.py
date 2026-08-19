@@ -82,11 +82,11 @@ class InfraServicesSource(Source):
             self.download()
         return super().load()
 
-    def rebuild(self) -> int:
+    def rebuild(self, progress=None) -> int:
         # Self-heal: same as load() — cold start without prior download.
         if not self._path.exists():
             self.download()
-        return super().rebuild()
+        return super().rebuild(progress=progress)
 
     def harvest(self):
         for row in csv.reader(io.StringIO(self._path.read_text())):

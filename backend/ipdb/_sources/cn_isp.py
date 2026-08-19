@@ -85,7 +85,7 @@ class ChineseISPSource(Source):
         self._loaded_at = time.time()
         return self._count
 
-    def rebuild(self) -> int:
+    def rebuild(self, progress=None) -> int:
         import ipaddress as _ipa
         from ._lmdb import covered_ip_count, rebuild_lmdb
         old_reader = self._reader
@@ -112,10 +112,10 @@ class ChineseISPSource(Source):
         try:
             cov = covered_ip_count(best.keys())
             n = rebuild_lmdb(
-                ((k, v) for k, v in best.items()), self._lmdb_base,
+                best.items(), self._lmdb_base,
                 reader_setter=lambda e: setattr(self, "_reader", e),
                 flag_setter=lambda v: setattr(self, "_disjoint", v),
-                covered=cov,
+                covered=cov, progress=progress,
             )
             self._covered_ips = cov
             self._count = n

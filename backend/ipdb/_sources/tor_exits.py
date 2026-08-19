@@ -35,7 +35,7 @@ class TorExitSource(IpListSource):
                 ips.append(f"{m.group(1)},{ts}" if ts else m.group(1))
         return ips
 
-    def rebuild(self) -> int:
+    def rebuild(self, progress=None) -> int:
         """重建 LMDB。覆写基类：文件行为 `ip[,ts]`（parse_raw 归一化产物），
         ts → last_seen（per-row，基类单一 insert_data 不支持）。"""
         import ipaddress as _ipa
@@ -72,7 +72,7 @@ class TorExitSource(IpListSource):
             n = rebuild_lmdb(records, self._lmdb_base,
                              reader_setter=lambda e: setattr(self, "_reader", e),
                              flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov)
+                             covered=cov, progress=progress)
             self._count = n
             self._covered_ips = cov
             self._loaded_at = time.time()
