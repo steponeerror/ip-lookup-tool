@@ -282,9 +282,10 @@ describe("TaskProvider", () => {
       ok: true,
       json: async () => ({ tasks: [], batch: null }),
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource as any;
+    (globalThis as unknown as { EventSource: typeof EventSource }).EventSource =
+      es.FakeEventSource as unknown as typeof EventSource;
     render(
       <TaskProvider>
         <Probe />
@@ -312,9 +313,10 @@ describe("TaskProvider", () => {
       ok: true,
       json: async () => ({ tasks: [], batch: null }),
     });
-    (globalThis as any).fetch = fetchMock;
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchMock;
     const es = makeFakeEventSource();
-    (globalThis as any).EventSource = es.FakeEventSource as any;
+    (globalThis as unknown as { EventSource: typeof EventSource }).EventSource =
+      es.FakeEventSource as unknown as typeof EventSource;
     render(
       <TaskProvider>
         <Probe />
