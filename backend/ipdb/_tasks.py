@@ -445,6 +445,10 @@ class UpdateManager:
                 self._set_state(task, "failed", str(e)); return
             finally:
                 task.token.on_progress = None
+            # 与 download→loading 边界检查对称:loading 期间点的取消在
+            # rebuild 返回后生效(按钮在 loading 态是启用的,无视会误导)。
+            if task.token.is_cancelled():
+                self._set_state(task, "cancelled"); return
             self._set_state(task, "done")
         finally:
             src_lock.release()

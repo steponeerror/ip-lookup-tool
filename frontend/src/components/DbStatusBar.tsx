@@ -23,8 +23,9 @@ export const fmtBytes = (n: number): string => {
 };
 
 const fmtRows = (n: number): string => {
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}K`;
+  const k = Math.round(n / 1e3);
+  if (k >= 1000) return `${(n / 1e6).toFixed(1)}M`;
+  if (k >= 1) return `${k}K`;
   return `${n}`;
 };
 
@@ -197,7 +198,13 @@ export function DbStatusBar() {
                   })()}
                 </div>
                 <span className="w-10 shrink-0 text-right font-mono text-[10px] tabular-nums text-zinc-500">
-                  {isIndeterminate(task) ? "--%" : `${Math.round(stagedFrac(task) * 100)}%`}
+                  {/* resync/刷新后 frozenFrac 丢失(后端 to_dict 不携带):终态行
+                      显示 --% 而非假 0%;frozenFrac===0(排队即死)是真实值仍显 0% */}
+                  {(task.state === "failed" || task.state === "cancelled") && task.frozenFrac === undefined
+                    ? "--%"
+                    : isIndeterminate(task)
+                      ? "--%"
+                      : `${Math.round(stagedFrac(task) * 100)}%`}
                 </span>
                 {(task.state === "downloading" || task.state === "loading") && (task.received ?? 0) > 0 && (
                   <span className="shrink-0 font-mono text-[10px] tabular-nums text-zinc-500">

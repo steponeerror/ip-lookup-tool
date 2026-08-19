@@ -259,4 +259,25 @@ describe("DbStatusBar 分段进度渲染", () => {
     const bar = document.querySelector(".bg-red-500");
     expect(bar?.className).toContain("w-full");
   });
+
+  it("resync 后无 frozenFrac 的 failed 行显示 --% 而非假 0%", async () => {
+    vi.mocked(getTasks).mockResolvedValueOnce({
+      tasks: [{ id: "t1", source: "otx", host: null, state: "failed",
+        error: "boom", batch_id: "b1", received: 700, total: 1000 }],
+      batch: { id: "b1", state: "running", done: 0, total: 1 },
+    });
+    render(<DbStatusBar />);
+    expect(await screen.findByText("--%")).toBeInTheDocument();
+    expect(screen.queryByText("0%")).toBeNull();
+  });
+
+  it("fmtRows 边界:四舍五入达 1000K 晋升为 M", async () => {
+    vi.mocked(getTasks).mockResolvedValueOnce({
+      tasks: [{ id: "t1", source: "otx", host: null, state: "loading",
+        error: null, batch_id: "b1", received: 999_449, total: 999_999 }],
+      batch: { id: "b1", state: "running", done: 0, total: 1 },
+    });
+    render(<DbStatusBar />);
+    expect(await screen.findByText(/999K\/1\.0M/)).toBeInTheDocument();
+  });
 });

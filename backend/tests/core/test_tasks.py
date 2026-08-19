@@ -626,3 +626,26 @@ def test_loading_entry_zeroes_counts_before_state_event(monkeypatch):
     src.release.set()
     snap = _wait_states(mgr, lambda s: s["tasks"][0]["state"] in ("done", "failed"))
     assert snap["tasks"][0]["state"] == "done"
+
+
+class CancellableLoadingSource(FakeSource):
+    """rebuild 阻塞等待测试在 loading 态触发 cancel,验证 rebuild 返回后取消生效。"""
+    def __init__(self, name):
+        super().__init__(name)
+        self.in_rebuild = threading.Event()
+        self.release = threading.Event()
+    def rebuild(self, progress=None):
+        self.in_rebuild.set()
+        self.release.wait(timeout=5)
+
+
+def test_cancel_during_loading_takes_effect_after_rebuild():
+    src = CancellableLoadingSource("c")
+    mgr, _ = _make_manager([src])
+    mgr.enqueue_one("c")
+    assert src.in_rebuild.wait(timeout=5)
+    tid = mgr.snapshot()["tasks"][0]["id"]
+    mgr.cancel(tid)                    # loading 态:cancel() else 分支只置 token
+    src.release.set()
+    snap = _wait_states(mgr, lambda s: s["tasks"][0]["state"] in ("done", "cancelled", "failed"))
+    assert snap["tasks"][0]["state"] == "cancelled"
