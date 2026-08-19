@@ -14,7 +14,7 @@ companion to **add-intel-source** (which does the implementation):
 - **add-intel-source** = *how* to plug a chosen source in
 
 Read these once before scoring — they define the contract every dossier must satisfy:
-- `.claude/skills/add-intel-source/SKILL.md` — the Phase-1 input table this skill's dossier mirrors.
+- `.pi/skills/add-intel-source/SKILL.md` — the Phase-1 input table this skill's dossier mirrors.
 - `backend/ipdb/_registry.py` `SOURCE_CATEGORIES` — the coverage axes.
 - `backend/ipdb/_classification.py` — the controlled vocabulary + per-source `_MAP`s.
 
