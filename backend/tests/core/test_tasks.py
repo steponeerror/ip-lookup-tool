@@ -507,3 +507,80 @@ def test_empty_batch_completes_immediately():
     assert b.state == "done"
     assert b.total == 0 and b.done == 0
     assert mgr.snapshot()["batch"] is None
+
+
+class ProgressRebuildSource(FakeSource):
+    """rebuild 接受 progress 并按万条节奏回调(模拟 rebuild_lmdb)。"""
+    def rebuild(self, progress=None):
+        assert progress is not None, "progress callback expected"
+        # 末步 30000 经 min 钳到 25000:终回调恰好落在 total 上
+        # (brief 原文 range(0, 25_001, ...) 终值只到 20000,断言 25000 不可达,
+        # 上界改 30_001 让钳制生效——min() 钳制本就为此而设)。
+        for i in range(0, 30_001, 10_000):
+            progress(min(i, 25_000), 25_000)
+
+
+class FailInLoadingSource(FakeSource):
+    def rebuild(self, progress=None):
+        if progress:
+            progress(400, 1000)
+        raise RuntimeError("boom")
+
+
+class DownloadCountsSource(FakeSource):
+    def download(self, token=None):
+        if token is not None and token.on_progress:
+            token.on_progress(999, 1000)
+
+    def rebuild(self, progress=None):
+        if progress:
+            progress(10, 20)
+
+
+def test_task_persists_counts_in_to_dict():
+    t = Task(id="x", source_name="a", host=None)
+    t.received, t.total = 40, 100
+    d = t.to_dict()
+    assert d["received"] == 40 and d["total"] == 100
+
+
+def test_emit_progress_persists_counts_even_when_throttled():
+    mgr, _ = _make_manager([])
+    t = Task(id="x", source_name="a", host=None)
+    mgr._emit_progress(t, 5, 100)   # pct 0→5,首跳发事件
+    mgr._emit_progress(t, 6, 100)   # +1pp 且 <0.15s:事件被节流,计数仍持久化
+    assert (t.received, t.total) == (6, 100)
+
+
+def test_loading_progress_flows_to_snapshot():
+    mgr, _ = _make_manager([ProgressRebuildSource("p")])
+    mgr.enqueue_one("p")
+    snap = _wait_states(mgr, lambda s: s["tasks"][0]["state"] in ("done", "failed"))
+    tk = snap["tasks"][0]
+    assert tk["state"] == "done"
+    assert (tk["received"], tk["total"]) == (25_000, 25_000)
+
+
+def test_rebuild_without_progress_kwarg_falls_back():
+    mgr, _ = _make_manager([FakeSource("a")])   # FakeSource.rebuild() 无 progress 形参
+    mgr.enqueue_one("a")
+    snap = _wait_states(mgr, lambda s: s["tasks"][0]["state"] == "done")
+    assert snap["tasks"][0]["state"] == "done"
+
+
+def test_loading_failure_freezes_counts():
+    mgr, _ = _make_manager([FailInLoadingSource("f")])
+    mgr.enqueue_one("f")
+    snap = _wait_states(mgr, lambda s: s["tasks"][0]["state"] in ("done", "failed"))
+    tk = snap["tasks"][0]
+    assert tk["state"] == "failed"
+    assert (tk["received"], tk["total"]) == (400, 1000)
+
+
+def test_phase_entry_resets_counts():
+    mgr, _ = _make_manager([DownloadCountsSource("d")])
+    mgr.enqueue_one("d")
+    snap = _wait_states(mgr, lambda s: s["tasks"][0]["state"] in ("done", "failed"))
+    tk = snap["tasks"][0]
+    # 下载期 (999,1000) 必须被 loading 入口清零,终值是重建期 (10,20)
+    assert (tk["received"], tk["total"]) == (10, 20)

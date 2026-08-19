@@ -1,5 +1,6 @@
 """UpdateManager — unified trackable/abortable source-update task runner."""
 import asyncio
+import inspect
 import threading
 import time
 import uuid
@@ -18,6 +19,10 @@ class Task:
     state: str = "queued"  # queued|downloading|loading|throttled|done|failed|cancelled
     error: Optional[str] = None
     batch_id: Optional[str] = None
+    # 阶段内进度计数(事件/快照展示用):downloading=字节,loading=记录数。
+    # 阶段切换由 _run_task 在 _set_state 之前清零(事件不得携带上一相位计数)。
+    received: int = 0
+    total: int = 0
     token: CancelToken = field(default_factory=CancelToken)
     # Idempotency guard for _settle: a terminal task can be settled from two
     # places (cancel()'s _settle and _run_task's finally _settle) when cancel
@@ -26,7 +31,8 @@ class Task:
 
     def to_dict(self) -> dict:
         return {"id": self.id, "source": self.source_name, "host": self.host,
-                "state": self.state, "error": self.error, "batch_id": self.batch_id}
+                "state": self.state, "error": self.error, "batch_id": self.batch_id,
+                "received": self.received, "total": self.total}
 
 
 @dataclass
@@ -387,7 +393,10 @@ class UpdateManager:
     def _emit_progress(self, task: Task, received: int, total: int) -> None:
         """Throttled byte-progress event for the downloading phase. Emits at
         most every 0.15s or on a >=3 percentage-point change, plus the final
-        100% — so a large download yields a smooth bar without flooding SSE."""
+        100% — so a large download yields a smooth bar without flooding SSE.
+        计数无条件落 Task(to_dict/快照读它),仅事件本身节流。"""
+        task.received = received
+        task.total = total
         now = time.time()
         pct = int(received * 100 / total) if total > 0 else 0
         last_ts, last_pct = self._prog.get(task.id, (0.0, -1))
@@ -407,6 +416,7 @@ class UpdateManager:
             host_lock.acquire()
         src_lock.acquire()
         try:
+            task.received = task.total = 0
             self._set_state(task, "downloading")
             self._prog[task.id] = (0.0, -1)
             task.token.on_progress = lambda r, t: self._emit_progress(task, r, t)
@@ -420,11 +430,21 @@ class UpdateManager:
                 task.token.on_progress = None
             if task.token.is_cancelled():
                 self._set_state(task, "cancelled"); return
+            task.received = task.total = 0
             self._set_state(task, "loading")
+            self._prog[task.id] = (0.0, -1)
+            task.token.on_progress = lambda d, t: self._emit_progress(task, d, t)
             try:
-                source.rebuild()
+                # 预检而非 try/except TypeError 回退:后者会吞 rebuild 内部
+                # 真实 TypeError 并重复执行整个重建。
+                if "progress" in inspect.signature(source.rebuild).parameters:
+                    source.rebuild(progress=task.token.on_progress)
+                else:
+                    source.rebuild()
             except Exception as e:
                 self._set_state(task, "failed", str(e)); return
+            finally:
+                task.token.on_progress = None
             self._set_state(task, "done")
         finally:
             src_lock.release()
