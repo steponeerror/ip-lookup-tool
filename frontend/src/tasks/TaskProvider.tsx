@@ -4,6 +4,7 @@ import {
   cancelTask as apiCancelTask, cancelBatch as apiCancelBatch, pauseBatch, resumeBatch,
   type TaskState, type BatchState,
 } from "../api";
+import { stagedFrac } from "./progress";
 
 type Ctx = {
   tasks: TaskState[];
@@ -41,6 +42,11 @@ export function TaskProvider({ children }: { children: ReactNode }) {
       setTasks(Object.values(tasksRef.current));
       setBatch(e.data.batch ?? null);
     } else if (e.type === "task" && e.task) {
+      const prev = tasksRef.current[e.task.id];
+      if (prev && (e.task.state === "failed" || e.task.state === "cancelled")) {
+        // 终态丢失死亡相位,冻结最后非终态分数供 stagedFrac 读取
+        e.task.frozenFrac = stagedFrac(prev);
+      }
       tasksRef.current[e.task.id] = e.task;
       setTasks(Object.values(tasksRef.current));
     } else if (e.type === "task_progress" && e.task_id) {

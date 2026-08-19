@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
 import { TaskProvider, useTasks } from "../TaskProvider";
 import type { TaskState, BatchState } from "../../api";
 
@@ -8,6 +8,7 @@ function Probe() {
   return (
     <div>
       <span data-testid="count">{t.tasks.length}</span>
+      <span data-testid="frozen">{t.tasks[0]?.frozenFrac ?? "-"}</span>
       <span data-testid="batch">
         {t.batch ? `${t.batch.state}:${t.batch.done}/${t.batch.total}` : "none"}
       </span>
@@ -274,5 +275,63 @@ describe("TaskProvider", () => {
     }
     expect(() => render(<Orphan />)).toThrow(/useTasks must be used within TaskProvider/);
     spy.mockRestore();
+  });
+
+  it("终态 failed 事件冻结最后非终态分数", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ tasks: [], batch: null }),
+    });
+    (globalThis as any).fetch = fetchMock;
+    const es = makeFakeEventSource();
+    (globalThis as any).EventSource = es.FakeEventSource as any;
+    render(
+      <TaskProvider>
+        <Probe />
+      </TaskProvider>,
+    );
+    await screen.findByText("none");
+    await act(async () => {
+      es.fireMessage({ type: "task", task: {
+        id: "t1", source: "s", host: null, state: "downloading",
+        error: null, batch_id: null } });
+    });
+    await act(async () => {
+      es.fireMessage({ type: "task_progress", task_id: "t1", received: 40, total: 100 });
+    });
+    await act(async () => {
+      es.fireMessage({ type: "task", task: {
+        id: "t1", source: "s", host: null, state: "failed",
+        error: "x", batch_id: null, received: 40, total: 100 } });
+    });
+    await waitFor(() => expect(screen.getByTestId("frozen").textContent).toBe("0.2"));
+  });
+
+  it("终态 cancelled 同样冻结;done 不冻结(=1 由公式给出)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ tasks: [], batch: null }),
+    });
+    (globalThis as any).fetch = fetchMock;
+    const es = makeFakeEventSource();
+    (globalThis as any).EventSource = es.FakeEventSource as any;
+    render(
+      <TaskProvider>
+        <Probe />
+      </TaskProvider>,
+    );
+    await screen.findByText("none");
+    await act(async () => {
+      es.fireMessage({ type: "task", task: { id: "t2", source: "s", host: null,
+        state: "loading", error: null, batch_id: null } });
+    });
+    await act(async () => {
+      es.fireMessage({ type: "task_progress", task_id: "t2", received: 50, total: 100 });
+    });
+    await act(async () => {
+      es.fireMessage({ type: "task", task: { id: "t2", source: "s", host: null,
+        state: "cancelled", error: null, batch_id: null } });
+    });
+    await waitFor(() => expect(screen.getByTestId("frozen").textContent).toBe("0.75"));
   });
 });
