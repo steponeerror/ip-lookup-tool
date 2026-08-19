@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { getDbStatus, type DbStatus, type TaskState } from "../api";
+import { getDbStatus, type DbStatus } from "../api";
 import { useTasks } from "../tasks/TaskProvider";
 import { useI18n } from "../i18n";
+import { stagedFrac, isIndeterminate } from "../tasks/progress";
 
 const BADGE: Record<string, string> = {
   queued: "text-zinc-400 border-zinc-700 bg-zinc-800/50",
+  throttled: "text-zinc-400 border-zinc-700 bg-zinc-800/50",
   downloading: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5",
   loading: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5",
   done: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5",
@@ -12,20 +14,18 @@ const BADGE: Record<string, string> = {
   cancelled: "text-zinc-500 border-zinc-700 bg-zinc-800/50",
 };
 
-const ACTIVE_TASK_STATES = ["queued", "downloading", "loading"];
-
-// Per-task progress fraction in [0,1], or null when indeterminate
-// (queued / loading / downloading without a known Content-Length).
-const taskFrac = (t: TaskState): number | null => {
-  if (t.state === "done") return 1;
-  if (t.state === "downloading" && t.total && t.total > 0) return (t.received ?? 0) / t.total;
-  return null;
-};
+const ACTIVE_TASK_STATES = ["queued", "throttled", "downloading", "loading"];
 
 export const fmtBytes = (n: number): string => {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+export const fmtRows = (n: number): string => {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}K`;
+  return `${n}`;
 };
 
 export function DbStatusBar() {
@@ -100,11 +100,11 @@ export function DbStatusBar() {
     ? tasks.filter((t) => t.batch_id === batch.id)
     : tasks.filter((t) => ACTIVE_TASK_STATES.includes(t.state));
 
-  // Overall progress across visible tasks: averages each task's byte/download
-  // fraction (done=1, downloading=received/total, else 0) so the top bar moves
-  // DURING downloads — not only when a whole source completes.
+  // Overall progress across visible tasks: averages each task's staged
+  // fraction (download 0→0.5, rebuild 0.5→1) so the top bar moves
+  // DURING downloads and rebuilds — not only when a whole source completes.
   const overallPct = visibleTasks.length > 0
-    ? Math.round((visibleTasks.reduce((s, t) => s + (taskFrac(t) ?? 0), 0) / visibleTasks.length) * 100)
+    ? Math.round((visibleTasks.reduce((s, t) => s + stagedFrac(t), 0) / visibleTasks.length) * 100)
     : 0;
   const headerLabel = batch?.state === "paused" ? t("dbStatus.paused") : t("dbStatus.updating");
   return (
@@ -169,8 +169,14 @@ export function DbStatusBar() {
                 </span>
                 <div className="h-1 flex-1 overflow-hidden rounded-full bg-zinc-800">
                   {(() => {
-                    const f = taskFrac(task);
-                    if (f !== null) {
+                    if (task.state === "failed") {
+                      return <div className="h-full w-full rounded-full bg-red-500" />;
+                    }
+                    if (isIndeterminate(task)) {
+                      return <div className="h-full w-1/3 rounded-full bg-emerald-500 animate-pulse" />;
+                    }
+                    const f = stagedFrac(task);
+                    if (f > 0 || task.state === "done") {
                       return (
                         <div
                           className="h-full rounded-full bg-emerald-500 transition-all duration-150"
@@ -178,18 +184,17 @@ export function DbStatusBar() {
                         />
                       );
                     }
-                    if (["downloading", "loading"].includes(task.state)) {
-                      return <div className="h-full w-1/3 rounded-full bg-emerald-500 animate-pulse" />;
-                    }
-                    if (task.state === "failed") {
-                      return <div className="h-full w-full rounded-full bg-red-500" />;
-                    }
                     return null;
                   })()}
                 </div>
-                {task.state === "downloading" && (task.received ?? 0) > 0 && (
+                <span className="w-10 shrink-0 text-right font-mono text-[10px] tabular-nums text-zinc-500">
+                  {isIndeterminate(task) ? "--%" : `${Math.round(stagedFrac(task) * 100)}%`}
+                </span>
+                {(task.state === "downloading" || task.state === "loading") && (task.received ?? 0) > 0 && (
                   <span className="shrink-0 font-mono text-[10px] tabular-nums text-zinc-500">
-                    {fmtBytes(task.received!)}{task.total && task.total > 0 ? `/${fmtBytes(task.total)}` : ""}
+                    {task.state === "downloading"
+                      ? `${fmtBytes(task.received!)}${(task.total ?? 0) > 0 ? `/${fmtBytes(task.total!)}` : ""}`
+                      : `${fmtRows(task.received!)}${(task.total ?? 0) > 0 ? `/${fmtRows(task.total!)}` : ""} ${t("dbStatus.rows")}`}
                   </span>
                 )}
                 {task.error && (

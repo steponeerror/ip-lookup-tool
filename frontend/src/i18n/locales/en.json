@@ -123,6 +123,7 @@
   "dbStatus.abort": "Abort",
   "dbStatus.statusUnavailable": "Status unavailable",
   "dbStatus.updateFailed": "Database update failed",
+  "dbStatus.rows": "rows",
 
   "warmup.title": "Building database for the first time",
   "warmup.progress": "{done}/{total} sources",

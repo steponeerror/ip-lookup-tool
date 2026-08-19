@@ -200,3 +200,63 @@ describe("DbStatusBar batchless single-task", () => {
     expect(screen.queryByText(/0\/0/)).not.toBeInTheDocument();
   });
 });
+
+describe("DbStatusBar 分段进度渲染", () => {
+  it("loading 行显示行数细节与百分比;头部取平均", async () => {
+    vi.mocked(getTasks).mockResolvedValueOnce({
+      tasks: [
+        { id: "t1", source: "otx", host: null, state: "loading", error: null,
+          batch_id: "b1", received: 2_100_000, total: 3_400_000 },
+        { id: "t2", source: "feodo", host: null, state: "done", error: null,
+          batch_id: "b1" },
+      ],
+      batch: { id: "b1", state: "running", done: 1, total: 2 },
+    });
+    render(<DbStatusBar />);
+    expect(await screen.findByText(/2\.1M\/3\.4M/)).toBeInTheDocument();
+    expect(screen.getByText("81%")).toBeInTheDocument();      // 单任务列(exact:头部是 90%)
+    expect(screen.getByText(/90%/)).toBeInTheDocument();      // 头部 mean(1, .8088)
+  });
+
+  it("未知 total 的 loading 显示 --% 与行数(无分母)", async () => {
+    vi.mocked(getTasks).mockResolvedValueOnce({
+      tasks: [{ id: "t1", source: "ip2proxy", host: null, state: "loading",
+        error: null, batch_id: "b1", received: 1_500_000 }],
+      batch: { id: "b1", state: "running", done: 0, total: 1 },
+    });
+    render(<DbStatusBar />);
+    expect(await screen.findByText("--%")).toBeInTheDocument();
+    expect(screen.getByText(/1\.5M/)).toBeInTheDocument();
+  });
+
+  it("downloading→loading 转换序列无倒退(50→50→100)", async () => {
+    vi.mocked(getTasks).mockResolvedValueOnce({
+      tasks: [{ id: "t1", source: "otx", host: null, state: "downloading",
+        error: null, batch_id: "b1", received: 100, total: 100 }],
+      batch: { id: "b1", state: "running", done: 0, total: 1 },
+    });
+    render(<DbStatusBar />);
+    // exact "50%" 只命中行 span(头部全串更长);此后行变 --%,改用 regex 验头部不倒退
+    expect(await screen.findByText("50%")).toBeInTheDocument();
+    act(() => sse.onEvent!({ type: "task", task: { id: "t1", source: "otx",
+      host: null, state: "loading", error: null, batch_id: "b1",
+      received: 0, total: 0 } }));
+    expect(screen.getByText(/50%/)).toBeInTheDocument();      // 未知窗口=段起点
+    expect(screen.queryByText(/75%/)).toBeNull();            // 无中点跳变
+    act(() => sse.onEvent!({ type: "task_progress", task_id: "t1",
+      received: 3_400_000, total: 3_400_000 }));
+    expect(await screen.findByText("100%")).toBeInTheDocument();
+  });
+
+  it("failed 行冻结百分比且红条满宽", async () => {
+    vi.mocked(getTasks).mockResolvedValueOnce({
+      tasks: [{ id: "t1", source: "spamhaus", host: null, state: "failed",
+        error: "boom", batch_id: "b1", frozenFrac: 0.2 }],
+      batch: { id: "b1", state: "running", done: 0, total: 1 },
+    });
+    render(<DbStatusBar />);
+    expect(await screen.findByText("20%")).toBeInTheDocument();
+    const bar = document.querySelector(".bg-red-500");
+    expect(bar?.className).toContain("w-full");
+  });
+});

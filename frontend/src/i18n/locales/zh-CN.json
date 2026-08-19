@@ -123,6 +123,7 @@
   "dbStatus.abort": "终止",
   "dbStatus.statusUnavailable": "状态不可用",
   "dbStatus.updateFailed": "数据库更新失败",
+  "dbStatus.rows": "行",
 
   "warmup.title": "数据库首次构建中",
   "warmup.progress": "{done}/{total} 源",
