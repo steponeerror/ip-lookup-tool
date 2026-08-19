@@ -324,11 +324,12 @@ export interface TaskState {
   id: string;
   source: string;
   host: string | null;
-  state: "queued" | "downloading" | "loading" | "done" | "failed" | "cancelled";
+  state: "queued" | "throttled" | "downloading" | "loading" | "done" | "failed" | "cancelled";
   error: string | null;
   batch_id: string | null;
-  received?: number;   // bytes downloaded (downloading phase only, via task_progress)
-  total?: number;      // Content-Length, 0/unknown when absent
+  received?: number;   // 阶段内进度(相位语义):downloading=字节,loading=记录数
+  total?: number;      // 分母;0/缺失=未知(Content-Length 缺失或生成器路径)
+  frozenFrac?: number; // 终态冻结分数(TaskProvider 在 failed/cancelled 事件时落位)
 }
 
 export interface BatchState {
