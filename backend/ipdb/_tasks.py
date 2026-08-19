@@ -391,10 +391,10 @@ class UpdateManager:
         self._emit({"type": "task", "task": task.to_dict()})
 
     def _emit_progress(self, task: Task, received: int, total: int) -> None:
-        """Throttled byte-progress event for the downloading phase. Emits at
-        most every 0.15s or on a >=3 percentage-point change, plus the final
-        100% — so a large download yields a smooth bar without flooding SSE.
-        计数无条件落 Task(to_dict/快照读它),仅事件本身节流。"""
+        """Throttled phase-progress event (downloading=bytes, loading=records).
+        Emits at most every 0.15s or on a >=3 percentage-point change, plus the
+        final 100% — so a large download yields a smooth bar without flooding
+        SSE. 计数无条件落 Task(to_dict/快照读它),仅事件本身节流。"""
         task.received = received
         task.total = total
         now = time.time()

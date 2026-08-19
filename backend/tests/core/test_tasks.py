@@ -584,3 +584,45 @@ def test_phase_entry_resets_counts():
     tk = snap["tasks"][0]
     # 下载期 (999,1000) 必须被 loading 入口清零,终值是重建期 (10,20)
     assert (tk["received"], tk["total"]) == (10, 20)
+
+
+class LoadingCountsProbeSource(FakeSource):
+    """download 上报字节计数;rebuild 接受 progress 但从不回调,
+    在 loading 态阻塞直到测试释放 — 使 loading 入口的清零可观察。"""
+    def __init__(self, name):
+        super().__init__(name)
+        self.in_loading = threading.Event()
+        self.release = threading.Event()
+    def download(self, token=None):
+        if token is not None and token.on_progress:
+            token.on_progress(999, 1000)
+    def rebuild(self, progress=None):
+        self.in_loading.set()
+        self.release.wait(timeout=5)
+
+
+def test_loading_entry_zeroes_counts_before_state_event(monkeypatch):
+    src = LoadingCountsProbeSource("p")
+    mgr, _ = _make_manager([src])
+    events = []
+    monkeypatch.setattr(mgr, "_emit", events.append)
+    mgr.enqueue_one("p")
+    assert src.in_loading.wait(timeout=5)
+    snap = mgr.snapshot()
+    tk = snap["tasks"][0]
+    # 下载期 (999,1000) 必须已清零:loading 状态的快照不得携带上一相位计数
+    assert tk["state"] == "loading"
+    assert (tk["received"], tk["total"]) == (0, 0)
+    # 钉死顺序(快照不可区分):清零必须发生在 _set_state 之前。快照在 rebuild
+    # 阻塞时才读,清零即使落后于 _set_state 也会归零;唯一可观察点是 loading
+    # 状态事件本身 — 若它携带 999/1000,前端把下载字节当 loading 记录数,
+    # 进度条假冲 ~100%(spec §4.2)。
+    loading_evts = [e for e in events
+                    if e.get("type") == "task" and e["task"]["state"] == "loading"]
+    assert loading_evts, "loading state event never emitted"
+    evt = loading_evts[0]["task"]
+    assert (evt["received"], evt["total"]) == (0, 0), \
+        f"loading state event carried prior-phase counts: {evt}"
+    src.release.set()
+    snap = _wait_states(mgr, lambda s: s["tasks"][0]["state"] in ("done", "failed"))
+    assert snap["tasks"][0]["state"] == "done"

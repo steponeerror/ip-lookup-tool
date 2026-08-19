@@ -172,6 +172,15 @@ export function DbStatusBar() {
                     if (task.state === "failed") {
                       return <div className="h-full w-full rounded-full bg-red-500" />;
                     }
+                    if (task.state === "cancelled") {
+                      const f = stagedFrac(task);
+                      return f > 0 ? (
+                        <div
+                          className="h-full rounded-full bg-zinc-600 transition-all duration-150"
+                          style={{ width: `${Math.min(100, Math.round(f * 100))}%` }}
+                        />
+                      ) : null;
+                    }
                     if (isIndeterminate(task)) {
                       return <div className="h-full w-1/3 rounded-full bg-emerald-500 animate-pulse" />;
                     }
