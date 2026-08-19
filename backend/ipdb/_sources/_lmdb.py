@@ -272,7 +272,8 @@ def _write_staged(path: Path, text: str) -> Path:
 def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
                  count: int | None = None, covered: int | None = None,
                  map_size: int | None = None,
-                 flag_setter: Callable[[bool], None] | None = None) -> int:
+                 flag_setter: Callable[[bool], None] | None = None,
+                 progress: Callable[[int, int], None] | None = None) -> int:
     """Stream-build a fresh epoch env, then atomically swap via ptr.
 
     Commit order (crash invariant): rename closed env dir → sidecars (staged
@@ -284,6 +285,11 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     flag_setter:成功提交后把本 epoch 判定的 disjoint 值同步回调用方的内存
     副本(rebuild 后无 load 重读;不回调则内存 flag 停留在旧 epoch 值,
     disjoint 快路径在嵌套数据上静默漏报父段命中直到进程重启)。
+
+    progress:可选 (done, total) 回调。total 经 __len__ 检测(list/dict 视图
+    可知,生成器为 0);已知 total 时循环前首发 (0, total) 保证前端 0.5 无缝
+    衔接,此后每 BATCH_SIZE flush 后一次、循环结束终值一次。回调异常不加
+    保护(与下载路径同剖面)。
     """
     import shutil
     epoch = next_epoch(base)
@@ -298,6 +304,9 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
     env = lmdb.open(str(staging), map_size=size, writemap=True, subdir=True)
     n = 0
     batch: list[tuple[bytes, bytes]] = []
+    total = len(records) if hasattr(records, "__len__") else 0
+    if progress is not None and total > 0:
+        progress(0, total)
 
     def _flush():
         nonlocal batch
@@ -321,7 +330,11 @@ def rebuild_lmdb(records, base: Path, reader_setter: Callable, *,
         n += 1
         if len(batch) >= BATCH_SIZE:
             _flush()
+            if progress is not None:
+                progress(n, total)
     _flush()
+    if progress is not None:
+        progress(n, total)
     env.sync(True)
     disjoint = detect_disjoint(env)    # sync 后 close 前判定:句柄在手免重开
     env.close()                        # closed BEFORE rename — Windows-safe
