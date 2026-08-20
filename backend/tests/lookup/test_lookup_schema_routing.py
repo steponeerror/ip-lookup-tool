@@ -42,3 +42,10 @@ def test_lookup_routes_scalar_slot_to_result(monkeypatch):
     # "isp" keys fold into extra until the next rebuild.
     assert "isp" not in SCALAR_SLOTS
     assert "country_code" in SCALAR_SLOTS
+
+
+def test_as_domain_is_asset_slot():
+    """as_domain rides the asset schema (string value like carrier); ipinfo_lite
+    stores it per-node and lookup routes it without bespoke code (spec D5/Q7-A)."""
+    from ipdb._evidence import ASSET_SLOTS
+    assert "as_domain" in ASSET_SLOTS

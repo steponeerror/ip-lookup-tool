@@ -22,7 +22,7 @@ CORE_FIELDS = frozenset({
 SCALAR_SLOTS = frozenset({"country_code", "asn", "as_name", "ip_range", "city"})
 RICH_SLOTS = frozenset({"native_categories", "comment", "tags", "reporter_count", "last_seen"})
 ASSET_SLOTS = frozenset({"is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier",
-                         "service"})  # service: public-infra role (dns/ntp/...) — string, like carrier
+                         "service", "as_domain"})  # service: public-infra role (dns/ntp/...) — string, like carrier; as_domain: registrar domain (ipinfo_lite)
 CANONICAL_SLOTS = SCALAR_SLOTS | RICH_SLOTS | ASSET_SLOTS
 ALL_KNOWN = CORE_FIELDS | CANONICAL_SLOTS
 

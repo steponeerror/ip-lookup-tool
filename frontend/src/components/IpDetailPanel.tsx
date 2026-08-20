@@ -96,7 +96,12 @@ export function IpDetailPanel({ r }: { r: LookupResult }) {
         suffix={r.city_zh ?? undefined}
       />
       <FieldDetail label="ASN" field={r.asn} format={(v) => String(v)} grouped />
-      <FieldDetail label={t("ipDetail.org")} field={r.as_name} format={String} />
+      <FieldDetail
+        label={t("ipDetail.org")}
+        field={r.as_name}
+        format={String}
+        suffix={r.attributes?.as_domain?.[0]?.value as string | undefined}
+      />
       <div>
         <span className="text-xs font-medium text-zinc-300">{t("ipDetail.threatDetails")}</span>
         {classKeys.length === 0 ? (
