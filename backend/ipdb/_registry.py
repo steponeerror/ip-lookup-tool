@@ -192,9 +192,8 @@ def _db_loaded() -> bool:
 
 
 def _archetype(source) -> str:
-    """online = query-on-demand ApiSource; offline = file-backed."""
-    from ipdb._sources._base import ApiSource
-    return "online" if isinstance(source, ApiSource) else "offline"
+    """All sources are offline file-backed now (enrichers removed, spec D1)."""
+    return "offline"
 
 
 def _source_info(source) -> dict:

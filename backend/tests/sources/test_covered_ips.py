@@ -92,18 +92,3 @@ def test_cn_isp_covered_ips(tmp_path):
     (src._isp_dir / "chinatelecom.txt").write_text("1.2.3.0/24\n10.0.0.0/16\n")
     src.rebuild()
     assert src.health().covered_ips == 256 + 65536
-
-
-def test_api_source_covered_ips_is_zero():
-    """ApiSource is query-on-demand (no preloaded data) → covered_ips == 0,
-    mirroring record_count == 0."""
-    from ipdb._sources._base import ApiSource
-
-    class _A(ApiSource):
-        name = "a"
-        fields = ("is_malicious",)
-
-        def query_api(self, _ip):
-            return {}
-
-    assert _A().health().covered_ips == 0
