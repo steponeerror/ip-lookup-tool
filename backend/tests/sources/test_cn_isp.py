@@ -23,9 +23,9 @@ def test_cn_isp_specific_isp_wins_over_other(tmp_path: Path):
     assert n == 1, f"expected 1 deduped CIDR, got {n}"
 
     rec = s.query("1.0.0.5")
-    assert rec["as_name"] == "中国电信"      # specific ISP won, not 其他
+    assert "as_name" not in rec          # D6: region/ISP names never pollute org slot
     assert rec["country_code"] == "CN"
-    assert rec["is_isp"] is True
+    assert rec["is_isp"] is True         # CN network → ISP badge
     assert rec["carrier"] == "中国电信"
     assert rec["ip_range"] == "1.0.0.0/24"
 
@@ -34,3 +34,16 @@ def test_cn_isp_specific_isp_wins_over_other(tmp_path: Path):
     s2 = ChineseISPSource(data_dir=tmp_path)
     assert s2.load() == 1
     assert s2.query("1.0.0.5") == rec
+
+
+def test_cn_isp_hk_no_isp_badge(tmp_path: Path):
+    isp_dir = tmp_path / "isp"
+    isp_dir.mkdir()
+    (isp_dir / "hk.txt").write_text("154.203.132.0/24\n")
+    s = ChineseISPSource(data_dir=tmp_path)
+    s.rebuild()
+    rec = s.query("154.203.132.81")
+    assert rec["country_code"] == "HK"
+    assert rec["is_isp"] is False        # D6: HK/MO/TW hosting IPs are not ISPs
+    assert rec["carrier"] == "香港"
+    assert "as_name" not in rec
