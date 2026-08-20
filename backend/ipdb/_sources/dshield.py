@@ -43,7 +43,7 @@ class DshieldSource(Source):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                cols = line.split()
+                cols = line.split("\t")
                 if len(cols) < 6:
                     continue
                 start, _end, prefix, attacks, as_name, country = cols[:6]
@@ -52,6 +52,10 @@ class DshieldSource(Source):
                     prefix_n = int(prefix)
                 except ValueError:
                     continue
+                # '-' is dshield's unknown-placeholder for as-name/country;
+                # emit None rather than a literal '-' vote (final-review fix).
+                as_name = as_name if as_name != "-" else None
+                country = country if country != "-" else None
                 yield f"{start}/{prefix_n}", Evidence(
                     classification_type=self.classification_type,
                     verdict=self.verdict,
