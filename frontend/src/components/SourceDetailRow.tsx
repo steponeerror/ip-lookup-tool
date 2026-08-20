@@ -10,6 +10,13 @@ function fmtDate(iso: string): string {
   return iso.slice(0, 10);
 }
 
+function extraHref(key: string, v: unknown): string | null {
+  if (typeof v === "string" && /^https?:\/\//.test(v)) return v;
+  if (key === "sbl_id" && typeof v === "string" && /^SBL\d+$/.test(v))
+    return `https://check.spamhaus.org/sbl/query/${v}`;
+  return null;
+}
+
 export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail }) {
   const { t } = useI18n();
   const [showExtra, setShowExtra] = useState(false);
@@ -75,9 +82,23 @@ export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail })
             {showExtra ? "▾" : "▸"} {t("sourceDetail.extraKeys", { n: extraKeys.length })}
           </button>
           {showExtra && (
-            <pre className="mt-0.5 text-zinc-500 whitespace-pre-wrap break-all">
-              {JSON.stringify(d.extra, null, 2)}
-            </pre>
+            <div className="mt-0.5 text-zinc-500">
+              {extraKeys.map((k) => {
+                const href = extraHref(k, d.extra![k]);
+                return (
+                  <div key={k} className="break-all">
+                    <span className="text-zinc-600">{k}: </span>
+                    {href ? (
+                      <a href={href} target="_blank" rel="noopener" className="text-sky-400 hover:underline">
+                        {String(d.extra![k])}
+                      </a>
+                    ) : (
+                      <span>{JSON.stringify(d.extra![k])}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
