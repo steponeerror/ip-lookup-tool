@@ -1,23 +1,27 @@
+# backend/tests/sources/test_stopforumspam.py
+"""SFS listed_ip_365_all parsing — total→reporter_count, last_seen passthrough."""
 from ipdb._sources.stopforumspam import StopForumSpamSource
 
 
-def test_stopforumspam_loads_cidr_list(tmp_path):
-    (tmp_path / "stopforumspam.txt").write_text(
-        "109.200.1.0/24\n"
-        "109.200.16.0/20\n"
-        "174.76.30.11/32\n"
-        "\n"                # blank line — skipped
-        "# comment line\n"  # comment — skipped
-    )
+def _write(tmp_path, rows):
+    import zipfile
+    zp = tmp_path / "sfs.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("listed_ip_365_all.txt", "\n".join(rows) + "\n")
+    return zp
+
+
+def test_harvest_maps_total_and_last_seen(tmp_path):
+    zp = _write(tmp_path, [
+        '"1.2.3.4","71","2026-03-27 01:53:34"',
+        '"5.6.7.8","1","2025-11-11 11:22:33"',
+    ])
+    import zipfile, io
     s = StopForumSpamSource(data_dir=tmp_path)
-    assert s.rebuild() == 3
-
-    hit = s.query("109.200.1.5")[0]               # inside the /24
-    assert hit["classification_type"] == "spam"
-    assert "native_type" not in (hit.get("extra") or {})
-    assert hit["verdict"] == "informational"
-    assert hit["reliability"] == 0.70
-
-    assert s.query("174.76.30.11")[0]["classification_type"] == "spam"   # exact /32
-    assert s.query("109.200.20.5")[0]["classification_type"] == "spam"   # inside /20, outside /24
-    assert s.query("8.8.8.8") == {}                                     # non-matching
+    s._path.write_bytes(zipfile.ZipFile(zp).read("listed_ip_365_all.txt"))
+    pairs = list(s.harvest())
+    assert {ip for ip, _ in pairs} == {"1.2.3.4", "5.6.7.8"}
+    ev = dict(pairs)["1.2.3.4"]
+    assert ev.reporter_count == 71
+    assert ev.last_seen == "2026-03-27 01:53:34"
+    assert ev.classification_type == "spam"
