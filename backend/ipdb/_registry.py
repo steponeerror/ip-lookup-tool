@@ -144,6 +144,7 @@ SOURCE_CATEGORIES = {
     "bruteforce": "threat",
     "greensnow": "threat",
     "dataplane": "threat",
+    "dshield": "threat",
     "f3csystems": "threat",
     "reportedip": "threat",
     "ip2proxy": "asset",

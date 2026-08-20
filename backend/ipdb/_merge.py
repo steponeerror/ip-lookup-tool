@@ -82,6 +82,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "bruteforce": 0.60,
     "greensnow": 0.60,
     "dataplane": 0.70,
+    "dshield": 0.70,     # DShield sensor reputation — same tier as dataplane
     "f3csystems": 0.60,
     "reportedip": 0.65,
     "proxyscrape": 0.45,
