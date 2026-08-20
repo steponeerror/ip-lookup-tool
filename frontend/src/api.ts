@@ -26,6 +26,7 @@ export interface ClassificationDetail {
   malware_name?: string;
   native_confidence?: number;
   first_seen?: string;
+  last_seen?: string;
   comment?: string;
   tags?: string[];
   native_categories?: string[];

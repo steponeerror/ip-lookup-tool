@@ -32,6 +32,9 @@ export function SourceDetailRow({ detail: d }: { detail: ClassificationDetail })
         {d.first_seen && (
           <span className="text-zinc-700 ml-1">first {fmtDate(d.first_seen)}</span>
         )}
+        {d.last_seen && (
+          <span className="text-zinc-700 ml-1">last {fmtDate(d.last_seen)}</span>
+        )}
       </div>
 
       {(d.malware_name || d.comment) && (

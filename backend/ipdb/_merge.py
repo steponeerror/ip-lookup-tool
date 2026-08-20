@@ -42,6 +42,7 @@ def to_observation(
         verdict=_opt("verdict") or verdict,
         reliability=reliability,
         first_seen=_opt("first_seen"),
+        last_seen=_opt("last_seen"),
         confidence=_opt("confidence"),
         malware_name=(mal.lower() if isinstance(mal, str) else mal),
         comment=_opt("comment"),
@@ -329,6 +330,8 @@ def _assess_classification(group: list) -> ClassificationAssessment:
             d["native_confidence"] = o.confidence
         if o.first_seen:
             d["first_seen"] = o.first_seen
+        if o.last_seen:
+            d["last_seen"] = o.last_seen
         if o.comment:
             d["comment"] = o.comment
         if o.tags:
