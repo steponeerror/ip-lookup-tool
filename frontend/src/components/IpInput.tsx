@@ -3,7 +3,7 @@ import { useI18n } from "../i18n";
 interface IpInputProps {
   onQuery: (ips: string[]) => void;
   loading: boolean;
-  progress?: { done: number; total: number; phase: string } | null;
+  progress?: { done: number; total: number } | null;
   disabled?: boolean;
 }
 

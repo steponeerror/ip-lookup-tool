@@ -4,7 +4,7 @@ import { useI18n } from "../i18n";
 interface FileUploadProps {
   onUpload: (file: File) => void;
   loading: boolean;
-  progress?: { done: number; total: number; phase: string } | null;
+  progress?: { done: number; total: number } | null;
   disabled?: boolean;
 }
 
