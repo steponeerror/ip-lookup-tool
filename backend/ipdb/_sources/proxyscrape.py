@@ -5,7 +5,7 @@ https://github.com/proxyscrape/free-proxy-list
 
 Each row is one proxy IP with a protocol (http/socks4/socks5). The protocol is
 preserved verbatim in _native_types.is_proxy; classification is the
-controlled-vocab "proxy" for every row. Field routing: country_code/city/asn/isp
+controlled-vocab "proxy" for every row. Field routing: country_code/city/asn/carrier
 go to canonical slots (asn's "AS" prefix stripped to int); anonymity/port go to
 extra; missing columns or empty values leave the key absent (ragged-row safe).
 """
@@ -62,7 +62,9 @@ class ProxyScrapeSource(CsvSource):
         if len(row) > 10:
             isp = row[10].strip()
             if isp:
-                evidence["isp"] = isp
+                # carrier asset slot (spec D3/Q11): proxy-host operators are the
+                # asset-row semantics; the old isp scalar slot had no consumer.
+                evidence["carrier"] = isp
         port = row[2].strip() if len(row) > 2 else ""
         if port:
             evidence.setdefault("extra", {})["port"] = port

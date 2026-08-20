@@ -36,7 +36,7 @@ def test_proxyscrape_row_routes_new_fields(tmp_path):
     s.rebuild()
     rec = s.query("149.62.186.244")[0]
     assert rec["asn"] == 47242                     # AS 前缀转 int
-    assert rec["isp"] == "Host SpA"
+    assert rec["carrier"] == "Host SpA"            # spec D3/Q11: 原 isp 槽改 carrier 资产槽
     assert rec["city"] == "Milan"
     assert rec["country_code"] == "IT"             # 现状保持
     assert rec["extra"]["anonymity"] == "elite"
@@ -50,5 +50,5 @@ def test_proxyscrape_optional_fields_absent(tmp_path):
     s = ProxyScrapeSource(data_dir=tmp_path)
     s.rebuild()
     rec = s.query("1.2.3.4")[0]
-    for k in ("asn", "isp", "city"):
+    for k in ("asn", "carrier", "city"):
         assert k not in rec
