@@ -19,11 +19,6 @@ IPDB = REPO / "backend" / "ipdb"
 # d) 类台账: skill 合法的非代码引用, 逐条注明理由
 ALLOWLIST = frozenset({
     "ApiSource",        # SKILL.md 墓碑有意提及已删基类 (PR #13 决策, spec §1)
-    # --- TEMP: rewritten in skills-grounding commit, drop after ---
-    # 首跑 (a) 类真实漂移: 引用物已不存在, Task 2/3 重写 skill 文后删除这些豁免
-    "SourceSpec",   # TEMP: rewritten in skills-grounding commit, drop after — source-archetypes.md 仍提已删符号
-    "_enrichers/ipapi_is.py",  # TEMP: rewritten in skills-grounding commit, drop after — 文件已删, source-archetypes.md 仍引为惯例
-    "tests/core/test_quota_thread_safety.py",  # TEMP: rewritten in skills-grounding commit, drop after — 测试文件已删, SKILL.md 仍列为已知失败
     # --- 概念词/占位符 (c) 类: 非代码引用, 永久豁免 ---
     ".py",            # 扩展名提法 (SKILL.md "imports every .py"), 非文件路径
     ".mmdb",          # 扩展名提法 (archetypes 灰区表), 非文件路径
