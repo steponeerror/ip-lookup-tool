@@ -93,7 +93,7 @@ def _iter_csv_first_col(path: Path):
 
 
 def _iter_csv_col(path: Path, col: int):
-    """指定列（feodo dst_ip=1、proxyscrape ip=1）。"""
+    """指定列（proxyscrape ip=1）。"""
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         for row in csv.reader(f):
             if len(row) > col:
@@ -250,7 +250,6 @@ _SPECIAL_FILES: dict[str, object] = {
     "threatfox.csv": _iter_threatfox,
     "urlhaus.csv": _iter_urlhaus,
     "proxyscrape.csv": lambda p: _iter_csv_col(p, 1),
-    "feodo.csv": lambda p: _iter_csv_col(p, 1),
     "ip2proxy_px2.csv": _iter_ip2proxy,
     "ip-to-asn.tsv": _iter_iptoasn,
     "dataplane.txt": _iter_dataplane,
