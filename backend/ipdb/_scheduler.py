@@ -1,8 +1,10 @@
 """Background auto-refresh scheduler.
 
 A single daemon thread that scans enabled offline sources every `interval`
-seconds and enqueues stale ones into UpdateManager via enqueue_one_detached
-(batch_id=None, so scheduler tasks never pollute an in-flight manual batch).
+seconds and enqueues each at its deterministic 12h-grid slot when due
+(`_due_at`; daily tier twice a day, weekly tier once per stale_days), via
+enqueue_one_detached (batch_id=None, so scheduler tasks never pollute an
+in-flight manual batch).
 Backoff is inferred on the NEXT scan: a float-mtime diff plus one task_state
 lookup distinguishes "didn't run yet" (valve-throttled) from "ran and failed".
 
@@ -95,9 +97,14 @@ class RefreshScheduler:
                 b = self._backoff.get(name)
                 if b is not None and now < b.next_attempt:
                     continue  # still backing off
-                health = source.health()
-                if not (health.is_stale or self._needs_rebuild_of(source)):
-                    continue
+                if not self._needs_rebuild_of(source):
+                    # needs_rebuild is immediate (local integrity, no quota).
+                    # Otherwise: slot-based due. mtime None (download-failure
+                    # residue) is immediately due; backoff throttles retries.
+                    mtime = self._read_mtime(source)
+                    if mtime is not None and now < _due_at(
+                            name, mtime, source.stale_days):
+                        continue
                 task = self._manager.enqueue_one_detached(name)
                 self._last_task[name] = task.id
                 self._last_attempt[name] = now

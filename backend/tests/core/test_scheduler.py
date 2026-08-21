@@ -129,9 +129,11 @@ class SchedFakeSource:
     mtime between scans.
     """
 
-    def __init__(self, name, path, is_stale=False, mtime=None, mmdb_path=None):
+    def __init__(self, name, path, is_stale=False, mtime=None, mmdb_path=None,
+                 stale_days=1):
         self.name = name
         self._is_stale = is_stale
+        self.stale_days = stale_days
         from pathlib import Path
         self._path = Path(path)
         self._mmdb_path = mmdb_path or Path(str(path) + ".mmdb")
@@ -187,15 +189,34 @@ def _make_src(name, tmp_path, is_stale=False, mtime=None):
     return SchedFakeSource(name, path=p, is_stale=is_stale, mtime=mtime)
 
 
-def test_scan_predicate_alignment(tmp_path):
-    """scan enqueues only sources where is_stale or needs_rebuild is True."""
-    sch, mgr = _make_scheduler([
-        _make_src("stale_a", tmp_path, is_stale=True),
-        _make_src("stale_b", tmp_path, is_stale=True),
-        _make_src("fresh", tmp_path, is_stale=False),
-    ])
-    sch.scan(now=1000.0)
-    assert sorted(mgr.enqueued) == ["stale_a", "stale_b"]
+NOW = 1_000_000.0   # slot-era tests share an epoch-scale time base
+OLD = NOW - 86400   # a day-old mtime: daily tier is guaranteed due at NOW
+
+
+def test_scan_slot_due_enqueues_only_due(tmp_path):
+    """Slot-era predicate: enqueues only sources past their due slot."""
+    due = _make_src("due_src", tmp_path, mtime=OLD)
+    fresh = _make_src("fresh_src", tmp_path, mtime=NOW - 60)
+    sch, mgr = _make_scheduler([due, fresh])
+    sch.scan(now=NOW)
+    assert mgr.enqueued == ["due_src"]
+
+
+def test_scan_mtime_none_enqueues(tmp_path):
+    """Download-failure residue (file deleted → mtime None) is immediately due."""
+    src = _make_src("gone", tmp_path, mtime=NOW)
+    src._path.unlink()
+    sch, mgr = _make_scheduler([src])
+    sch.scan(now=NOW)
+    assert mgr.enqueued == ["gone"]
+
+
+def test_scan_needs_rebuild_ignores_slot(tmp_path):
+    """needs_rebuild fires immediately even when mtime is fresh."""
+    src = _make_src("rb", tmp_path, mtime=NOW)     # fresh: not slot-due
+    sch, mgr = _make_scheduler([src], needs_rebuild=lambda s: True)
+    sch.scan(now=NOW)
+    assert mgr.enqueued == ["rb"]
 
 
 def test_scan_needs_rebuild_inclusion(tmp_path):
@@ -218,78 +239,67 @@ def test_scan_backoff_skip(tmp_path):
 
 def test_reconcile_success_clears_fail_count(tmp_path):
     """mtime changed between scans -> fail_count reset to 0, backoff cleared."""
-    src = _make_src("x", tmp_path, is_stale=True, mtime=100.0)
+    src = _make_src("x", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src])
-    sch.scan(now=1000.0)              # enqueue; baseline_mtime=100
+    sch.scan(now=NOW)
     assert "x" in sch._last_task
-    # simulate failed before: plant a fail_count to prove it resets
     sch._backoff["x"] = type("B", (), {"fail_count": 2, "next_attempt": 0.0})()
-    # next scan: mtime advanced -> success
-    src.set_mtime(200.0)
-    src._is_stale = False
-    sch.scan(now=2000.0)
+    src.set_mtime(NOW + 100.0)          # success: file rewritten
+    sch.scan(now=NOW + 1000.0)
     assert "x" not in sch._backoff
-    assert "x" not in sch._last_task   # cleared on success
+    assert "x" not in sch._last_task
 
 
 def test_reconcile_real_failure_increments_backoff(tmp_path):
     """mtime unchanged + task_state 'failed' -> fail_count++, next_attempt set."""
-    src = _make_src("x", tmp_path, is_stale=True, mtime=100.0)
+    src = _make_src("x", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src])
-    sch.scan(now=1000.0)              # enqueues t0
+    sch.scan(now=NOW)                   # enqueues t0
     mgr._states[sch._last_task["x"]] = "failed"
-    # next scan: mtime unchanged, state failed
-    sch.scan(now=2000.0)
+    sch.scan(now=NOW + 1000.0)          # reconcile t0 as failed
     assert sch._backoff["x"].fail_count == 1
-    # 1h backoff from now=2000 -> next_attempt = 2000 + 3600
-    assert sch._backoff["x"].next_attempt == 2000.0 + 3600
-    # second failure
-    sch.scan(now=3000.0)              # re-enqueue (still stale, backoff expired? no — 3000 < 5600)
-    # backoff not expired at now=3000, so NOT re-enqueued this scan; but reconcile
-    # of the prior failed task already happened. Force a second failed cycle:
-    # advance time past next_attempt, enqueue again, fail again.
-    src._is_stale = True
-    sch.scan(now=6000.0)              # past next_attempt(5600) -> re-enqueue t1
-    assert sch._last_task["x"] == "t1"
-    mgr._states["t1"] = "failed"
-    sch.scan(now=7000.0)              # reconcile t1 as failed
+    assert sch._backoff["x"].next_attempt == NOW + 1000.0 + 3600
+    sch.scan(now=NOW + 2000.0)          # still backing off -> no re-enqueue
+    assert mgr.enqueued == ["x"]
+    sch.scan(now=NOW + 5000.0)          # past next_attempt -> re-enqueue
+    assert mgr.enqueued == ["x", "x"]
+    mgr._states[sch._last_task["x"]] = "failed"
+    sch.scan(now=NOW + 6000.0)          # second failure -> 2h backoff
     assert sch._backoff["x"].fail_count == 2
-    assert sch._backoff["x"].next_attempt == 7000.0 + 7200   # 2h
+    assert sch._backoff["x"].next_attempt == NOW + 6000.0 + 7200
 
 
 def test_reconcile_throttled_not_a_failure(tmp_path):
     """H1 fix: non-terminal task_state (throttled) -> no fail_count increment."""
-    src = _make_src("x", tmp_path, is_stale=True, mtime=100.0)
+    src = _make_src("x", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src])
-    sch.scan(now=1000.0)
+    sch.scan(now=NOW)
     mgr._states[sch._last_task["x"]] = "throttled"
-    sch.scan(now=2000.0)              # mtime unchanged, state throttled
-    assert "x" not in sch._backoff
+    sch.scan(now=NOW + 1000.0)
     assert sch._backoff.get("x") is None
-    # last_task retained so next scan reconciles the same task
-    assert "x" in sch._last_task
+    assert "x" in sch._last_task       # retained for next reconcile
 
 
 def test_reconcile_cancelled_not_a_failure(tmp_path):
     """cancelled task_state -> fail_count untouched, last_task cleared."""
-    src = _make_src("x", tmp_path, is_stale=True, mtime=100.0)
+    src = _make_src("x", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src])
-    sch.scan(now=1000.0)
+    sch.scan(now=NOW)
     mgr._states[sch._last_task["x"]] = "cancelled"
-    sch.scan(now=2000.0)
+    sch.scan(now=NOW + 1000.0)
     assert "x" not in sch._backoff
     assert "x" not in sch._last_task
 
 
 def test_reconcile_done_unreachable_warns_and_clears(tmp_path, caplog):
     """done + mtime unchanged (unreachable) -> warn, clear last_task, no backoff."""
-    src = _make_src("x", tmp_path, is_stale=True, mtime=100.0)
+    src = _make_src("x", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src])
-    sch.scan(now=1000.0)
+    sch.scan(now=NOW)
     mgr._states[sch._last_task["x"]] = "done"
     import logging
     with caplog.at_level(logging.WARNING):
-        sch.scan(now=2000.0)
+        sch.scan(now=NOW + 1000.0)
     assert "x" not in sch._backoff
     assert "x" not in sch._last_task
     assert any("unreachable" in r.message.lower() or "done" in r.message.lower()
@@ -298,33 +308,32 @@ def test_reconcile_done_unreachable_warns_and_clears(tmp_path, caplog):
 
 def test_reconcile_unknown_task_id_no_failure(tmp_path):
     """task_state None (evicted) -> fail_count untouched, last_task cleared."""
-    src = _make_src("x", tmp_path, is_stale=True, mtime=100.0)
+    src = _make_src("x", tmp_path, mtime=OLD)
     sch, mgr = _make_scheduler([src])
-    sch.scan(now=1000.0)
+    sch.scan(now=NOW)
     del mgr._states[sch._last_task["x"]]   # simulate eviction
-    sch.scan(now=2000.0)
+    sch.scan(now=NOW + 1000.0)
     assert "x" not in sch._backoff
     assert "x" not in sch._last_task
 
 
 def test_scan_exception_isolation(tmp_path, caplog):
-    """A source whose health() raises does not stop other sources scanning."""
+    """A source whose stale_days read raises does not stop other sources."""
     class BadSource(SchedFakeSource):
-        def health(self):
-            raise RuntimeError("boom")
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            del self.stale_days      # scan's read raises AttributeError
 
     bad = BadSource("bad", path=tmp_path / "fake_bad")
     (tmp_path / "fake_bad").write_text("x")
     sch, mgr = _make_scheduler([
         bad,
-        _make_src("good", tmp_path, is_stale=True),
+        _make_src("good", tmp_path, mtime=OLD),
     ])
     import logging
     with caplog.at_level(logging.ERROR):
-        sch.scan(now=1000.0)        # must not raise
-    assert "good" in mgr.enqueued
-    # bad may or may not have been enqueued before the exception; the point is
-    # the scan completed and processed good.
+        sch.scan(now=NOW)            # must not raise
+    assert mgr.enqueued == ["good"]
 
 
 def test_shutdown_stops_thread(tmp_path):

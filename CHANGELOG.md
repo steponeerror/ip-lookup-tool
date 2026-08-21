@@ -11,6 +11,10 @@
 - Wazuh 集成：`integrations/wazuh/custom-ipradar` —— 带 IP 告警自动富化为 ECS threat.indicator 跟进告警，本地替代 VirusTotal 集成
 - `/api/lookup` 新增顶层 `threat` 汇总字段（verdict/confidence/types/is_cdn），下游集成一句话拿裁决
 
+### 变更
+
+- 后台自动刷新改为每源固定错峰时刻：日更源每天 2 次、周更源每周 1 次（此前 30 分钟扫描、过期即拉，全源同刻聚集；AbuseIPDB 等配额源被动挨挤）
+
 ### 修复
 
 - 批量更新收敛竞态：终态 done 事件不再出现 done<total；源中途启用
