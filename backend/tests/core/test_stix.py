@@ -79,3 +79,23 @@ def test_stix_surfaces_extra_details_malware_names_verdict_conflict():
     assert "443" in blob                 # details[].extra.port surfaced
     assert "win.vidar" in blob           # malware_names surfaced
     assert "verdict_conflict" in blob    # verdict_conflict key present
+
+
+@pytest.mark.skipif(not _HAS_STIX2, reason="stix2 not installed")
+def test_stix_bundle_with_real_country_and_asn():
+    """Regression: Location/AutonomousSystem ids must be <type>--<UUID>.
+    Bare slugs like `location--US` / `autonomous-system--15169` are rejected
+    by stix2's identifier validation → the endpoint 500s for ANY ip that has
+    a country or ASN. _result() carries country=US, asn=15169 — exactly the
+    shape the old test suite never exercised."""
+    import re
+    bundle = to_stix_bundle(_result())
+    assert bundle is not None
+    uuid_re = re.compile(r"^[0-9a-f-]{36}$")
+    locs = [o for o in bundle["objects"] if o["type"] == "location"]
+    asns = [o for o in bundle["objects"] if o["type"] == "autonomous-system"]
+    assert len(locs) == 1 and len(asns) == 1
+    assert uuid_re.match(locs[0]["id"].split("--", 1)[1]), locs[0]["id"]
+    assert uuid_re.match(asns[0]["id"].split("--", 1)[1]), asns[0]["id"]
+    assert locs[0]["country"] == "US"
+    assert asns[0]["number"] == 15169

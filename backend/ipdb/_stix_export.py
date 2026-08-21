@@ -70,7 +70,7 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
     # 3. Location SDO (from country) and related-to relationship
     objs = [ipv4]
     if lr.country.value and lr.country.value != "N/A":
-        loc_id = f"location--{lr.country.value}"
+        loc_id = f"location--{uuid5(_NS, f'country-{lr.country.value}')}"
         location = Location(
             id=loc_id,
             country=lr.country.value,
@@ -87,7 +87,7 @@ def to_stix_bundle(lr: LookupResult) -> dict | None:
     # 4. Autonomous System (if ASN > 0)
     asn_val = lr.asn.value
     if asn_val and asn_val != 0:
-        asn_id = f"autonomous-system--{asn_val}"
+        asn_id = f"autonomous-system--{uuid5(_NS, f'asn-{asn_val}')}"
         as_obj = AutonomousSystem(
             id=asn_id,
             number=asn_val,

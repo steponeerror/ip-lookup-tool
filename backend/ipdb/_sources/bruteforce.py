@@ -11,7 +11,7 @@ IP is the corroboration axis; ``first_seen`` (recency) drives time-decay and
 ``reporter_count`` carries the community report count. No auth, ~hourly
 cadence.
 
-  http://danger.rulez.sk/projects/bruteforceblocker/blist.php
+  https://danger.rulez.sk/projects/bruteforceblocker/blist.php
 """
 import ipaddress
 
@@ -21,7 +21,7 @@ from .._evidence import Evidence
 
 class BruteforceSource(Source):
     name = "bruteforce"
-    url = "http://danger.rulez.sk/projects/bruteforceblocker/blist.php"
+    url = "https://danger.rulez.sk/projects/bruteforceblocker/blist.php"
     filename = "bruteforce_blocker.txt"
     fields = ("is_malicious",)
     classification_type = "brute-force"
