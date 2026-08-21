@@ -1,647 +1,115 @@
-# Source Archetypes — copyable skeletons
+# Source Archetypes — 选择器 + 范例索引
 
-Pick one by the decision tree in SKILL.md, copy its skeleton, fill in the
-`<...>` holes. Each skeleton lists **required** vs **optional** so you don't
-guess. Ground truth is the cited real source — read it alongside.
+原型选择靠判据，代码事实靠现场发现。本文件不复述代码——每个原型给：
+判据（什么格式选它）+ 该读的真实范例（1-2 个锚点文件）+ 该 grep 的钩子。
+写源之前把范例文件**通读**，抄真实代码，不抄记忆中的骨架。
 
-All four archetypes produce an object the registry's `_discover_sources` accepts:
-a class defined in its own module, with `name` + `fields` attributes, callable as
-`Cls(data_dir=...)`. Nothing else.
+基类现场发现（不要背清单）：
 
-> **Exception:** `ipinfo_lite` is a standalone class (no base) — a load-bearing
-> legacy geo/ASN backbone that hand-rolls its own `download`/`load`/`rebuild`/
-> `query`/`health` and returns a non-Evidence dict. It is NOT a template. Don't
-> model new sources on it; use a `Source` subclass instead.
-
----
-
-## Contents
-
-- **1. IpListSource** — plain IP/CIDR list
-- **2. CsvSource** — CSV/TSV with structured rows (minimal · per-row classification)
-- **3. Source subclass** — bespoke format (the `harvest()` pattern; what you inherit · single_evidence · iptoasn skeleton · threatfox variant · gray zone)
-- **3b. rebuild override** — upgrading an existing IpListSource with per-row fields
-- **3c. directory source** — one publisher, many sub-lists (firehol/blocklist_de)
-- **4. ApiSource** — query-per-IP REST API (greenfield, 0 sources use it today)
-- **5. `field_map`** (declarative routing; recognized by the validator) + planned `SourceSpec` (NOT implemented)
-
-## 1. IpListSource — plain IP/CIDR list
-
-Use when the feed is just lines of IPs/CIDRs (maybe with `#` comments or inline
-`CIDR ; note`). The base class downloads and atomically publishes the parsed
-entries file; on `rebuild()` it re-reads the file line by line, emits one
-`Evidence` dict per CIDR (via `get_insert_data()`), and hands the records to
-`rebuild_lmdb()` (new epoch + pointer swap). `load()` is pure mmap; `query()`
-reopens on a closed-env hit. You usually set attributes and write nothing else.
-
-Real examples: `spamhaus.py`, `tor_exits.py`, `binarydefense.py`, `ciarm.py`,
-`greensnow.py`, `emerging_threats.py`, `x4bnet_vpn.py`,
-`abuseipdb.py` (keyed `download()` + JSON guard — read for the auth pattern).
-
-```python
-"""<FeedName> blocklist — IpListSource subclass."""
-from ._base import IpListSource
-
-
-class <FeedName>Source(IpListSource):
-    # ── required ──
-    name = "<feedname>"                 # lowercase, == filename stem
-    url = "https://example.com/feed.txt"
-    filename = "<feedname>.txt"
-    fields = ("is_malicious",)          # must exist (discovery checks it).
-                                        # Decorative for typed sources — the
-                                        # base builds Evidence from
-                                        # classification_type. Only the legacy
-                                        # non-threat path reads fields[0].
-
-    # ── threat semantics ──
-    classification_type = "blacklist"   # controlled vocab term; see classification.md
-    verdict = "malicious"
-
-    # ── tuning ──
-    stale_days = 1                      # download cadence; daily=1, weekly=7
-    reliability = 0.55                  # 0–1 fusion weight
-    authoritative_for = []              # decorative; fusion reads AUTHORITATIVE_SOURCES
+```bash
+grep "^class" backend/ipdb/_sources/_base.py     # 简单基类（IpListSource, CsvSource）
+grep "^class" backend/ipdb/_source_base.py       # 统一 Source 基类
+grep "def " backend/ipdb/_sources/_base.py       # 可覆写钩子全录（parse_raw/get_insert_data/…）
+grep "def " backend/ipdb/_source_base.py         # 生命周期钩子（download/harvest/rebuild/load/query/health）
+ls backend/ipdb/_sources/                        # 全部真实范例
 ```
 
-That's the whole source for most blocklists. `get_insert_data()` returns
-`Evidence(classification_type=..., verdict=..., reliability=...).to_dict()` —
-a fixed shape per CIDR. For a single-list blocklist there is no separate raw
-category to preserve, so the three-way rule has nothing to add; the moment a
-feed carries per-row values (timestamps, categories, counts), you need CsvSource
-(§2) or a Source subclass (§3) instead.
+> **例外：** `ipinfo_lite` 是无基类独立类（load-bearing 遗留 geo/ASN 骨干，
+> 返回非 Evidence dict）。不是模板——新源一律用 `Source` 子类。
 
-**Override only if you must:**
-- `parse_raw(self, raw: bytes) -> list[str]` — default strips blank/`#` lines.
-  Override for regex extraction (tor_exits) or unusual line formats.
-- `get_insert_data()` — only for a non-standard stored shape (rare).
-- `download()` — when the request needs an **auth header / API key**, **query
-  params**, **decompression**, or **content validation**. The base `download()`
-  only sends `User-Agent`. Treat a 200-OK empty/unusable payload as an error —
-  an empty file would silently clear the source at the next rebuild (model:
-  `abuseipdb.py`'s JSON `data[].ipAddress` guard):
+## 1. IpListSource — 纯 IP/CIDR 列表
 
-  ```python
-  def __init__(self, data_dir, ...):
-      self._key = os.environ.get("<NAME>_API_KEY", "")   # convention 5
-      super().__init__(data_dir=data_dir)
+**判据：** 每行一个 IP 或 CIDR（可有 `#` 注释 / `CIDR ; note` 尾注），
+无每行元数据。多数封禁列表即此。
+**锚点范例：** 通读 `binarydefense.py`（20 行，最小完整源）；带 auth 头
+`download()` 覆写 + JSON 空数据守卫看 `abuseipdb.py`。
+**覆写面（按需）：** `grep "def " backend/ipdb/_sources/_base.py` 查看
+`parse_raw`（正则提取行）/ `get_insert_data`（非标准存储形状，罕见）/
+`download`（auth/解压/内容校验——200-OK 空载荷必须当失败，否则下次
+rebuild 静默清空该源）。
+**非威胁列表：** 去掉 `classification_type`/`verdict`，落回 legacy
+`{fields[0]: True}` 形状。
 
-  def download(self):
-      if not self._key:
-          # graceful degradation: raise so the registry logs it and the source
-          # stays empty until a key is configured. Do NOT silently no-op.
-          raise RuntimeError("<NAME>_API_KEY not set — ...")
-      url = f"{base}?param={self._threshold}&limit={self._limit}"
-      req = urllib.request.Request(url, headers={
-          "Key": self._key, "Accept": "text/plain", "User-Agent": "ip-lookup-tool/1.0"})
-      with urllib.request.urlopen(req, timeout=120) as resp:
-          data = resp.read()
-      # ...validate content (raise on empty/unusable), then atomic write
-  ```
+## 2. CsvSource — 定形 CSV/TSV 行
 
-**Non-threat list?** Drop `classification_type`/`verdict`. `get_insert_data()`
-then falls back to the legacy `{fields[0]: True}` shape.
+**判据：** 固定列形状 + 每行少量元数据（时间戳/计数/标签），无行级
+控制流。你只实现 `parse_row(row) -> dict | None`，读文件/IP 归一/
+按 CIDR 累积 + 全证据去重（convention 3）全由基类 `rebuild()` 做。
+**锚点范例：** 通读 `ipsum.py`（37 行，最小 CsvSource + reporter_count
++ 阈值过滤行）；富行路由（city/asn → canonical、anonymity → extra）
+看 `proxyscrape.py`。行内 per-row 分类（threat 列）目前无 CsvSource
+范例，活范例是 harvest 系的 `threatfox.py` / `urlhaus.py`。
+**返回 dict 的合法键：** `_ip`（缺省取 `row[0]`）、`_cidr`、
+`classification_type`、`verdict`、核心元数据（`malware_name`/
+`first_seen`/`confidence`）、任何 canonical 槽（现场读
+`_evidence.py` 的 frozensets——`CORE_FIELDS`/`SCALAR_SLOTS`/
+`RICH_SLOTS`/`ASSET_SLOTS`/`ALL_KNOWN`，名字稳定、内容以代码为准）、
+`extra` dict。
+**`rebuild()` 去重语义：** 按**全证据相等**（不是 3 元组）——同
+classification/verdict/malware 但不同 confidence/first_seen/last_seen/
+comment 的两行是两条独立证据，都必须存活（convention 3）。
 
-## 2. CsvSource — CSV/TSV with structured rows
+## 3. Source subclass — 定制格式（harvest 模式）
 
-Use when each row has an IP plus per-row metadata (timestamps, categories,
-counts, tags). You implement `parse_row(row) -> dict | None`. The base class
-handles CSV reading, IP/CIDR normalization, and — inside `rebuild()` —
-per-CIDR accumulation + full-evidence dedup (convention 3) before handing
-records to `rebuild_lmdb()`.
+**判据（灰区表，任一命中即弃简单基类）：**
 
-Real examples: `ipsum.py` (minimal + reporter_count), `f3csystems.py`,
-`proxyscrape.py` (rich row routing: city/asn/isp → canonical, anonymity/port →
-extra).
-
-### Minimal (one classification for the whole feed) — ipsum-style
-
-```python
-"""<FeedName> feed — CsvSource subclass."""
-from ._base import CsvSource
-
-
-class <FeedName>Source(CsvSource):
-    # ── required ──
-    name = "<feedname>"
-    url = "https://example.com/feed.csv"
-    filename = "<feedname>.csv"
-    fields = ("is_malicious",)
-
-    classification_type = "blacklist"
-    verdict = "malicious"
-    stale_days = 1
-    reliability = 0.55
-    authoritative_for = []
-
-    delimiter = "\t"        # override only if not ","
-    skip_lines = 0          # header/comment lines to skip before csv.reader
-
-    def parse_row(self, row: list[str]) -> dict | None:
-        if not row:
-            return None
-        # return None to drop a row; _ip/_cidr are popped by rebuild(), rest is evidence
-        return {
-            "_ip": row[0].strip(),
-            "classification_type": self.classification_type,
-            "verdict": self.verdict,
-        }
-```
-
-### Per-row classification (when the category lives in a column)
-
-No current CsvSource does per-row classification — all three (`ipsum`,
-`f3csystems`, `proxyscrape`) carry a fixed class attribute. The skeleton below
-is fully supported (`parse_row`'s classification_type is honored per row by the
-base rebuild), and the live exemplars of per-row classification are
-harvest-based: `threatfox.py` and `urlhaus.py` (§3). If your feed is a
-fixed-shape CSV whose rows carry plain per-row categories or timestamps,
-THIS CsvSource path is the right one — the SKILL.md decision tree's gray
-zone is for per-row logic the fixed CSV shape can't express (filtering,
-1→many, archives, priority fallbacks).
-
-When each row carries its own category (a `threat` / `threat_type` column),
-normalize per row and preserve the raw value per the three-way rule:
-
-```python
-from ._base import CsvSource
-from .._classification import normalize, <FEEDNAME>_MAP
-
-
-class <FeedName>Source(CsvSource):
-    name = "<feedname>"
-    url = "https://example.com/export/"
-    filename = "<feedname>.csv"
-    fields = ("is_malicious",)
-    stale_days = 1
-    reliability = 0.85
-    authoritative_for = []
-    skip_lines = 9                      # abuse.ch-style header lines
-
-    def parse_row(self, row: list[str]) -> dict | None:
-        if len(row) < 4:
-            return None
-        raw_type = row[5].strip()       # the native category column
-        return {
-            "_ip": row[2].strip().split(":")[0],   # "ip:port" → "ip"
-            "classification_type": normalize(raw_type, <FEEDNAME>_MAP),
-            "verdict": "malicious",
-            "malware_name": row[4].strip() or None,
-            "last_seen": row[8].strip() or None,
-            "tags": [t for t in row[12].split(",") if t.strip()],   # noise-filter
-            "native_categories": [raw_type] if raw_type else [],    # raw survives
-            "extra": {"port": row[3]} if row[3] else {},
-        }
-```
-
-Add `<FEEDNAME>_MAP = {...}` in `_classification.py` (see classification.md).
-
-**Keys `rebuild()` understands in the returned dict:**
-- `_ip` (str) — the IP; defaults to `row[0]` if absent
-- `_cidr` (str) — a CIDR instead of a single IP
-- `classification_type`, `verdict` — fusion core
-- `malware_name`, `first_seen`, `confidence` — core metadata
-- any canonical slot: `country_code`, `asn`, `as_name`, `ip_range`, `isp`,
-  `city`, `native_categories`, `comment`, `tags`, `reporter_count`,
-  `last_seen`, `is_proxy`, `is_hosting`, `is_tor`, `is_vpn`, `carrier`,
-  `service`
-- `extra` (dict) — long-tail values
-
-`rebuild()` dedups per CIDR on **full-evidence equality** (not a 3-tuple) and
-stores a list of evidence dicts per CIDR — convention 3. Two rows that share
-classification/verdict/malware but differ in confidence/first_seen/last_seen/
-comment are distinct evidence and both survive.
-
-## 3. Source subclass — bespoke format
-
-Use when the format needs logic none of the simple bases provide: gzip, IP-range→CIDR
-summarization, multi-file loads, JSON lines, ZIP extraction, REST state machines,
-per-row filtering, conditional field routing, or per-row evidence construction.
-Subclass `Source` and implement two hooks — `download()` and `harvest()` — and
-inherit the rest.
-
-Real examples: `iptoasn.py` (gzip + range→CIDR + `single_evidence`),
-`cn_isp.py` (multi-file via its own rebuild override — not a harvest source;
-see §3b), `ip2proxy.py` (ZIP + range→CIDR + asset slots + `single_evidence`),
-`threatfox.py` (ZIP + per-row classification), `otx.py` (REST state machine),
-`tweetfeed.py` / `urlhaus.py`
-(per-row tags + category priority), `geolite_city.py` (.mmdb input via
-maxminddb iteration — see the gray-zone table row). **Read `iptoasn.py`
-end-to-end before writing one of these** — it's the canonical minimal
-template.
-
-### What you inherit from `Source` (do NOT reimplement)
-
-| Method | What the base does |
+| 触发 | 锚点范例 |
 |---|---|
-| `load()` | **Pure mmap**: opens the env the pointer names (0 if none), reads sidecar count/cov. Never parses, never rebuilds. |
-| `rebuild()` | **The only write path.** Runs `harvest()`, groups evidence per CIDR (full-evidence dedup) — or streams, if `single_evidence` — and calls `rebuild_lmdb()`: new epoch dir → pointer swap → new readonly env via `reader_setter` → in-memory disjoint flag via `flag_setter`. Closes the old reader in `finally`. Overrides must pass `flag_setter` too (stale-flag = silent parent misses). |
-| `query(ip)` | Env read; on a closed-env hit, re-reads the pointer, reopens, retries once. |
-| `health()` | `SourceHealth` with `is_stale` from the data file's `st_mtime` (convention 4). |
-| `_http_get(url, *, headers, timeout, retries)` | **GET-only** staticmethod. Retries with exponential backoff, `User-Agent`, auth headers. **POST / JSON-body feeds must hand-roll HTTP**. |
+| 行过滤（按值/阈值丢弃） | `ip2proxy.py`（SES/WEB 丢弃） |
+| 条件字段路由 | `reportedip.py`（per-code 分组） |
+| 1→多：一行 → 多 CIDR | `iptoasn.py`、`ip2proxy.py` |
+| 嵌套归档（ZIP/gzip） | `threatfox.py`、`stopforumspam.py` |
+| REST 状态机（游标/分页） | `otx.py` |
+| 多文件加载（一个源多文件） | `cn_isp.py` |
+| 每行 Evidence（时间戳/计数） | `otx.py`、`reportedip.py` |
+| `.mmdb` 二进制输入 | `geolite_city.py`（maxminddb>=2.0 只读依赖，mmap 迭代） |
 
-You override **two hooks** (`download` and `harvest`) and optionally `normalize`
-(an `Evidence → Evidence` post-harvest transform; no source uses it today —
-prefer per-row construction in `harvest`).
+无任何命中 → 留在 IpListSource / CsvSource。
+**实现面：** 覆写 `download()` + `harvest()`（yield `(cidr_str, Evidence)`），
+继承其余。**写之前通读 `iptoasn.py` 全文**——canonical 最小模板。
+**继承表（不要重实现）：** `grep "def " backend/ipdb/_source_base.py`
+逐个看：`load()` 纯 mmap、`rebuild()` 唯一写路径（分组/流式 +
+`rebuild_lmdb` + `reader_setter`/**必须带 `flag_setter`**——漏了会在
+disjoint→nested 翻转时静默漏父覆盖命中）、`query()` 关闭-env 重开重试、
+`health()` mtime 计算 stale、`_http_get()`（GET-only，重试+UA+auth 头；
+POST/JSON-body 需手写 HTTP）。
+**`single_evidence`：** 类属性（默认 False）。True 时 `rebuild()` 流式
+直写 `rebuild_lmdb()` 而非累积全量 dict——geo/asset 大源（每 CIDR 至多
+一条证据）用它（ip2proxy 曾因无此标志冲到 686 MB RSS）。**多证据威胁源
+必须保持 False**——它们靠累积器聚合。语义以
+`grep -A5 "single_evidence" backend/ipdb/_source_base.py` 为准。
 
-### `single_evidence` — streaming rebuild for big single-evidence sources
+## 3b. rebuild override — 升级既有 IpListSource
 
-Class attr (default `False`). When `True`, `rebuild()` streams each
-`(cidr, [evidence])` straight into `rebuild_lmdb()` instead of accumulating a
-full dict — set it for geo/asset sources whose harvest yields each CIDR **at
-most once** with a single evidence (ip2proxy, iptoasn). The LMDB write
-overwrites idempotently, and a stray duplicate is harmless. **Multi-evidence
-threat sources must leave it `False`** — they rely on the accumulator to group
-several evidence per CIDR. Accumulating a multi-million-CIDR source without it
-pushed ip2proxy to a 686 MB RSS peak.
+**定位：升级路径，非首选。** 新源带每行值 → 直接 §3 `Source` 子类。
+仅当给既有 `IpListSource` 加每行字段且不想换基类时覆写 `rebuild()`
+（先例：`spamhaus.py` 保 `; SBL-id` 尾注、`tor_exits.py` 保 `ip,ts` 行）。
+覆写即手工重实现基类解析环，因此**独占四件事**：每行 Evidence 构造、
+`rebuild_lmdb()` 的 records 列表、finally 里关旧 reader、
+`flag_setter=lambda v: setattr(self, "_disjoint", v)`（与
+`reader_setter` 并排，缺即重现 stale-flag 静默漏命中缺陷）。
+**抄真实实现：** 通读 `spamhaus.py` 的 `rebuild()`——四件事的完整活例。
+多文件变体（mtime 门控跨文件 rebuild）看 `cn_isp.py`。
 
-### Skeleton — ASN TSV with range→CIDR expansion (iptoasn-style)
+## 3c. directory source — 一个发布方多子列表
 
-```python
-"""<FeedName> — Source subclass (bespoke gzipped TSV with IP ranges)."""
-import gzip
-import ipaddress
-import logging
-from pathlib import Path
+**判据：** 一个发布方多个相关列表（firehol ipsets、blocklist.de 攻击型
+子表），一个源订阅一个目录：`filename` 即目录名；`download()` 循环各表；
+`rebuild()` 跨文件累积并裁决；`health()` 取跨文件 **max** mtime
+（convention 4）。历史布局是单文件时必须带 `_cleanup_legacy`（旧文件+
+LMDB sidecar 两形态：epoch 目录 rmtree、ptr/count/cov 文件 unlink）。
+**锚点范例：** 通读 `blocklist_de.py`（优先级裁决分类 + native_categories
+并集）；per-list tags 归属 + mtime 门控看 `firehol.py`。
+**实现后必跑：** `python scripts/audit_lmdb_invariants.py`（**从仓库根**，
+脚本在 `scripts/` 不在 `backend/`；目录源是 same-start/nested CIDR 冲突
+的已知高发面）。
 
-from .._evidence import Evidence
-from .._source_base import Source
+## 5. `field_map`（声明式列→槽路由）
 
-logger = logging.getLogger(__name__)
-
-
-class <FeedName>Source(Source):
-    # ── required for discovery ──
-    name = "<feedname>"                       # lowercase, == filename stem
-    fields = ("country_code", "asn", "as_name", "ip_range")
-    url = "https://example.com/data.tsv.gz"
-    filename = "<feedname>.tsv"               # post-decompression path
-    stale_days = 7
-    reliability = 0.5                         # 0–1 fusion weight (class default)
-    authoritative_for = []                    # decorative; fusion reads the dict
-    single_evidence = True                    # geo list: each CIDR yields once
-
-    # ── optional __init__ (convention 5: read your own env) ──
-    # def __init__(self, data_dir: Path):
-    #     self._key = os.environ.get("<NAME>_API_KEY", "")
-    #     super().__init__(data_dir)
-
-    def download(self) -> None:
-        # Default (base Source.download) does a plain GET → self._path. Override
-        # for gzip/ZIP decompression, auth headers, cursor/state machines, etc.
-        tmp = self._data_dir / "<feedname>.tsv.tmp"
-        data = self._http_get(self.url)               # retries + UA + auth header
-        if data[:2] == b"\x1f\x8b":                   # gzip magic
-            data = gzip.decompress(data)
-        if not data.strip():
-            raise RuntimeError(f"Empty response from {self.url}")
-        tmp.write_bytes(data)
-        tmp.rename(self._path)                        # atomic publish
-
-    def harvest(self):  # -> Iterator[tuple[str, Evidence]]
-        """Parse your format → yield (cidr_str, Evidence) pairs.
-
-        One input row may yield MANY pairs (e.g. range→CIDR expansion); one
-        pair per row may carry its own Evidence (per-row last_seen, counts).
-        The base rebuild() handles grouping/dedup (or streaming when
-        single_evidence) and the LMDB write."""
-        with open(self._path, "r", encoding="utf-8") as f:
-            for line in f:
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) < 5:
-                    continue
-                try:
-                    start = ipaddress.IPv4Address(parts[0].strip())
-                    end = ipaddress.IPv4Address(parts[1].strip())
-                    asn = int(parts[2])
-                except (ipaddress.AddressValueError, ValueError):
-                    continue
-                if asn == 0:
-                    continue
-                # range→CIDR: one row → many (cidr, Evidence) pairs
-                for cidr in ipaddress.summarize_address_range(start, end):
-                    yield str(cidr), Evidence(
-                        asn=asn,
-                        country_code=parts[3] or None,
-                        as_name=parts[4] or None,
-                        ip_range=str(cidr),
-                    )
-```
-
-**State-machine / REST sources:** prefer having `download()` materialize an
-**intermediate normalized file** that `harvest()` re-reads (canonical: `otx.py` —
-`download()` paginates the REST API and writes a tidy CSV; `harvest()` just reads
-it). This cleanly separates the messy fetch from the parse.
-
-### Variant — per-row classification (threatfox-style harvest)
-
-For threat feeds where each row carries its own category, normalize per row and
-preserve the raw value in `native_categories` (three-way rule):
-
-```python
-from .._classification import normalize, <FEEDNAME>_MAP
-
-class <FeedName>Source(Source):
-    name = "<feedname>"
-    fields = ("is_malicious",)
-    classification_type = "c2-server"        # default; harvest() overrides per row
-    verdict = "malicious"
-
-    def harvest(self):
-        with open(self._path, "r", encoding="utf-8") as f:
-            for row in csv.reader(f):
-                if len(row) < 4:
-                    continue
-                raw_type = row[4].strip()
-                yield row[2].strip().split(":")[0], Evidence(
-                    classification_type=normalize(raw_type, <FEEDNAME>_MAP),
-                    verdict="malicious",
-                    malware_name=row[5].strip() or None,
-                    last_seen=row[8].strip() or None,
-                    native_categories=[raw_type] if raw_type else [],
-                    extra={"port": row[3]} if row[3] else {},
-                )
-```
-
-### Why not just subclass IpListSource/CsvSource?
-
-Their `rebuild()` assumes a fixed-shape file (one IP per line, or fixed-shape
-CSV rows). The moment you need filtering, conditional routing, 1→many
-expansion, multi-file loads, per-row Evidence construction, or a REST state
-machine, their shape becomes a hindrance. `Source` exists precisely for that
-gray zone: you implement only the parsing (`harvest`) and the fetch
-(`download`), and inherit the LMDB rebuild/mmap-query/staleness plumbing.
-
-## 3b. rebuild override — upgrading an existing IpListSource with per-row fields
-
-**This is an upgrade path, not a first choice.** For a NEW feed with per-row
-values, use a `Source` subclass + `harvest()` (§3) — the base does the
-grouping. Override `rebuild()` only when you're adding per-row fields to an
-existing `IpListSource` and don't want to switch bases (P1 precedent:
-`spamhaus.py` kept its `; SBL-id` tail, `tor_exits.py` kept its `ip,ts` lines,
-`abuseipdb.py` parses its JSON blacklisted-IP list).
-
-The override re-implements the base's parse loop by hand and therefore owns
-four things the base normally handles: per-row `Evidence` construction, the
-`records` list for `rebuild_lmdb()`, closing the old reader in `finally`,
-and syncing the in-memory disjoint flag via
-`rebuild_lmdb(..., flag_setter=...)` (omit it and a disjoint→nested data
-flip silently misses parent-covered hits until restart).
-
-```python
-def rebuild(self) -> int:
-    """Rebuild LMDB (the only write path) with per-row Evidence."""
-    import time
-    import ipaddress as _ipa
-    from ._lmdb import covered_ip_count, rebuild_lmdb
-    from .._evidence import Evidence
-    if not self._path.exists():
-        return 0
-    old_reader = self._reader
-    records, covered = [], []
-    with open(self._path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            # …parse the line, e.g. "1.2.3.4,2026-08-01T00:00:00Z"…
-            parts = line.split(",")
-            if len(parts) < 2:
-                continue
-            try:
-                net = _ipa.IPv4Network(parts[0], strict=False)
-            except (_ipa.AddressValueError, ValueError):
-                continue
-            records.append((str(net), [Evidence(
-                classification_type=self.classification_type,
-                verdict=self.verdict,
-                reliability=self.reliability,
-                last_seen=parts[1] or None,       # the per-row value
-            ).to_dict()]))
-            covered.append(str(net))
-    try:
-        cov = covered_ip_count(covered)
-        n = rebuild_lmdb(iter(records), self._lmdb_base,
-                         reader_setter=lambda e: setattr(self, "_reader", e),
-                         flag_setter=lambda v: setattr(self, "_disjoint", v),
-                         covered=cov)
-        self._count = n
-        self._covered_ips = cov
-        self._loaded_at = time.time()
-        return n
-    finally:
-        if old_reader is not None:
-            try:
-                old_reader.close()
-            except Exception:
-                pass          # tolerate double-close of a dead env
-```
-
-Models to read: `spamhaus.py` (`;` tail → `extra.sbl_id`), `tor_exits.py`
-(regex + timestamp), `abuseipdb.py` (JSON + empty-data guard in `download()`).
-`cn_isp.py` is the multi-file flavor of the same override idea (mtime-gated
-rebuild across files).
-
-## 3c. directory source — one publisher, many sub-lists
-
-When one publisher ships many related lists (firehol ipsets, blocklist.de
-attack-type sub-lists), subscribe to them as a **directory of files** with one
-source. `filename` becomes the directory name; `download()` loops the lists;
-`rebuild()` accumulates across files and adjudicates; `health()` takes the
-**max** mtime. Models: `firehol.py` (per-list `tags` attribution, mtime-gated
-rebuild), `blocklist_de.py` (priority-adjudicated classification +
-`native_categories` union).
-
-Skeleton (blocklist_de-style):
-
-```python
-_LISTS = ["mail", "ssh", "other"]          # sub-list file stems
-_PRIORITY = {"brute-force": 0, "botnet": 1, "spam": 2, "scanner": 3, "blacklist": 4}
-_BASE_URL = "https://example.com/lists"
-
-
-class <FeedName>Source(IpListSource):
-    name = "<feedname>"
-    url = ""                                # unused — custom download() loops URLs
-    filename = "<feedname>"                 # directory name, not a file
-    fields = ("is_malicious",)
-    classification_type = "blacklist"       # fallback for unmapped lists
-    verdict = "malicious"
-    stale_days = 1
-    reliability = 0.65
-
-    def __init__(self, data_dir, selected_lists=None):
-        self._lists = selected_lists or list(_LISTS)
-        super().__init__(data_dir=data_dir)
-        self._path = data_dir / "<feedname>"        # directory
-
-    @property
-    def download_host(self):
-        return "example.com"
-
-    def download(self, token=None):
-        from ._download import download_file
-        self._path.mkdir(parents=True, exist_ok=True)
-        for list_name in self._lists:
-            url = f"{_BASE_URL}/{list_name}.txt"
-            dest = self._path / f"{list_name}.txt"
-            try:
-                download_file(url, dest, token=token,
-                              headers={"User-Agent": "ip-lookup-tool/1.0"})
-                if not dest.read_bytes().strip():
-                    dest.unlink(missing_ok=True)   # don't leave stale to mix in
-            except Exception as e:
-                logger.error(f"Failed to download {list_name}: {e}")
-                dest.unlink(missing_ok=True)
-
-    def rebuild(self) -> int:
-        """Accumulate across lists; same-CIDR hits adjudicated by priority,
-        all claiming list names preserved in native_categories."""
-        import ipaddress as _ipa
-        from ._lmdb import covered_ip_count, rebuild_lmdb
-        from .._evidence import Evidence
-        from .._classification import <FEEDNAME>_MAP
-        if not self._path.exists():
-            return 0
-        old_reader = self._reader
-        acc = {}                                  # cidr → {"classification_type", "native_categories"}
-        for list_name in self._lists:
-            p = self._path / f"{list_name}.txt"
-            if not p.exists():
-                continue
-            cls = <FEEDNAME>_MAP.get(list_name, self.classification_type)
-            with open(p, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    try:
-                        net = str(_ipa.IPv4Network(line, strict=False))
-                    except (_ipa.AddressValueError, ValueError):
-                        continue
-                    if net in acc:
-                        cur = acc[net]
-                        if _PRIORITY[cls] < _PRIORITY[cur["classification_type"]]:
-                            cur["classification_type"] = cls
-                        if list_name not in cur["native_categories"]:
-                            cur["native_categories"].append(list_name)
-                    else:
-                        acc[net] = {"classification_type": cls,
-                                    "native_categories": [list_name]}
-        records = [(cidr, [Evidence(
-            classification_type=info["classification_type"],
-            verdict=self.verdict,
-            reliability=self.reliability,
-            native_categories=info["native_categories"],
-        ).to_dict()]) for cidr, info in acc.items()]
-        try:
-            cov = covered_ip_count(iter(acc.keys()))
-            n = rebuild_lmdb(records, self._lmdb_base,
-                             reader_setter=lambda e: setattr(self, "_reader", e),
-                             flag_setter=lambda v: setattr(self, "_disjoint", v),
-                             covered=cov)
-            self._covered_ips = cov
-            self._count = n
-            return n
-        finally:
-            if old_reader is not None:
-                try:
-                    old_reader.close()
-                except Exception:
-                    pass
-```
-
-Also copy from the real models:
-- `load()` / `query()` — identical to the IpListSource base (no override
-  needed; `blocklist_de.py` repeats them only because its `_path` is set after
-  `super().__init__`).
-- `health()` — `file_mtime = max(mtimes)` across the list files.
-- **`_cleanup_legacy()`** — if the source previously existed as a single file,
-  delete the old file AND its LMDB sidecars on download (sidecars come in two
-  shapes: epoch **directories** `<name>.lmdb.N/` → `shutil.rmtree`; pointer/
-  count/cov **files** → `unlink`).
-- **After implementing, run `python scripts/audit_lmdb_invariants.py` from the repo root** —
-  directory sources are the known conflict surface for same-start/nested CIDRs.
-
-## 4. ApiSource — query-per-IP REST API (greenfield)
-
-Use when there is no bulk download — each lookup hits a remote API. No source in
-the repo uses this yet, so you're establishing the pattern. The base class
-provides `download()`/`load()` no-ops and a `health()` stub; you implement
-`query_api`.
-
-```python
-"""<FeedName> reputation API — ApiSource subclass (query on demand)."""
-import os
-from ._base import ApiSource
-
-
-class <FeedName>Source(ApiSource):
-    name = "<feedname>"
-    fields = ("is_malicious",)            # + any fields the API returns
-    reliability = 0.7
-    authoritative_for = []
-
-    def __init__(self, data_dir=None):
-        # convention 5: read your own key; registry only ever passes data_dir
-        self._key = os.environ.get("<FEEDNAME>_API_KEY", "")
-        self._enabled = bool(self._key)
-        self._base = "https://api.example.com/v1/check"
-
-    def query_api(self, ip: str) -> dict:
-        if not self._enabled:
-            return {}
-        # ...hit the API, map response → evidence dict...
-        return {
-            "classification_type": "<controlled-vocab-term>",   # or normalize(raw, MAP)
-            "verdict": "malicious",
-            "confidence": score,
-            "native_categories": [raw_category],                # three-way rule
-        }
-```
-
-**Caveat:** the least-exercised path. After implementing, manually confirm the
-registry queries it per-lookup and that quota/rate-limit handling matches the
-project's convention (see `_enrichers/ipapi_is.py`). Surface gaps to the user
-rather than silently diverging.
-
-## 5. `field_map` (declarative column→slot routing) + planned `SourceSpec`
-
-> **Experimental — 0 sources use this today.** The validator (`_validate.py`)
-> recognizes `field_map`, but no source declares one. Prefer explicit routing
-> in `harvest()` / `parse_row()`. Treat `field_map` as a forward-looking
-> declaration, not a proven pattern.
-
-```python
-class <FeedName>Source(CsvSource):           # or Source, or IpListSource
-    field_map = {
-        "src_col_name":   "target_slot",     # must be in ALL_KNOWN or start with "extra"
-        "asn_str":        "asn",
-        "cc":             "country_code",
-    }
-```
-
-Rules (enforced by `_validate.validate_source` at load time, **warn-only**):
-targets must be in `ALL_KNOWN` or start with `extra`; multiple columns → same
-slot are flagged as a collision.
-
-### `SourceSpec` (Pydantic declarative form) — planned, NOT implemented
-
-For sources slightly too custom for `IpListSource`, the project reserves a
-declarative form from which the registry could generate the source. Status:
-not implemented; YAGNI until enough simple sources accrue.
-
-### Gray zone — when to abandon the simple bases for a `Source` subclass
-
-| Trigger | Example source |
-|---|---|
-| Row filtering (drop by value/threshold) | `ip2proxy.py` drops SES/WEB proxy_types |
-| Conditional field routing | `reportedip.py` per-code type grouping |
-| 1→many: one input row → many CIDRs | `iptoasn.py`, `ip2proxy.py` |
-| Nested archive (ZIP/gzip) | `threatfox.py`, `ip2proxy.py` |
-| REST state machine (cursor/pagination) | `otx.py` |
-| Multi-file load (one source, several files) | `cn_isp.py` (adjacent to §3c) |
-| Per-row evidence (timestamps/counts per row) | `otx.py`, `reportedip.py` |
-| `.mmdb` binary input | `geolite_city.py` — maxminddb>=2.0 read-only dep; mmap iteration in `harvest()`; single_evidence streaming |
-
-If none of these apply, stay on `IpListSource` / `CsvSource`.
+> **实验性——当前 0 源使用。** `_validate.py` 认识 `field_map` 但无源声明。
+优先 `harvest()`/`parse_row()` 内显式路由；把 `field_map` 当前瞻声明。
+规则（`_validate.validate_source` 载入时校验，warn-only）：目标必须在
+`ALL_KNOWN` 内或以 `extra` 开头；多列同槽记碰撞。
+**`field_map` ≠ `_MAP`：** 前者路由"列 → Evidence 槽"（类属性），后者
+映射"原生类别 → 受控词表项"（`_classification.py` 里的 dict）。见
+`classification.md`。
