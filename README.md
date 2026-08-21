@@ -162,6 +162,14 @@ curl -s http://127.0.0.1:8000/api/sources
 
 > The other management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too. Mind: the API has no authentication — don't expose the port to untrusted networks.
 
+### Fail2ban 集成：拉黑前先问一句
+
+`scripts/fail2ban/ipradar.conf` 提供一个 fail2ban action：ban 之前先查本地 IP Radar 裁决——确认恶意（confidence ≥ 70 可调）则记入长封名单；CDN/基础设施边缘直接跳过 ban 留日志，不再误封 Cloudflare。装法与参数见 [`scripts/fail2ban/README.md`](scripts/fail2ban/README.md)。
+
+> ### Fail2ban integration: ask before you ban
+>
+> `scripts/fail2ban/ipradar.conf` is a fail2ban action that triages every ban against your local IP Radar verdict first: confirmed-malicious IPs (confidence ≥ 70, tunable) go on a persistent long-ban list; CDN/infra edges skip the ban entirely with a loud log line — no more banning Cloudflare. Install & options: [`scripts/fail2ban/README.md`](scripts/fail2ban/README.md).
+
 ## 用 AI 扩展数据源 | Extending Sources with AI
 
 仓库还自带三个 AI agent skills（`.pi/skills/`）——用支持项目级 skills 的编码代理（如 [pi](https://github.com/earendil-works/pi)），一句话就能让 AI 替你把源加上：

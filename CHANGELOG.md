@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### 新增
+
+- Fail2ban 集成：`scripts/fail2ban/ipradar.conf` —— ban 前先查本地裁决，确认恶意（conf ≥ 70 可调）记入长封名单，CDN/基础设施边缘跳过 ban 免误封
+
 ### 修复
 
 - 批量更新收敛竞态：终态 done 事件不再出现 done<total；源中途启用
