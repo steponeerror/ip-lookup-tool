@@ -109,6 +109,38 @@ class LookupResult:
     is_reserved: bool = False
     city_zh: Optional[str] = None      # display-only zh name of winning city
 
+    # Verdict precedence for the fused top-level `threat` summary. Mirrors
+    # _merge._assess_classification's PRECEDENCE so both layers never disagree.
+    _VERDICT_PRECEDENCE = {"malicious": 0, "suspicious": 1, "benign": 2, "informational": 3}
+
+    def threat_summary(self) -> dict:
+        """Fused single-view verdict: worst classification by precedence.
+
+        One-line answer for downstream integrations (fail2ban action, Graylog
+        lookup table, Wazuh script): verdict + confidence + detected types,
+        plus the CDN/service flag so consumers can skip bans on infra edges.
+        """
+        detected = [v for v in self.classifications.values() if v.detected]
+        if detected:
+            worst = min(detected, key=lambda v: self._VERDICT_PRECEDENCE.get(v.verdict, 99))
+            verdict = worst.verdict
+            confidence = worst.confidence
+        else:
+            verdict = "benign"
+            confidence = 0
+        attr_stmts = self.attributes.get("service", []) + self.attributes.get("is_cdn", [])
+        is_cdn = any(
+            "cdn" in str(getattr(a, "native_type", "") or "").lower()
+            or getattr(a, "value", None) in ("cdn", True)
+            for a in attr_stmts
+        )
+        return {
+            "verdict": verdict,
+            "confidence": confidence,
+            "types": sorted(v.type for v in detected),
+            "is_cdn": is_cdn,
+        }
+
     def to_dict(self) -> dict:
         return {
             "ip": self.ip,
@@ -119,6 +151,7 @@ class LookupResult:
             "as_name": _field_to_dict(self.as_name),
             "ip_range": _field_to_dict(self.ip_range),
             "is_isp": self.is_isp,
+            "threat": self.threat_summary(),
             "classifications": {
                 k: {
                     "type": v.type,
