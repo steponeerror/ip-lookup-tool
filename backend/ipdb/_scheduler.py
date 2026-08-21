@@ -1,13 +1,16 @@
 """Background auto-refresh scheduler.
 
 A single daemon thread that scans enabled offline sources every `interval`
-seconds and enqueues stale ones into UpdateManager via enqueue_one_detached
-(batch_id=None, so scheduler tasks never pollute an in-flight manual batch).
+seconds and enqueues each at its deterministic 12h-grid slot when due
+(`_due_at`; daily tier twice a day, weekly tier once per stale_days), via
+enqueue_one_detached (batch_id=None, so scheduler tasks never pollute an
+in-flight manual batch).
 Backoff is inferred on the NEXT scan: a float-mtime diff plus one task_state
 lookup distinguishes "didn't run yet" (valve-throttled) from "ran and failed".
 
 Started/stopped from main.lifespan, mirroring _ensure_valve_sampler.
 """
+import hashlib
 import logging
 import threading
 import time
@@ -19,6 +22,36 @@ logger = logging.getLogger(__name__)
 # Backoff seconds for fail_count 1..5: 1h, 2h, 4h, 8h, 12h (cap).
 _BACKOFF_SECONDS = [3600, 7200, 14400, 28800, 43200]
 _NON_TERMINAL = ("queued", "downloading", "loading", "throttled")
+
+SLOT_GRID = 43200  # 12h slot grid — per-source deterministic refresh anchors
+# ponytail: guard covers slot-fire→file-mtime lag (scan ≤1800s + download);
+# downloads >1h skip one slot that day and self-recover next cycle
+REFRESH_GUARD = 3600
+
+
+def _slot_of(name: str) -> int:
+    """Deterministic per-source offset within the 12h grid (0..SLOT_GRID-1)."""
+    return int(hashlib.sha256(name.encode()).hexdigest()[:8], 16) % SLOT_GRID
+
+
+def _period_of(stale_days: int) -> int:
+    """Tier period: daily (stale_days<=1) → 12h (twice a day); else stale_days days."""
+    return SLOT_GRID if stale_days <= 1 else stale_days * 86400
+
+
+def _due_at(name: str, mtime: float, stale_days: int) -> float:
+    """First slot strictly after (mtime + period - guard).
+
+    The guard absorbs slot-fire→mtime lag. Without it, mtime always trails the
+    slot point, so each cycle's first_slot lands one grid further out: daily
+    sources drift to 24h/cycle and weekly to 7.5d with +12h wall-clock drift.
+    """
+    slot = _slot_of(name)
+    deadline = mtime + _period_of(stale_days) - REFRESH_GUARD
+    first_slot = (deadline // SLOT_GRID) * SLOT_GRID + slot
+    if first_slot <= deadline:
+        first_slot += SLOT_GRID
+    return first_slot
 
 
 @dataclass
@@ -64,9 +97,14 @@ class RefreshScheduler:
                 b = self._backoff.get(name)
                 if b is not None and now < b.next_attempt:
                     continue  # still backing off
-                health = source.health()
-                if not (health.is_stale or self._needs_rebuild_of(source)):
-                    continue
+                if not self._needs_rebuild_of(source):
+                    # needs_rebuild is immediate (local integrity, no quota).
+                    # Otherwise: slot-based due. mtime None (download-failure
+                    # residue) is immediately due; backoff throttles retries.
+                    mtime = self._read_mtime(source)
+                    if mtime is not None and now < _due_at(
+                            name, mtime, source.stale_days):
+                        continue
                 task = self._manager.enqueue_one_detached(name)
                 self._last_task[name] = task.id
                 self._last_attempt[name] = now
@@ -87,6 +125,12 @@ class RefreshScheduler:
                     state = self._manager.task_state(task_id)
                 except Exception:
                     state = None
+            if task_id is not None or (b is not None and now < b.next_attempt):
+                next_refresh = None   # outcome/backoff decides, not the slot
+            else:
+                mtime = self._read_mtime(source)
+                next_refresh = (_iso(_due_at(name, mtime, source.stale_days))
+                                if mtime is not None else None)
             sources.append({
                 "name": name,
                 "stale": bool(source.health().is_stale),
@@ -94,6 +138,7 @@ class RefreshScheduler:
                 "fail_count": b.fail_count if b else 0,
                 "last_attempt_at": _iso(self._last_attempt.get(name)),
                 "next_attempt_at": _iso(b.next_attempt if b else None),
+                "next_refresh_at": next_refresh,
             })
         return {
             "enabled": True,
