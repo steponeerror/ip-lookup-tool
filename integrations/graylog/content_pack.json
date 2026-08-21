@@ -1,0 +1,228 @@
+{
+  "v": "1",
+  "rev": 1,
+  "name": "IP Radar — Self-hosted IP threat intel enrichment",
+  "description": "Enrich messages with a fused, multi-source IP threat verdict (verdict/confidence/types) plus country and ASN from a self-hosted IP Radar instance (https://github.com/steponeerror/ip-radar). Includes 3 lookup data adapters (HTTP JSONPath), 3 lookup tables, 2 pipeline rules, and a pipeline bound to the default stream. Requires IP Radar running locally on http://127.0.0.1:8000 — see integrations/graylog/README.md in the IP Radar repo. On Graylog >= 5.1 allowlist the adapter URLs first: System -> Lookup Tables -> Allowlist.",
+  "id": "32fa565d-e9bb-4d88-9919-abfb7859b2dd",
+  "summary": {
+    "inputs": 0,
+    "streams": 0,
+    "outputs": 0,
+    "dashboards": 0,
+    "grok_patterns": 0,
+    "lookup_tables": 3,
+    "pipeline_rules": 2
+  },
+  "server_version": "5.1.0",
+  "entries": [
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "type": {
+        "name": "lookup_adapter",
+        "version": "1"
+      },
+      "title": "IP Radar — threat.verdict",
+      "configuration": {
+        "type": "httpjsonpath-datasource",
+        "url": "http://127.0.0.1:8000/api/lookup/${key}",
+        "single_value_jsonpath": "$.threat.verdict",
+        "multi_value_jsonpath": null,
+        "user_agent": "graylog-ipradar-contentpack",
+        "headers": {}
+      }
+    },
+    {
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "type": {
+        "name": "lookup_adapter",
+        "version": "1"
+      },
+      "title": "IP Radar — threat.confidence",
+      "configuration": {
+        "type": "httpjsonpath-datasource",
+        "url": "http://127.0.0.1:8000/api/lookup/${key}",
+        "single_value_jsonpath": "$.threat.confidence",
+        "multi_value_jsonpath": null,
+        "user_agent": "graylog-ipradar-contentpack",
+        "headers": {}
+      }
+    },
+    {
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "type": {
+        "name": "lookup_adapter",
+        "version": "1"
+      },
+      "title": "IP Radar — country",
+      "configuration": {
+        "type": "httpjsonpath-datasource",
+        "url": "http://127.0.0.1:8000/api/lookup/${key}",
+        "single_value_jsonpath": "$.country.value",
+        "multi_value_jsonpath": null,
+        "user_agent": "graylog-ipradar-contentpack",
+        "headers": {}
+      }
+    },
+    {
+      "id": "b1b2c3d4-0001-4000-8000-000000000001",
+      "type": {
+        "name": "lookup_table",
+        "version": "1"
+      },
+      "title": "ipradar-verdict",
+      "configuration": {
+        "lookup_adapters": [
+          {
+            "id": "a1b2c3d4-0001-4000-8000-000000000001",
+            "type": {
+              "name": "lookup_adapter",
+              "version": "1"
+            },
+            "title": "IP Radar — threat.verdict"
+          }
+        ],
+        "lookup_caches": [
+          {
+            "id": "c1b2c3d4-0001-4000-8000-000000000001",
+            "type": {
+              "name": "lookup_cache",
+              "version": "1"
+            },
+            "title": "ipradar-none (no cache)"
+          }
+        ],
+        "default_multi_value_type": "FIRST",
+        "default_single_value": "",
+        "default_single_value_type": "NULL"
+      }
+    },
+    {
+      "id": "b1b2c3d4-0002-4000-8000-000000000002",
+      "type": {
+        "name": "lookup_table",
+        "version": "1"
+      },
+      "title": "ipradar-confidence",
+      "configuration": {
+        "lookup_adapters": [
+          {
+            "id": "a1b2c3d4-0002-4000-8000-000000000002",
+            "type": {
+              "name": "lookup_adapter",
+              "version": "1"
+            },
+            "title": "IP Radar — threat.confidence"
+          }
+        ],
+        "lookup_caches": [
+          {
+            "id": "c1b2c3d4-0001-4000-8000-000000000001",
+            "type": {
+              "name": "lookup_cache",
+              "version": "1"
+            },
+            "title": "ipradar-none (no cache)"
+          }
+        ],
+        "default_multi_value_type": "FIRST",
+        "default_single_value": "",
+        "default_single_value_type": "NULL"
+      }
+    },
+    {
+      "id": "b1b2c3d4-0003-4000-8000-000000000003",
+      "type": {
+        "name": "lookup_table",
+        "version": "1"
+      },
+      "title": "ipradar-country",
+      "configuration": {
+        "lookup_adapters": [
+          {
+            "id": "a1b2c3d4-0003-4000-8000-000000000003",
+            "type": {
+              "name": "lookup_adapter",
+              "version": "1"
+            },
+            "title": "IP Radar — country"
+          }
+        ],
+        "lookup_caches": [
+          {
+            "id": "c1b2c3d4-0001-4000-8000-000000000001",
+            "type": {
+              "name": "lookup_cache",
+              "version": "1"
+            },
+            "title": "ipradar-none (no cache)"
+          }
+        ],
+        "default_multi_value_type": "FIRST",
+        "default_single_value": "",
+        "default_single_value_type": "NULL"
+      }
+    },
+    {
+      "id": "c1b2c3d4-0001-4000-8000-000000000001",
+      "type": {
+        "name": "lookup_cache",
+        "version": "1"
+      },
+      "title": "ipradar-none (no cache)",
+      "configuration": {
+        "type": "none",
+        "max_size": 0,
+        "expire_after_access": 0,
+        "expire_after_access_unit": "SECONDS",
+        "expire_after_write": 0,
+        "expire_after_write_unit": "SECONDS"
+      }
+    },
+    {
+      "id": "d1b2c3d4-0001-4000-8000-000000000001",
+      "type": {
+        "name": "pipeline_rule",
+        "version": "1"
+      },
+      "title": "ipradar enrich src_ip",
+      "configuration": {
+        "source": "rule \"ipradar enrich src_ip\"\nwhen\n    has_field(\"src_ip\")\nthen\n    let verdict    = lookup(\"ipradar-verdict\", to_string($message.src_ip));\n    let confidence = lookup(\"ipradar-confidence\", to_string($message.src_ip));\n    let country    = lookup(\"ipradar-country\", to_string($message.src_ip));\n    set_field(\"ipradar_verdict\", verdict);\n    set_field(\"ipradar_confidence\", to_long(confidence));\n    set_field(\"ipradar_country\", country);\nend"
+      }
+    },
+    {
+      "id": "d1b2c3d4-0002-4000-8000-000000000002",
+      "type": {
+        "name": "pipeline_rule",
+        "version": "1"
+      },
+      "title": "ipradar flag malicious source",
+      "configuration": {
+        "source": "rule \"ipradar flag malicious source\"\nwhen\n    to_string($message.ipradar_verdict) == \"malicious\"\n    AND to_long($message.ipradar_confidence) >= 70\nthen\n    set_field(\"ipradar_alert\", true);\nend"
+      }
+    },
+    {
+      "id": "e1b2c3d4-0001-4000-8000-000000000001",
+      "type": {
+        "name": "pipeline",
+        "version": "1"
+      },
+      "title": "IP Radar enrichment",
+      "configuration": {
+        "source": "stage 0: match either\nrule \"ipradar enrich src_ip\"\nrule \"ipradar flag malicious source\"\n",
+        "description": "Enrich src_ip-bearing messages with the local IP Radar verdict. Requires IP Radar on http://127.0.0.1:8000 (github.com/steponeerror/ip-radar)."
+      },
+      "constraints": [
+        {
+          "type": {
+            "name": "stream",
+            "version": "1"
+          },
+          "id": "000000000000000000000001",
+          "data": {
+            "title": "All messages"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -20,7 +20,18 @@ The `threat.*` fields are the fused view (worst classification by
 precedence + its confidence). `classifications.*` keeps the per-type
 detail with per-source evidence if you want deeper pipelines.
 
-## Prerequisites
+## Install (content pack — fastest path)
+
+One import instead of steps 1–4:
+
+1. Download [`content_pack.json`](content_pack.json)
+2. **System → Content Packs → Upload and install**
+3. On Graylog ≥5.1, allowlist the adapter URLs (see Step 0)
+4. Done — 3 lookup tables + 2 pipeline rules + a pipeline on the "All messages" stream are live. Test: search `ipradar_verdict:*` on any src_ip-bearing message.
+
+## Manual setup (no content pack)
+
+### Prerequisites
 
 - IP Radar running locally: `http://127.0.0.1:8000`
   (`docker compose up -d --build`, see main README)
