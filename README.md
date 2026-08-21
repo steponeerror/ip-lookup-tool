@@ -271,3 +271,11 @@ AGPL-3.0，见 [LICENSE](LICENSE)；各情报源有自己的使用条款。
 > And banning my account — a perfectly normal one, using nothing but their free basic services? That was a bit much.
 >
 > This project is dedicated to the legitimate rights of every worker — and to one simple belief: basic IP intelligence should be available to everyone.
+
+## 404星链计划 | 404Starlink
+
+<img src="https://github.com/knownsec/404StarLink-Project/raw/master/logo.png" width="30%">
+
+IP Radar 现已加入 [404星链计划](https://github.com/knownsec/404StarLink)
+
+> IP Radar has joined [404Starlink](https://github.com/knownsec/404StarLink)
