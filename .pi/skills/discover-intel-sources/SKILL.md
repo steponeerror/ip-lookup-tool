@@ -77,7 +77,7 @@ Coverage) mapped onto this tool's contract. Score them, don't narrate them.
 | Dimension | What 5 looks like | What 1 looks like | Maps to |
 |---|---|---|---|
 | **Coverage value** | opens a dead slot / thin axis | near-100% overlap with an existing source | classification axis gap |
-| **Integration cost** | `IpListSource` (~10 lines) | `ApiSource` greenfield (no prior use) | archetype |
+| **Integration cost** | a simple base class (~10 lines) | a full `Source` subclass | archetype |
 | **Access / license** | free, no auth, bulk download | per-IP / per-query billing | `__init__` + `.env` |
 | **Freshness** | updates daily, actively maintained | stale, no update signal | `stale_days` |
 | **Data quality** | human-curated, high-confidence | auto-inferred / "unverified" | `reliability` |
@@ -130,7 +130,7 @@ table, so a filled dossier hands off with zero rework.
 - Sample:         <3–5 lines verbatim, real fetch>
 - Publisher:      <who maintains it, since when, reputation>
 - Coverage target:<which classification axis/slot — "opens spam (dead slot)" | "reinforces c2-server">
-- Archetype:      <IpListSource | CsvSource | Source subclass | ApiSource>  + template source to copy
+- Archetype:      <simple base (see `add-intel-source` live discovery) | Source subclass>  + template source to copy
 - Format:         <plain IP list | CSV cols | JSON | ZIP/gzip-wrapped>
 - Auth:           <none | API key (env var name) | licensed>
 - Cadence:        <hourly|daily|weekly>  →  stale_days = <N>

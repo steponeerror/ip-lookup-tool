@@ -30,30 +30,16 @@ across sources, while the raw signal is never destroyed.
 
 ## The controlled vocabulary
 
-From `_classification.CLASSIFICATION_TYPES` (a `frozenset`, extensible):
+Read the vocabulary live — it is exactly the frozenset in the module, and
+any copy here would rot the day a term is added:
 
-| type | meaning |
-|---|---|
-| `blacklist` | generic curated blocklist, no subcategory |
-| `c2-server` | command & control |
-| `malware-distribution` | serves/delivers malware |
-| `malware` | malware sample / payload |
-| `scanner` | aggressive scanning |
-| `brute-force` | credential/protocol brute force |
-| `phishing` | |
-| `botnet` | |
-| `exploit` | |
-| `proxy` | |
-| `tor` | |
-| `vulnerable-system` | |
-| `misconfiguration` | |
-| `abuse-reports` | |
-| `spam` | |
-| `ddos` | |
-| `other` | **fallback for anything unmappable** |
+```bash
+grep -A25 "CLASSIFICATION_TYPES" backend/ipdb/_classification.py
+```
 
-Governance (from the module docstring): add new values to `CLASSIFICATION_TYPES`
-with a short comment. No YAML, no version bump — YAGNI at this tool's scale.
+Governance (stable rule): add new values to `CLASSIFICATION_TYPES` with a
+short comment. No YAML, no version bump — YAGNI at this tool's scale.
+`other` is the fallback for anything unmappable.
 
 ## `normalize(raw_type, mapping) -> str`
 
