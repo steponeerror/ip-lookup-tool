@@ -380,3 +380,79 @@ def test_status_endpoint_enabled_default(monkeypatch):
         body = resp.json()
         assert body["enabled"] is True
         assert body["interval_sec"] == 60
+
+
+# ── Slot-era helpers (pure functions, no scheduler instance) ──
+
+def test_slot_of_deterministic_and_in_range():
+    from ipdb._scheduler import _slot_of
+    assert _slot_of("abuseipdb") == _slot_of("abuseipdb")
+    for n in ("abuseipdb", "firehol", "geolite_city", "x"):
+        s = _slot_of(n)
+        assert isinstance(s, int) and 0 <= s < 43200
+
+
+def test_slot_spread_across_real_sources():
+    """Real source names hash to (near-)distinct slots spread over the grid."""
+    from ipdb._scheduler import _slot_of
+    names = ["abuseipdb", "firehol", "spamhaus", "threatfox", "tor_exits",
+             "greensnow", "binarydefense", "tweetfeed", "blocklist_de",
+             "emerging_threats", "stopforumspam", "f3csystems", "reportedip",
+             "geolite_city", "ipinfo_lite", "infra_services"]
+    slots = [_slot_of(n) for n in names]
+    assert len(set(slots)) >= len(names) - 2      # collisions rare, tolerate 2
+    assert max(slots) - min(slots) > 43200 // 2   # not crammed into one tail
+
+
+def test_period_of_tiers():
+    from ipdb._scheduler import _period_of
+    assert _period_of(1) == 43200        # daily tier → 12h (twice a day)
+    assert _period_of(7) == 604800       # weekly tier → 7d
+
+
+def test_due_at_daily_rhythm_stable():
+    """F1 regression: guard keeps consecutive fires exactly 12h apart."""
+    from ipdb._scheduler import _due_at, _slot_of, SLOT_GRID
+    name = "abuseipdb"
+    slot = _slot_of(name)
+    fire1 = 10 * SLOT_GRID + slot          # a slot boundary firing
+    delta = 1800.0                         # scan+download lag < guard
+    fire2 = _due_at(name, fire1 + delta, 1)
+    assert fire2 - fire1 == SLOT_GRID      # same slot point, +12h
+    fire3 = _due_at(name, fire2 + delta, 1)
+    assert fire3 - fire2 == SLOT_GRID      # no drift on cycle 2
+
+
+def test_due_at_weekly_rhythm_stable():
+    """F1 regression: weekly fires exactly 7d apart, not 7.5d."""
+    from ipdb._scheduler import _due_at, _slot_of, SLOT_GRID
+    name = "geolite_city"
+    slot = _slot_of(name)
+    fire1 = 10 * SLOT_GRID + slot
+    fire2 = _due_at(name, fire1 + 1800.0, 7)
+    assert fire2 - fire1 == 604800
+    fire3 = _due_at(name, fire2 + 1800.0, 7)
+    assert fire3 - fire2 == 604800
+
+
+def test_due_at_slow_download_skips_then_recovers():
+    """Lag > guard misses the next slot (that day: 1 refresh), then recovers."""
+    from ipdb._scheduler import _due_at, _slot_of, SLOT_GRID
+    name = "abuseipdb"
+    slot = _slot_of(name)
+    fire1 = 10 * SLOT_GRID + slot
+    fire2 = _due_at(name, fire1 + 5000.0, 1)   # 5000s lag > 3600s guard
+    assert fire2 - fire1 == 2 * SLOT_GRID      # skipped one slot
+    fire3 = _due_at(name, fire2 + 1800.0, 1)
+    assert fire3 - fire2 == SLOT_GRID          # recovered
+
+
+def test_due_at_lands_on_own_slot_after_deadline():
+    from ipdb._scheduler import _due_at, _slot_of, SLOT_GRID, REFRESH_GUARD
+    name = "spamhaus"
+    slot = _slot_of(name)
+    mtime = 10 * SLOT_GRID                      # just after a slot point
+    due = _due_at(name, mtime, 1)
+    deadline = mtime + SLOT_GRID - REFRESH_GUARD
+    assert due > deadline and due <= deadline + SLOT_GRID
+    assert (due - 10 * SLOT_GRID) % SLOT_GRID == slot   # lands on its own slot

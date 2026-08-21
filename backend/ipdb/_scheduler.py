@@ -8,6 +8,7 @@ lookup distinguishes "didn't run yet" (valve-throttled) from "ran and failed".
 
 Started/stopped from main.lifespan, mirroring _ensure_valve_sampler.
 """
+import hashlib
 import logging
 import threading
 import time
@@ -19,6 +20,36 @@ logger = logging.getLogger(__name__)
 # Backoff seconds for fail_count 1..5: 1h, 2h, 4h, 8h, 12h (cap).
 _BACKOFF_SECONDS = [3600, 7200, 14400, 28800, 43200]
 _NON_TERMINAL = ("queued", "downloading", "loading", "throttled")
+
+SLOT_GRID = 43200  # 12h slot grid — per-source deterministic refresh anchors
+# ponytail: guard covers slot-fire→file-mtime lag (scan ≤1800s + download);
+# downloads >1h skip one slot that day and self-recover next cycle
+REFRESH_GUARD = 3600
+
+
+def _slot_of(name: str) -> int:
+    """Deterministic per-source offset within the 12h grid (0..SLOT_GRID-1)."""
+    return int(hashlib.sha256(name.encode()).hexdigest()[:8], 16) % SLOT_GRID
+
+
+def _period_of(stale_days: int) -> int:
+    """Tier period: daily (stale_days<=1) → 12h (twice a day); else stale_days days."""
+    return SLOT_GRID if stale_days <= 1 else stale_days * 86400
+
+
+def _due_at(name: str, mtime: float, stale_days: int) -> float:
+    """First slot strictly after (mtime + period - guard).
+
+    The guard absorbs slot-fire→mtime lag. Without it, mtime always trails the
+    slot point, so each cycle's first_slot lands one grid further out: daily
+    sources drift to 24h/cycle and weekly to 7.5d with +12h wall-clock drift.
+    """
+    slot = _slot_of(name)
+    deadline = mtime + _period_of(stale_days) - REFRESH_GUARD
+    first_slot = (deadline // SLOT_GRID) * SLOT_GRID + slot
+    if first_slot <= deadline:
+        first_slot += SLOT_GRID
+    return first_slot
 
 
 @dataclass
