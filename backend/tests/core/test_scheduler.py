@@ -229,12 +229,20 @@ def test_scan_needs_rebuild_inclusion(tmp_path):
 
 
 def test_scan_backoff_skip(tmp_path):
-    """A source in active backoff (now < next_attempt) is NOT enqueued."""
-    sch, mgr = _make_scheduler([_make_src("x", tmp_path, is_stale=True)])
-    # Plant a backoff entry: next_attempt well in the future
-    sch._backoff["x"] = type("B", (), {"fail_count": 1, "next_attempt": 99999.0})()
-    sch.scan(now=1000.0)
+    """A slot-due source in active backoff (now < next_attempt) is NOT enqueued
+    — the backoff guard alone suppresses it (regression pin: deleting the
+    guard must fail this test)."""
+    src = _make_src("x", tmp_path, mtime=OLD)      # slot-due at NOW
+    sch, mgr = _make_scheduler([src])
+    # Plant a backoff entry: next_attempt well past NOW
+    sch._backoff["x"] = type("B", (), {
+        "fail_count": 1, "next_attempt": NOW + 99999.0})()
+    sch.scan(now=NOW)
     assert mgr.enqueued == []
+    # and without the guard the source WOULD be due (guards the pin itself)
+    sch2, mgr2 = _make_scheduler([_make_src("x", tmp_path, mtime=OLD)])
+    sch2.scan(now=NOW)
+    assert mgr2.enqueued == ["x"]
 
 
 def test_reconcile_success_clears_fail_count(tmp_path):
