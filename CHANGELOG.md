@@ -8,6 +8,7 @@
 
 - Fail2ban 集成：`scripts/fail2ban/ipradar.conf` —— ban 前先查本地裁决，确认恶意（conf ≥ 70 可调）记入长封名单，CDN/基础设施边缘跳过 ban 免误封
 - Graylog 集成：`integrations/graylog/` —— Lookup Table + HTTP JSONPath 配置指南，日志富化一步到位
+- Wazuh 集成：`integrations/wazuh/custom-ipradar` —— 带 IP 告警自动富化为 ECS threat.indicator 跟进告警，本地替代 VirusTotal 集成
 - `/api/lookup` 新增顶层 `threat` 汇总字段（verdict/confidence/types/is_cdn），下游集成一句话拿裁决
 
 ### 修复

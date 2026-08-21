@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+# IP Radar integration for Wazuh (custom-ipradar)
+#
+# Enriches Wazuh alerts with a fused, multi-source threat verdict from a
+# self-hosted IP Radar instance (https://github.com/steponeerror/ip-radar).
+# For every alert that carries a source/destination IP, this script queries
+# the local IP Radar API and writes a follow-up alert back into the Wazuh
+# queue with an ECS `threat.indicator` payload.
+#
+# Why not just use the built-in VirusTotal integration?
+#   - VT public API: 500 req/day, 4 req/min, every query ships your alert
+#     IPs to a third party. IP Radar: unlimited local lookups, nothing
+#     leaves the machine, 29 fused public feeds with per-source evidence.
+#
+# Install (see integrations/wazuh/README.md for the full guide):
+#   cp custom-ipradar /var/ossec/integrations/
+#   chown root:wazuh /var/ossec/integrations/custom-ipradar
+#   chmod 750 /var/ossec/integrations/custom-ipradar
+#   # then in /var/ossec/etc/ossec.conf:
+#   # <integration>
+#   #   <name>custom-ipradar</name>
+#   #   <hook_url>http://127.0.0.1:8000</hook_url>
+#   #   <alert_format>json</alert_format>
+#   #   <level>3</level>
+#   # </integration>
+#
+# Script contract (Wazuh Integrator module):
+#   argv[1]  alert file (JSON)      — mandatory
+#   argv[2]  api_key                — unused here (IP Radar needs none)
+#   argv[3]  hook_url               — IP Radar base URL (default localhost)
+#   argv[4+] optional: 'debug' flag / options file
+#
+# Modeled on Wazuh's bundled integrations (maltiverse.py); GPLv2 like them.
+
+import json
+import os
+import socket
+import sys
+import urllib.request
+
+# Exit codes (match Wazuh integration conventions)
+ERR_BAD_ARGUMENTS = 2
+ERR_FILE_NOT_FOUND = 3
+ERR_INVALID_JSON = 4
+
+DEFAULT_URL = 'http://127.0.0.1:8000'
+LOOKUP_TIMEOUT = 5          # seconds; slow or down IP Radar must never block alerting
+MIN_CONFIDENCE_TO_ALERT = 1 # report suspicious+malicious only (see README to change)
+MAX_EVENT_SIZE = 65536      # Wazuh queue socket event limit
+
+ALERT_INDEX = 1
+WEBHOOK_INDEX = 3
+
+debug_enabled = False
+pwd = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+LOG_FILE = os.path.join(pwd, 'logs', 'integrations.log')
+SOCKET_ADDR = os.path.join(pwd, 'queue', 'sockets', 'queue')
+
+
+def debug(msg: str) -> None:
+    if debug_enabled:
+        print(msg)
+        with open(LOG_FILE, 'a') as f:
+            f.write(msg + '\n')
+
+
+def load_alert(file_path: str) -> dict:
+    try:
+        with open(file_path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        debug(f'# ERROR: alert file not found: {file_path}')
+        sys.exit(ERR_FILE_NOT_FOUND)
+    except json.JSONDecodeError as e:
+        debug(f'# ERROR: invalid JSON in alert file: {e}')
+        sys.exit(ERR_INVALID_JSON)
+
+
+def extract_ips(alert: dict) -> list:
+    """Pull candidate IPs from the alert — ECS `data.*` first, legacy next.
+
+    Deduplicated, order-preserving. Reserved ranges are left in; IP Radar
+    answers them as benign/reserved by itself.
+    """
+    data = alert.get('data', {})
+    candidates = [
+        data.get('src_ip'), data.get('dest_ip'), data.get('source_ip'),
+        alert.get('srcip'), alert.get('dstip'),
+    ]
+    seen, ips = set(), []
+    for ip in candidates:
+        if ip and ip not in seen:
+            seen.add(ip)
+            ips.append(ip)
+    return ips
+
+
+def ipradar_lookup(base_url: str, ip: str) -> dict | None:
+    """Query local IP Radar. Returns parsed dict, or None on any failure —
+    a dead IP Radar must degrade to 'no enrichment', never an error."""
+    url = f'{base_url.rstrip("/")}/api/lookup/{ip}'
+    try:
+        with urllib.request.urlopen(url, timeout=LOOKUP_TIMEOUT) as r:
+            return json.load(r)
+    except Exception as e:  # noqa: BLE001 — any transport/5xx/parse failure
+        debug(f'# ipradar: lookup failed for {ip}: {e}')
+        return None
+
+
+def confidence_band(verdict: str, confidence: int) -> str:
+    """Map the fused verdict to the ECS confidence vocabulary."""
+    if verdict == 'malicious' and confidence >= 70:
+        return 'High'
+    if verdict == 'malicious' or verdict == 'suspicious':
+        return 'Medium'
+    return 'Low'
+
+
+def build_threat_alert(alert: dict, ip: str, result: dict) -> dict:
+    """ECS-shaped follow-up alert mirroring Wazuh's maltiverse integration."""
+    threat = result.get('threat', {})
+    verdict = threat.get('verdict', 'benign')
+    confidence = int(threat.get('confidence', 0))
+    types = threat.get('types', [])
+
+    # Per-source evidence for the detected types — the audit trail that
+    # separates a fused verdict from a black-box score.
+    sources = []
+    for ctype, assessment in result.get('classifications', {}).items():
+        if assessment.get('detected'):
+            sources.extend(s.get('source', '') for s in assessment.get('sources', []))
+    sources = sorted(set(s for s in sources if s))[:12]  # cap for event size
+
+    description = (
+        f'IP Radar fused verdict: {verdict} ({confidence}/100)'
+        + (f', types: {", ".join(types)}' if types else '')
+    )
+    if result.get('country', {}).get('value'):
+        description += f", country: {result['country']['value']}"
+    if result.get('as_name', {}).get('value'):
+        description += f", ASN: {result['as_name']['value']}"
+
+    return {
+        'integration': 'ipradar',
+        'alert_id': alert.get('id'),
+        'ipradar': {
+            'ip': ip,
+            'verdict': verdict,
+            'confidence': confidence,
+            'types': types,
+            'is_cdn': threat.get('is_cdn', False),
+            'sources': sources,
+        },
+        'threat': {
+            'framework': 'MITRE ATT&CK',
+            'indicator': {
+                'name': ip,
+                'type': 'ipv4-addr',
+                'confidence': confidence_band(verdict, confidence),
+                'description': description,
+                'provider': 'IP Radar (' + ', '.join(sources[:5]) + ')'
+                            if sources else 'IP Radar',
+                'sightings': len(sources),
+            },
+        },
+    }
+
+
+def send_event(msg: dict, agent: dict | None) -> None:
+    """Write the follow-up alert into the Wazuh analysis queue."""
+    if not agent or agent.get('id') == '000':
+        event = f'1:ipradar:{json.dumps(msg)}'
+    else:
+        location = '[{0}] ({1}) {2}'.format(
+            agent['id'], agent.get('name', ''),
+            agent.get('ip', 'any'),
+        ).replace('|', '||').replace(':', '|:')
+        event = f'1:{location}->ipradar:{json.dumps(msg)}'
+
+    if len(event) > MAX_EVENT_SIZE:
+        debug(f'# WARNING: event exceeds {MAX_EVENT_SIZE} bytes, truncating sources')
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        sock.connect(SOCKET_ADDR)
+        sock.send(event.encode()[:MAX_EVENT_SIZE])
+        sock.close()
+    except socket.error as e:
+        if e.errno == 111:
+            print('ERROR: Wazuh is not running.')
+            sys.exit(6)
+        debug(f'# ipradar: socket error: {e}')
+
+
+def main(args: list) -> None:
+    global debug_enabled
+    if len(args) < 2:
+        debug('# ERROR: wrong arguments')
+        sys.exit(ERR_BAD_ARGUMENTS)
+
+    debug_enabled = len(args) > 4 and args[4] == 'debug'
+
+    alert_file = args[ALERT_INDEX]
+    base_url = args[WEBHOOK_INDEX] if len(args) > WEBHOOK_INDEX else DEFAULT_URL
+
+    alert = load_alert(alert_file)
+    agent = alert.get('agent')
+
+    for ip in extract_ips(alert):
+        result = ipradar_lookup(base_url, ip)
+        if result is None:
+            continue  # IP Radar down: skip enrichment, alerting unaffected
+        threat = result.get('threat', {})
+        if int(threat.get('confidence', 0)) < MIN_CONFIDENCE_TO_ALERT \
+                or threat.get('verdict') == 'benign':
+            debug(f'# ipradar: {ip} benign, no follow-up alert')
+            continue
+        send_event(build_threat_alert(alert, ip, result), agent)
+
+
+if __name__ == '__main__':
+    main(sys.argv)

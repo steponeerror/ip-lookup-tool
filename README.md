@@ -178,6 +178,14 @@ curl -s http://127.0.0.1:8000/api/sources
 >
 > Use Graylog's built-in Lookup Tables (HTTP JSONPath adapter) to turn source IPs into country, ASN, and a fused threat verdict (`threat.verdict` / `threat.confidence`) — no plugin, unlimited local lookups, nothing leaves the machine. Step-by-step config + pipeline rules: [`integrations/graylog/README.md`](integrations/graylog/README.md).
 
+### Wazuh 集成：告警富化（VirusTotal 集成的本地替代）
+
+`integrations/wazuh/custom-ipradar` 把每条带 IP 的 Wazuh 告警富化为 ECS `threat.indicator` 跟进告警——本地无限量查询，不把告警 IP 送给第三方。装法、ossec.conf 配置与告警样例见 [`integrations/wazuh/README.md`](integrations/wazuh/README.md)。
+
+> ### Wazuh integration: alert enrichment (local alternative to the VirusTotal integration)
+>
+> `integrations/wazuh/custom-ipradar` enriches every IP-bearing Wazuh alert into an ECS `threat.indicator` follow-up alert — unlimited local lookups, your alert IPs never leave the machine. Install, ossec.conf snippet, and sample alert: [`integrations/wazuh/README.md`](integrations/wazuh/README.md).
+
 ## 用 AI 扩展数据源 | Extending Sources with AI
 
 仓库还自带三个 AI agent skills（`.pi/skills/`）——用支持项目级 skills 的编码代理（如 [pi](https://github.com/earendil-works/pi)），一句话就能让 AI 替你把源加上：
