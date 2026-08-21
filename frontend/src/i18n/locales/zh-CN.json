@@ -3,7 +3,6 @@
   "layout.subtitle": "面向威胁分析的批量 IP → ASN 查询",
   "layout.nav.lookup": "查询",
   "layout.nav.sources": "数据源",
-
   "lookup.tab.text": "文本输入",
   "lookup.tab.file": "文件上传",
   "lookup.results": "结果",
@@ -16,7 +15,6 @@
   "lookup.uploadFailed": "上传失败",
   "lookup.cancelled": "查询已取消",
   "lookup.noSources": "没有启用的数据源 — 请先在「源管理」页启用至少一个源",
-
   "ipInput.label": "IP 地址",
   "ipInput.query": "查询",
   "ipInput.querying": "查询中...",
@@ -33,14 +31,12 @@
   "fileUpload.waiting": "正在查询 IP，请稍候",
   "fileUpload.dropHint": "拖放 .txt 或 .csv 文件",
   "fileUpload.choose": "选择文件",
-
   "verdict.malicious": "恶意",
   "verdict.suspicious": "可疑",
   "verdict.benign": "可信",
   "verdict.informational": "未知",
   "verdict.clean": "—",
   "verdict.reserved": "保留地址",
-
   "class.c2_server": "C2",
   "class.botnet_cc": "C2",
   "class.scanner": "扫描",
@@ -51,26 +47,22 @@
   "class.proxy": "代理",
   "class.hosting": "机房",
   "class.vpn": "VPN",
-
   "asset.is_proxy": "代理",
   "asset.is_hosting": "机房",
   "asset.is_tor": "Tor",
   "asset.is_vpn": "VPN",
   "asset.carrier": "运营商",
   "asset.service": "服务",
-
   "column.city": "城市",
   "column.country": "国家",
   "column.verdict": "判定",
   "column.threat": "威胁标签",
-
   "ipDetail.country": "国家",
   "ipDetail.city": "城市",
   "ipDetail.org": "机构 / ISP",
   "ipDetail.range": "网段",
   "ipDetail.threatDetails": "威胁明细",
   "ipDetail.noHits": "未命中",
-
   "common.confidence": "置信度",
   "common.corroborated": "已印证",
   "common.corroboratedTitle": "2+ 独立源印证",
@@ -80,19 +72,14 @@
   "common.conflictTooltip": "多源判定冲突",
   "common.sourcesHit": "命中情报源数",
   "common.sourceCount": "{n}源",
-
   "modal.close": "确定",
   "classification.reporters": "{n}上报",
-
   "summary.allHigh": "全部 {n} 条 高置信",
   "summary.lowConf": "{n} 低置信",
   "summary.medConf": "{n} 中置信",
   "summary.highConf": "{n} 高置信",
-
   "reserved.notice": "保留地址 · 不可路由 · 未查询威胁情报",
-
   "pagination.perPage": "每页",
-
   "resultTable.filterPlaceholder": "按 IP、机构、国家、网段过滤...",
   "resultTable.disagreementsFirst": "分歧优先",
   "resultTable.expandAll": "展开分歧",
@@ -101,7 +88,6 @@
   "resultTable.stixDisabledTitle": "STIX 导出仅支持单 IP 查询",
   "resultTable.stixTitle": "导出 STIX 2.1 Bundle",
   "resultTable.noMatch": "没有匹配「{filter}」的结果",
-
   "dbStatus.downloading": "下载 {step}...",
   "dbStatus.loading": "加载数据库...",
   "dbStatus.starting": "启动中...",
@@ -122,7 +108,6 @@
   "dbStatus.statusUnavailable": "状态不可用",
   "dbStatus.updateFailed": "数据库更新失败",
   "dbStatus.rows": "行",
-
   "warmup.title": "数据库首次构建中",
   "warmup.progress": "{done}/{total} 源",
   "warmup.current": "当前: {source} ↓ {pct}",
@@ -130,18 +115,15 @@
   "warmup.hint": "构建完成后即可查询,请勿关闭页面",
   "warmup.failed": "构建失败,请检查网络连接",
   "warmup.retry": "重试构建",
-
   "sourceDetail.nativeTypeTitle": "源原生分类",
   "sourceDetail.comment": "评论",
   "sourceDetail.extraKeys": "额外 {n} 键",
-
   "sources.cat.geo_asn": "Geo / ASN",
   "sources.cat.threat": "威胁情报",
   "sources.cat.asset": "资产属性",
   "sources.cat.other": "其他",
   "sources.status.error": "错误",
   "sources.status.off": "关闭",
-  "sources.status.onDemand": "按需",
   "sources.status.notLoaded": "未加载",
   "sources.status.stale": "过期",
   "sources.status.fresh": "最新",
@@ -159,7 +141,6 @@
   "sources.downloading": "下载中…",
   "sources.update": "更新",
   "sources.toggleAria": "切换 {name}",
-  "sources.timeAgo.onDemand": "按需",
   "sources.timeAgo.noData": "无数据",
   "sources.timeAgo.unknown": "未知",
   "sources.timeAgo.justNow": "刚刚",

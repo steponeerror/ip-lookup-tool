@@ -4,7 +4,7 @@ A reserved address cannot appear as a source on the public internet, so it has
 no meaningful public threat intelligence. lookup() short-circuits these so they
 are never queried against threat/geo sources (avoiding false-positive malicious
 verdicts from feeds that happen to contain private ranges) and never sent to
-online enrichers (saving quota).
+keyed lookups (saving quota).
 
 Gate: `not addr.is_global or addr.is_multicast`.
 - is_global is computed by stdlib ipaddress directly from the IANA IPv4
@@ -16,7 +16,7 @@ Gate: `not addr.is_global or addr.is_multicast`.
 - multicast (224.0.0.0/4) is added explicitly: it is a group-address range,
   not in the "globally reachable" column, and feeds listing it are noise.
 
-NOTE for future Plan 3 (online enrichers): when _enrich_results is wired up,
+NOTE for future work: when per-IP online lookup is ever wired up,
 it MUST skip IPs whose LookupResult.is_reserved is True.
 """
 import ipaddress

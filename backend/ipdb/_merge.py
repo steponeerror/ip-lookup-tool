@@ -180,7 +180,12 @@ class FactualVoting:
 
 
 class NamingAuthority:
-    """Authority model for naming fields (as_name)."""
+    """Authority model for naming fields (as_name).
+
+    cn_isp once held a CN/HK/MO/TW authority branch (conf 90) — removed when
+    cn_isp stopped emitting as_name (spec D6): region names like "香港" were
+    polluting the org slot. First valid by reliability order wins; see git
+    history if a CN authority source ever returns."""
 
     def __init__(self):
         self.field = "as_name"
@@ -190,22 +195,6 @@ class NamingAuthority:
         valid = [a for a in attributions if a.value and a.value != "N/A"]
         if not valid:
             return MergedField("N/A", 0, "authority", attributions)
-        if len(valid) == 1:
-            return MergedField(valid[0].value, 50, "authority", attributions)
-
-        country_sources = context.get("country", {})
-        cn_country = country_sources.get("cn_isp", "")
-        lite_country = country_sources.get("ipinfo_lite", "")
-        country_val = cn_country or lite_country
-
-        authoritative = None
-        if country_val in ("CN", "HK", "MO", "TW"):
-            cn_vals = [a.value for a in valid if a.source == "cn_isp"]
-            if cn_vals:
-                authoritative = cn_vals[0]
-
-        if authoritative:
-            return MergedField(authoritative, 90, "authority", attributions)
         return MergedField(valid[0].value, 50, "authority", attributions)
 
 

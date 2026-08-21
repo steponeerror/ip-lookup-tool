@@ -111,3 +111,28 @@ class FakeRange:
         from ipdb._types import SourceAttribution
         return MergedField(v, 50, "specificity",
                            [SourceAttribution(k, v, 0.5, False) for k, v in sv.items() if v])
+
+
+class TestIspFlagRouting:
+    """F6 lock: if _LOOKUP_SLOTS dropped {"is_isp"}, every other test stays
+    green and the ISP badge dies silently. Lock the True branch at lookup() level."""
+
+    def test_is_isp_true_propagates_to_result(self, monkeypatch):
+        import ipdb._registry as reg
+        from ipdb._types import SourceHealth
+
+        class IspSource:
+            name = "ipinfo_lite"
+            fields = ("country_code", "asn", "as_name", "ip_range", "is_isp")
+
+            def health(self):
+                return SourceHealth(name=self.name, loaded=True, record_count=1,
+                                    last_updated="2026-06-12T00:00:00Z", is_stale=False)
+
+            def query(self, ip):
+                return {"country_code": "CN", "asn": 4134,
+                        "as_name": "China Telecom", "is_isp": True}
+
+        monkeypatch.setattr(reg, "_sources", [IspSource()])
+        r = lookup("1.2.3.4")
+        assert r.is_isp is True

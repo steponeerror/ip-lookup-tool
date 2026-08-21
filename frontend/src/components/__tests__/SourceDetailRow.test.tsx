@@ -22,6 +22,7 @@ describe("SourceDetailRow", () => {
       reporter_count: 4,
       native_confidence: 85,
       first_seen: "2026-07-01T00:00:00+00:00",
+      last_seen: "2026-08-15T00:00:00+00:00",
       native_categories: ["PUB"],
     };
     renderWithI18n(<SourceDetailRow detail={d} />);
@@ -31,6 +32,7 @@ describe("SourceDetailRow", () => {
     expect(screen.getByText(/\[PUB\]/)).toBeInTheDocument();
     expect(screen.getByText(/native 85/)).toBeInTheDocument();
     expect(screen.getByText(/first 2026-07-01/)).toBeInTheDocument();
+    expect(screen.getByText(/last 2026-08-15/)).toBeInTheDocument();
   });
 
   it("omits optional lines and the extra toggle when absent", () => {

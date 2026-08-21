@@ -3,7 +3,6 @@
   "layout.subtitle": "Batch IP to ASN lookup for threat analysis",
   "layout.nav.lookup": "Lookup",
   "layout.nav.sources": "Sources",
-
   "lookup.tab.text": "Text Input",
   "lookup.tab.file": "File Upload",
   "lookup.results": "Results",
@@ -16,7 +15,6 @@
   "lookup.uploadFailed": "Upload failed",
   "lookup.cancelled": "Query cancelled",
   "lookup.noSources": "No data sources enabled — enable at least one on the Sources page",
-
   "ipInput.label": "IP Addresses",
   "ipInput.query": "Query",
   "ipInput.querying": "Querying...",
@@ -33,14 +31,12 @@
   "fileUpload.waiting": "Looking up IPs, please wait",
   "fileUpload.dropHint": "Drag and drop a .txt or .csv file",
   "fileUpload.choose": "Choose File",
-
   "verdict.malicious": "Malicious",
   "verdict.suspicious": "Suspicious",
   "verdict.benign": "Benign",
   "verdict.informational": "Unknown",
   "verdict.clean": "—",
   "verdict.reserved": "Reserved",
-
   "class.c2_server": "C2",
   "class.botnet_cc": "C2",
   "class.scanner": "Scanner",
@@ -51,26 +47,22 @@
   "class.proxy": "Proxy",
   "class.hosting": "Hosting",
   "class.vpn": "VPN",
-
   "asset.is_proxy": "Proxy",
   "asset.is_hosting": "Hosting",
   "asset.is_tor": "Tor",
   "asset.is_vpn": "VPN",
   "asset.carrier": "Carrier",
   "asset.service": "Service",
-
   "column.city": "City",
   "column.country": "Country",
   "column.verdict": "Verdict",
   "column.threat": "Threat",
-
   "ipDetail.country": "Country",
   "ipDetail.city": "City",
   "ipDetail.org": "Org / ISP",
   "ipDetail.range": "Range",
   "ipDetail.threatDetails": "Threat details",
   "ipDetail.noHits": "No hits",
-
   "common.confidence": "conf",
   "common.corroborated": "Corroborated",
   "common.corroboratedTitle": "2+ independent sources",
@@ -80,19 +72,14 @@
   "common.conflictTooltip": "Multi-source verdict conflict",
   "common.sourcesHit": "Sources hit",
   "common.sourceCount": "{n}src",
-
   "modal.close": "OK",
   "classification.reporters": "{n} reporters",
-
   "summary.allHigh": "All {n} high conf",
   "summary.lowConf": "{n} low conf",
   "summary.medConf": "{n} med conf",
   "summary.highConf": "{n} high conf",
-
   "reserved.notice": "Reserved · non-routable · threat intel not queried",
-
   "pagination.perPage": "Per page",
-
   "resultTable.filterPlaceholder": "Filter by IP, org, country, range...",
   "resultTable.disagreementsFirst": "Disagreements first",
   "resultTable.expandAll": "Expand disagreements",
@@ -101,7 +88,6 @@
   "resultTable.stixDisabledTitle": "STIX export works on single-IP lookups",
   "resultTable.stixTitle": "Export STIX 2.1 Bundle",
   "resultTable.noMatch": "No results matching \"{filter}\"",
-
   "dbStatus.downloading": "Downloading {step}...",
   "dbStatus.loading": "Loading database...",
   "dbStatus.starting": "Starting...",
@@ -122,7 +108,6 @@
   "dbStatus.statusUnavailable": "Status unavailable",
   "dbStatus.updateFailed": "Database update failed",
   "dbStatus.rows": "rows",
-
   "warmup.title": "Building database for the first time",
   "warmup.progress": "{done}/{total} sources",
   "warmup.current": "Current: {source} ↓ {pct}",
@@ -130,18 +115,15 @@
   "warmup.hint": "Queries unlock once the build completes — please keep this page open",
   "warmup.failed": "Build failed — please check your network connection",
   "warmup.retry": "Retry build",
-
   "sourceDetail.nativeTypeTitle": "Source native category",
   "sourceDetail.comment": "comment",
   "sourceDetail.extraKeys": "extra {n} keys",
-
   "sources.cat.geo_asn": "Geo / ASN",
   "sources.cat.threat": "Threat intel",
   "sources.cat.asset": "Asset attributes",
   "sources.cat.other": "Other",
   "sources.status.error": "error",
   "sources.status.off": "off",
-  "sources.status.onDemand": "on-demand",
   "sources.status.notLoaded": "not loaded",
   "sources.status.stale": "stale",
   "sources.status.fresh": "fresh",
@@ -159,7 +141,6 @@
   "sources.downloading": "Downloading…",
   "sources.update": "Update",
   "sources.toggleAria": "Toggle {name}",
-  "sources.timeAgo.onDemand": "on-demand",
   "sources.timeAgo.noData": "no data",
   "sources.timeAgo.unknown": "unknown",
   "sources.timeAgo.justNow": "just now",

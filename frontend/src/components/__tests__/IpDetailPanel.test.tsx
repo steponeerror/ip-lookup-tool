@@ -94,3 +94,20 @@ describe("IpDetailPanel", () => {
     expect(screen.queryByText(/\(\d\)/)).toBeNull();
   });
 });
+
+describe("as_domain org suffix", () => {
+  it("appends the registrar domain after the org value when present", () => {
+    const withDomain: LookupResult = {
+      ...r,
+      attributes: {
+        as_domain: [{ source: "ipinfo_lite", value: "google.com" }],
+      } as LookupResult["attributes"],
+    };
+    renderWithI18n(<IpDetailPanel r={withDomain} />);
+    expect(screen.getByText("google.com")).toBeInTheDocument();
+  });
+  it("renders no suffix element when as_domain is absent", () => {
+    renderWithI18n(<IpDetailPanel r={r} />);
+    expect(screen.queryByText("google.com")).not.toBeInTheDocument();
+  });
+});

@@ -46,7 +46,13 @@ export function aggregateThreatDepth(r: LookupResult) {
   };
 }
 
-const csvEscape = (v: string) => (/[","\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+// Excel/Sheets execute values starting with = + @ (and tab/CR) as formulas
+// (CSV injection). Prefix a single quote so hostile feed data stays text.
+const FORMULA_PREFIX = /^[=+\-@\t\r]/;
+const csvEscape = (v: string) => {
+  const s = FORMULA_PREFIX.test(v) ? `'${v}` : v;
+  return /[","\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
 
 function threatTags(r: LookupResult): string {
   const tags = Object.keys(r.classifications)

@@ -1,8 +1,8 @@
 # IP Radar
 
-把 28 个公开情报源搬回家：查任何 IP，拿一份说人话的裁决——证据、置信度、地理、ASN 一次看全。一条命令，自己部署。
+把 29 个公开情报源搬回家：查任何 IP，拿一份说人话的裁决——证据、置信度、地理、ASN 一次看全。一条命令，自己部署。
 
-> Pull 28 public threat feeds into your own box: every lookup comes back with a verdict in plain words — evidence, confidence, geo & ASN, all at once. One command, self-hosted.
+> Pull 29 public threat feeds into your own box: every lookup comes back with a verdict in plain words — evidence, confidence, geo & ASN, all at once. One command, self-hosted.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Docker](https://img.shields.io/badge/Docker-one%20container-2496ED?logo=docker&logoColor=white)
@@ -14,7 +14,7 @@
 
 ## 特性 | Features
 
-- **开箱即用，24/28 源不需要密钥** —— 首次启动自动下载构建，≈4.7M 条记录入库；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
+- **开箱即用，25/29 源不需要密钥** —— 首次启动自动下载构建，≈9.6M 条记录入库；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
 - **冷启动不挡路** —— 容器数秒就能打开，免钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
 - **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（源可靠性加权、交叉佐证、随时间衰减）。
 - **地理 · 城市 · ASN** —— GeoLite2 给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
@@ -22,7 +22,7 @@
 - **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，默认每 30 分钟后台刷新。
 - **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认不带 `stix2`，`pip install stix2` 装上即开。
 
-> - **24 of 28 feeds need zero API keys** — first start downloads and builds them all into ≈4.7M records; to light up the other 4 🔑 sources, see [Quick Start](#快速开始--quick-start).
+> - **25 of 29 feeds need zero API keys** — first start downloads and builds them all into ≈9.6M records; to light up the other 4 🔑 sources, see [Quick Start](#快速开始--quick-start).
 > - **Cold start doesn't block** — the container opens within seconds, a top banner tracks the keyless feeds' download/build progress live, and queries unlock themselves once the build settles — never a verdict on half a dataset.
 > - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
 > - **Geo · City · ASN** — GeoLite2 for the city, iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
@@ -36,7 +36,7 @@
 
 ```mermaid
 flowchart TD
-    A["28 feeds<br/>(24 keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
+    A["29 feeds<br/>(25 keyless auto + 4 keyed)"] --> B["Cold-start download /<br/>30-min refresh scheduler"]
     B --> C["Per-source parsers<br/>(classification pipeline)"]
     C --> D["Fusion<br/>(reliability weighting · corroboration · decay)"]
     D --> E["LMDB store<br/>(named volume · mmap)"]
@@ -62,22 +62,22 @@ cd ip-radar
 docker compose up -d --build
 ```
 
-打开 http://127.0.0.1:8000 。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（28 个源中的 24 个，含地理/城市/ASN 与主要封禁列表）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
+打开 http://127.0.0.1:8000 。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（29 个源中的 25 个，含地理/城市/ASN 与主要封禁列表）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
 
-> Open http://127.0.0.1:8000. The container is reachable within seconds on first start — it comes up immediately, and a banner at the top of the page shows real-time download/build progress for the keyless feeds (24 of the 28 sources, including geo/city/ASN and the major blocklists). Queries unlock automatically once the build completes. Subsequent starts load from the `ipradar-data` volume in seconds.
+> Open http://127.0.0.1:8000. The container is reachable within seconds on first start — it comes up immediately, and a banner at the top of the page shows real-time download/build progress for the keyless feeds (25 of the 29 sources, including geo/city/ASN and the major blocklists). Queries unlock automatically once the build completes. Subsequent starts load from the `ipradar-data` volume in seconds.
 
-想开 4 个密钥源（ipinfo_lite / abuseipdb / otx / ip2proxy）或 ipapi.is 增强？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
+想开 4 个密钥源（ipinfo_lite / abuseipdb / otx / ip2proxy）？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
 
-> Want the 4 keyed sources (ipinfo_lite / abuseipdb / otx / ip2proxy) or ipapi.is enrichment? Drop the keys into `.env.local` (gitignored, overrides `.env`):
+> Want the 4 keyed sources (ipinfo_lite / abuseipdb / otx / ip2proxy)? Drop the keys into `.env.local` (gitignored, overrides `.env`):
 
 ```bash
-cp .env .env.local   # then open .env.local in any editor, fill keys; set IPAPI_IS_ENABLED=true if using ipapi.is
+cp .env .env.local   # then open .env.local in any editor, fill keys
 docker compose up -d
 ```
 
-五个变量，去哪申请（`.env` 里也有同样的注释）：
+四个变量，去哪申请（`.env` 里也有同样的注释）：
 
-> The five variables, and where to apply for keys (`.env` carries the same comments):
+> The four variables, and where to apply for keys (`.env` carries the same comments):
 
 | 源 Source | 变量 Variable | 申请 Apply |
 |---|---|---|
@@ -85,7 +85,6 @@ docker compose up -d
 | abuseipdb | `ABUSEIPDB_API_KEY` | <https://www.abuseipdb.com/account> |
 | otx | `OTX_API_KEY` | <https://otx.alienvault.com/settings> |
 | ip2proxy | `IP2PROXY_TOKEN` | <https://www.ip2location.com/> |
-| ipapi.is（付费增强） | `IPAPI_IS_KEY` + `IPAPI_IS_ENABLED=true` | <https://ipapi.is/> |
 
 npm/pip 下载慢（国内网络常见）——传镜像 build-args：
 
@@ -196,7 +195,7 @@ curl -s http://127.0.0.1:8000/api/sources
 | abuseipdb | [AbuseIPDB](https://www.abuseipdb.com/) | Most-reported attacker IPs | 🔑 |
 | otx | [AlienVault OTX](https://otx.alienvault.com/) | Community threat pulses (IPv4 indicators) | 🔑 |
 | spamhaus | [Spamhaus](https://www.spamhaus.org/drop/) | DROP/EDROP hijacked ranges | |
-| stopforumspam | [StopForumSpam](https://www.stopforumspam.com/) | "Toxic" spam-only CIDR ranges | |
+| stopforumspam | [StopForumSpam](https://www.stopforumspam.com/) | Forum-spammer IPs (365-day window, report counts) | |
 | threatfox | [abuse.ch](https://threatfox.abuse.ch/) | Malware IOC feed (CSV/ZIP) | |
 | urlhaus | [abuse.ch](https://urlhaus.abuse.ch/) | Malicious URLs → IPs | |
 | tweetfeed `*` | [TweetFeed](https://github.com/0xDanielLopez/TweetFeed) | Crowd-sourced IOCs from X/Twitter | |
@@ -209,6 +208,7 @@ curl -s http://127.0.0.1:8000/api/sources
 | ciarm | [CINS Army](http://cinsscore.com/) | Passive-reputation bad-guys list | |
 | greensnow | [GreenSnow](https://greensnow.co/) | Compromised-host blocklist | |
 | dataplane | [Dataplane.org](https://dataplane.org/) | Rolling 7-day sensor signals (merged) | |
+| dshield | [DShield](https://dshield.org/block.txt) | Top-attacker /24 blocks (attack counts) | |
 | f3csystems | [f3cSystems](https://github.com/f3cSystems/BlockList_IP) | Honeypot scanner blocklist (Sekoia sensors) | |
 | reportedip | [ReportedIP](https://github.com/reportedip/reportedip-blacklist) | WordPress-honeypot community reputation | |
 

@@ -58,6 +58,7 @@ class Evidence:
     is_vpn: Optional[bool] = None
     carrier: Optional[str] = None
     service: Optional[str] = None     # public-infra role (dns/ntp/...) — string asset slot
+    as_domain: Optional[str] = None   # registrar domain (ASSET_SLOTS contract)
     # ── per-asset native labels (serialized as the internal _native_types key) ──
     native_types: dict = field(default_factory=dict)
     # ── open bag (long tail, lossless) ──

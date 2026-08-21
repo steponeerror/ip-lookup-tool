@@ -163,3 +163,28 @@ describe("buildCsvRow", () => {
     expect(row.trimEnd().endsWith(",Mountain View,95,,,")).toBe(true);
   });
 });
+
+describe("csvEscape formula-injection neutralization", () => {
+  const hostile = (over: Partial<LookupResult>): LookupResult => ({ ...r, ...over });
+  it("prefixes ' onto =-leading as_name (dshield-style hostile feed value)", () => {
+    const row = buildCsvRow(hostile({ as_name: mf('=HYPERLINK("http://evil","x")') }));
+    expect(row).toContain("'=HYPERLINK");
+    expect(row).not.toMatch(/,"=HYPERLINK/);
+  });
+  it("prefixes ' onto + - @ and tab-leading values", () => {
+    const attrs = {
+      carrier: [{ source: "s", value: "+cmd|'/c calc'!A1", native_type: "" }],
+      as_domain: [{ source: "s", value: "-1+1|evil", native_type: "" }],
+      service: [{ source: "s", value: "@evil", native_type: "" }],
+    } as LookupResult["attributes"];
+    const row = buildCsvRow(hostile({ attributes: attrs }));
+    expect(row).toContain("'+cmd|'/c calc'!A1");
+    expect(row).toContain("'-1+1|evil");
+    expect(row).toContain("'@evil");
+  });
+  it("leaves benign values (leading - only in numeric-ish ip/asn context stays intact, plain text untouched)", () => {
+    const row = buildCsvRow(r);
+    expect(row).toContain("Google");
+    expect(row).toContain("8.8.8.8");
+  });
+});

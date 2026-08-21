@@ -282,7 +282,7 @@ export interface SourceInfo {
   name: string;
   enabled: boolean;
   category: "geo_asn" | "threat" | "asset" | "other";
-  archetype: "offline" | "online";
+  archetype: "offline";
   fields: string[];
   reliability: number;
   authoritative_for: string[];

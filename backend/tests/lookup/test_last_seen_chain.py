@@ -1,6 +1,6 @@
 # backend/tests/lookup/test_last_seen_chain.py
 """last_seen query-path chain (spec D4): to_observation collects it, the
-per-observation details dict carries it. 7 sources already emit it into
+per-observation details dict carries it. 8 sources already emit it into
 storage (abuseipdb/tor_exits/threatfox/f3csystems/dataplane/reportedip/
 urlhaus) — these tests pin the read side only."""
 from ipdb._types import EvidenceObservation

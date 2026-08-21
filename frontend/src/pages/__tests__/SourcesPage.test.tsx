@@ -36,27 +36,6 @@ vi.mock("../../api", async () => {
           error: null,
         },
       },
-      {
-        name: "on_demand",
-        enabled: true,
-        category: "other",
-        archetype: "online",
-        fields: ["x"],
-        reliability: 0.5,
-        authoritative_for: [],
-        classification_type: null,
-        url: null,
-        stale_days: null,
-        health: {
-          name: "on_demand",
-          loaded: true,
-          record_count: 0,
-          covered_ips: 0,
-          last_updated: null,
-          is_stale: false,
-          error: null,
-        },
-      },
     ]),
     getTasks: vi.fn().mockResolvedValue({ tasks: [], batch: null }),
     subscribeTasks: vi.fn(() => () => {}),
@@ -70,16 +49,10 @@ function render(el: React.ReactElement) {
 }
 
 describe("SourcesPage", () => {
-  it("hides Update for online source, shows for offline", async () => {
+  it("renders source rows with an Update button each", async () => {
     render(<SourcesPage />);
     await screen.findByText("feodo");
-    // offline row has an Update button
     expect(screen.getByRole("button", { name: /Update/i })).toBeInTheDocument();
-    // online row renders but has NO Update button (only one Update button total)
-    expect(screen.getAllByRole("button", { name: /Update/i }).length).toBe(1);
-    // both rows render
-    expect(screen.getAllByRole("listitem").length).toBe(2);
-    expect(screen.getByText("on_demand")).toBeInTheDocument();
   });
 
   it("timeAgo shows 'no data' (not 'on-demand') for an offline source missing its raw file", async () => {
@@ -108,9 +81,8 @@ describe("SourcesPage", () => {
     ]);
     render(<SourcesPage />);
     await screen.findByText("abuseipdb");
-    // Regression: offline + no last_updated used to show the misleading
-    // "on-demand" timeAgo. An offline source with a missing raw file is NOT
-    // on-demand (on-demand = ApiSource only); it must show "no data".
+    // Regression: offline + no last_update must show "no data" (an offline
+    // source with a missing raw file has nothing on disk).
     expect(screen.getByText("no data")).toBeInTheDocument();
   });
 
