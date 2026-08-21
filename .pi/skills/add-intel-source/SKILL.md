@@ -12,8 +12,11 @@ expect. The pattern already exists across every source in `backend/ipdb/_sources
 Everything here is grounded in the base classes, the registry, the Evidence
 contract, and the merge maps — read them alongside this skill when implementing:
 
-- `backend/ipdb/_sources/_base.py` — the simple bases: `IpListSource`, `CsvSource`, `ApiSource`.
-- `backend/ipdb/_source_base.py` — the unified `Source` base (`harvest`, `_http_get`, shared lifecycle). **Two different files:** `_sources/_base.py` (simple) vs `_source_base.py` (unified `Source`).
+- `backend/ipdb/_sources/_base.py` + `backend/ipdb/_source_base.py` — the two
+  base-class files. **Two different files** (simple bases vs the unified
+  `Source`). Don't trust any written class list — enumerate live:
+  `grep "^class" backend/ipdb/_sources/_base.py backend/ipdb/_source_base.py`
+  and `grep "def " <file>` for overridable hooks.
 - `backend/ipdb/_evidence.py` — the `Evidence` record, the tier sets (`CORE_FIELDS` / `SCALAR_SLOTS` / `RICH_SLOTS` / `ASSET_SLOTS` / `ALL_KNOWN`), and `route_record()` (the query-path router).
 - `backend/ipdb/_registry.py` — auto-discovery + the `SOURCE_CATEGORIES` dict.
 - `backend/ipdb/_merge.py` — fusion + the `SOURCE_RELIABILITY` / `AUTHORITATIVE_SOURCES` dicts.
@@ -30,10 +33,13 @@ contract, and the merge maps — read them alongside this skill when implementin
    `_sources/` (skipping `_`-prefixed), finds classes that have both a `name`
    and a `fields` attribute AND are defined in that module, and instantiates each
    with `data_dir=...`. That's the entire registration contract.
-3. **Four archetypes** (`IpListSource`, `CsvSource`, a `Source` subclass, or
-   `ApiSource` — decision tree below) plus two upgrade patterns for existing
-   sources (**rebuild-override**, **directory-source** — see
-   `references/source-archetypes.md` §3b/§3c).
+3. **Archetypes by criteria, not by memorized list** (decision tree below;
+   two upgrade patterns for existing sources: rebuild-override,
+   directory-source — see `references/source-archetypes.md` §3b/§3c).
+   **Tombstone:** the query-per-IP API base class (`ApiSource`) was
+   deliberately removed (PR #13) — a batch-lookup tool cannot afford
+   per-IP billing (same rationale as discover-intel-sources' hard gates).
+   It does not exist; don't look for it, don't reinvent it.
 4. **The lifecycle is `download() → rebuild() → load() → query()`, and the split
    is a hard contract (LMDB storage):**
    - `download(token=None)` fetches and atomically publishes the raw data file.
@@ -98,15 +104,18 @@ dict** (e.g. `native_types={"is_vpn": "VPN"}`), serialized as the internal
 
 **`extra.native_type` is a dead convention — never emit it.**
 
-Everything else routes by tier (ground truth: the frozensets in `_evidence.py`):
+Everything else routes by tier. **Ground truth is the live frozensets in
+`_evidence.py`** — read them, don't recall them:
+`grep "SLOTS\|CORE_FIELDS\|ALL_KNOWN" backend/ipdb/_evidence.py`.
+Tier semantics (stable) vs membership (code-decided):
 
-| Tier | Lands in | Members / examples |
+| Tier | Lands in | Semantics |
 |---|---|---|
-| Core (drives fusion) | `Evidence.<core_field>` | `classification_type`, `verdict`, `reliability`, `first_seen`, `confidence`, `malware_name` |
-| Canonical scalar slots | `Evidence.<slot>` | `country_code`, `asn`, `as_name`, `ip_range`, `isp`, `city` |
-| Canonical rich slots | `Evidence.<slot>` | `native_categories`, `comment`, `tags`, `reporter_count`, `last_seen` |
-| Canonical asset slots | `Evidence.<slot>` | `is_proxy`, `is_hosting`, `is_tor`, `is_vpn`, `carrier`, `service` |
-| Long-tail / one-off / feed-specific | `Evidence.extra[<key>]` | vendor-specific columns, ports, SBL ids |
+| Core (drives fusion) | `Evidence.<core_field>` | classification/verdict/reliability/confidence decay axis |
+| Canonical scalar slots | `Evidence.<slot>` | one-value-per-IP fields, strategy-merged |
+| Canonical rich slots | `Evidence.<slot>` | list/numeric evidence detail |
+| Canonical asset slots | `Evidence.<slot>` | boolean/string asset statements, no scoring |
+| Long-tail / feed-specific | `Evidence.extra[<key>]` | everything else, lossless |
 
 The query path (`route_record()` in `_evidence.py`) auto-folds any key outside
 `ALL_KNOWN` into `extra`, so a wrong routing guess is recoverable — but a field
@@ -142,29 +151,22 @@ Is it a static file you download once and load into LMDB?
 │          query() (env with reopen-retry) / health() / _http_get().
 │          (.mmdb input note: read it with maxminddb>=2.0 — re-added as a
 │           read-only dep; mmap-iterate in harvest(). First case: geolite_city.py.)
-└─ NO — query-per-IP REST API (no bulk download)?
-      → ApiSource                   (defined in _base.py; no source uses it yet,
-                                      so it's the greenfield path for new APIs)
+└─ NO bulk file at all (query-per-IP API only)?
+      → STOP. Per-query API sources are out of scope for this tool
+        (cost model — see the tombstone in "5-minute mental model" #3;
+        discover-intel-sources' hard-gate table has the full rationale).
 ```
 
 **Upgrading an existing source** (archetypes §3b/§3c): an `IpListSource` gaining
 per-row fields without switching bases → **rebuild override**; a publisher with
 many sub-lists → **directory source**.
 
-How to read existing sources as templates:
-
-| Archetype | Canonical example | Read it |
-|---|---|---|
-| IpListSource | `spamhaus.py`, `tor_exits.py` | minimal |
-| CsvSource | `ipsum.py` (reporter_count), `proxyscrape.py` (rich row routing) | start here |
-| Source subclass | `iptoasn.py` (gzip + range→CIDR), then `threatfox.py` (ZIP + per-row classification) | the `harvest()` pattern |
-| rebuild override | `tor_exits.py` (per-row last_seen on an IpList base) | §3b |
-| directory source | `blocklist_de.py` (11 lists + priority adjudication) | §3c |
-| ApiSource | `_base.ApiSource` skeleton | `query_api(ip)` |
-
-**Read `references/source-archetypes.md`** for the annotated, copyable skeleton
-of whichever archetype you picked. Don't reinvent the boilerplate — copy and
-fill in.
+**Templates are real files, not skeletons** — pick by the criteria in
+`references/source-archetypes.md` §1–§3c, then read the cited exemplar
+end-to-end (each section names its 1–2 anchor files) and copy from it.
+Minimal starting points: `binarydefense.py` (IpListSource, 20 lines),
+`ipsum.py` (CsvSource, 37 lines), `iptoasn.py` (Source subclass — the
+canonical harvest template).
 
 ## Phase 3 — Implement
 
@@ -253,8 +255,7 @@ Then run, from `backend/`:
 (In a git worktree, use the main checkout's interpreter absolute path — the venv does not travel with worktrees.)
 
 The full suite has **known unrelated failures that drift run to run**:
-`tests/core/test_quota_thread_safety.py` ×3 (a 950-vs-1000 daily-cap drift
-bug, not rate-limiting), a scheduler status-endpoint flake ×2,
+a scheduler status-endpoint flake ×2,
 `test_spa_fallback` ×2 (needs built frontend assets — always fails in a
 fresh worktree), and a load-sensitive cluster (`test_api_tasks` batch,
 stream/batch pool, lookup-error, main-routes) that flakes under parallel
@@ -359,14 +360,10 @@ Most are enforced automatically:
 
 ## Where to go deeper
 
-- **`references/source-archetypes.md`** — copyable skeletons for all four
-  archetypes (§1–§4), the rebuild-override upgrade pattern (§3b), the
-  directory-source pattern (§3c), and §5 on `field_map`. Read this before
-  writing any source.
-- **`references/classification.md`** — the full controlled vocabulary, the
-  `normalize()` contract, and how to add a per-source `_MAP`.
-- Existing sources are the ground truth: `ipsum.py` (minimal CsvSource),
-  `spamhaus.py` (IpListSource + SBL rebuild override), `tor_exits.py`
-  (IpListSource + timestamp rebuild override), `iptoasn.py` (Source subclass:
-  gzip + range→CIDR + single_evidence), `threatfox.py` (Source subclass: ZIP +
-  per-row classification), `blocklist_de.py` (directory source).
+- **`references/source-archetypes.md`** — the selector + exemplar index
+  (§1–§3c, §5 field_map). Read it before writing any source.
+- **`references/classification.md`** — the `normalize()` contract and how to
+  add a per-source `_MAP` (vocabulary itself is read live from
+  `_classification.py`).
+- Existing sources are ground truth — the archetypes reference names its
+  anchor exemplars per trigger; `ls backend/ipdb/_sources/` for the rest.
