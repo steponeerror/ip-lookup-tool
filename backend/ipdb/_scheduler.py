@@ -125,6 +125,12 @@ class RefreshScheduler:
                     state = self._manager.task_state(task_id)
                 except Exception:
                     state = None
+            if task_id is not None or (b is not None and now < b.next_attempt):
+                next_refresh = None   # outcome/backoff decides, not the slot
+            else:
+                mtime = self._read_mtime(source)
+                next_refresh = (_iso(_due_at(name, mtime, source.stale_days))
+                                if mtime is not None else None)
             sources.append({
                 "name": name,
                 "stale": bool(source.health().is_stale),
@@ -132,6 +138,7 @@ class RefreshScheduler:
                 "fail_count": b.fail_count if b else 0,
                 "last_attempt_at": _iso(self._last_attempt.get(name)),
                 "next_attempt_at": _iso(b.next_attempt if b else None),
+                "next_refresh_at": next_refresh,
             })
         return {
             "enabled": True,

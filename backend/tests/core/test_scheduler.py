@@ -465,3 +465,20 @@ def test_due_at_lands_on_own_slot_after_deadline():
     deadline = mtime + SLOT_GRID - REFRESH_GUARD
     assert due > deadline and due <= deadline + SLOT_GRID
     assert (due - 10 * SLOT_GRID) % SLOT_GRID == slot   # lands on its own slot
+
+
+def test_status_next_refresh_at(tmp_path):
+    """next_refresh_at: ISO string when idle; None when in flight or backing off."""
+    src = _make_src("abuseipdb", tmp_path, mtime=time.time() - 86400)
+    sch, _ = _make_scheduler([src])
+    st = sch.status()
+    s0 = st["sources"][0]
+    assert isinstance(s0["next_refresh_at"], str) and s0["next_refresh_at"].endswith("Z")
+
+    sch._last_task["abuseipdb"] = "t0"          # in flight
+    assert sch.status()["sources"][0]["next_refresh_at"] is None
+
+    sch._last_task.pop("abuseipdb")
+    sch._backoff["abuseipdb"] = type(
+        "B", (), {"fail_count": 1, "next_attempt": time.time() + 99999})()
+    assert sch.status()["sources"][0]["next_refresh_at"] is None
