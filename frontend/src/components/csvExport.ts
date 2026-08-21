@@ -8,7 +8,7 @@ export const CSV_HEADER =
   "reporter_total,verdict_conflict,corroborated,malware_names,top_reliability," +
   "ip_range,range_confidence,error," +
   "is_proxy,proxy_subtype,is_hosting,is_tor,is_vpn,carrier,service,service_provider," +
-  "city,city_confidence\n";
+  "city,city_confidence,first_seen,last_seen,as_domain\n";
 
 export function aggregateThreatDepth(r: LookupResult) {
   const cas = Object.values(r.classifications);
@@ -29,16 +29,30 @@ export function aggregateThreatDepth(r: LookupResult) {
       }
     }
   }
+  let first_seen = "";
+  let last_seen = "";
+  for (const c of cas) for (const d of c.details) {
+    if (d.first_seen && (!first_seen || d.first_seen < first_seen)) first_seen = d.first_seen;
+    if (d.last_seen && (!last_seen || d.last_seen > last_seen)) last_seen = d.last_seen;
+  }
   return {
     reporter_total,
     verdict_conflict,
     corroborated,
     malware_names,
     top_reliability: Math.round(top_reliability * 100) / 100,
+    first_seen,
+    last_seen,
   };
 }
 
-const csvEscape = (v: string) => (/[","\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+// Excel/Sheets execute values starting with = + @ (and tab/CR) as formulas
+// (CSV injection). Prefix a single quote so hostile feed data stays text.
+const FORMULA_PREFIX = /^[=+\-@\t\r]/;
+const csvEscape = (v: string) => {
+  const s = FORMULA_PREFIX.test(v) ? `'${v}` : v;
+  return /[","\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
 
 function threatTags(r: LookupResult): string {
   const tags = Object.keys(r.classifications)
@@ -98,6 +112,9 @@ export function buildCsvRow(r: LookupResult): string {
     csvEscape(assetNative(r, "service")),
     csvEscape(String(r.city?.value ?? "")),
     String(r.city?.confidence ?? 0),
+    csvEscape(depth.first_seen),
+    csvEscape(depth.last_seen),
+    csvEscape(assetVal(r, "as_domain")),
   ].join(",");
 }
 

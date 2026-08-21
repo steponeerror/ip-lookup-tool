@@ -146,7 +146,7 @@ def _epoch_fingerprint():
 
     指纹: 任一源后台刷新换 epoch → 失效。时间桶: 瞬态降质(mid-reload 空贡献)
     结果的冻结窗口从 epoch 长度(≤30min+)封顶到 ≤5min, 在线源数据时效同封顶。
-    只含离线源(有 _lmdb_base 者); ApiSource 不参与。
+    只含离线源(有 _lmdb_base 者)——全部源均为离线(在线 enricher 已删, spec D1)。
     """
     from ipdb import _registry
     from ipdb._sources._lmdb import read_ptr

@@ -148,20 +148,16 @@ def test_is_cold_start_false_when_any_offline_source_has_data(tmp_path):
         assert main._is_cold_start() is False
 
 
-def test_is_cold_start_ignores_online_sources(tmp_path):
-    """Online (ApiSource) sources never have a data file; they must not force
-    cold-start just because they lack _path/existence."""
+def test_is_cold_start_ignores_pathless_source(tmp_path):
+    """A source lacking _path entirely is ignored by the cold-start check
+    (defensive getattr guard; all sources are offline file-backed now)."""
     import main
-    online_no_path = type("S", (), {"name": "online"})()  # no _path attr at all
+    no_path = type("S", (), {"name": "weird"})()  # no _path attr at all
     offline_warm = _FakeSrc("warm", tmp_path / "ok.bin")
     (tmp_path / "ok.bin").write_text("x")
 
-    def fake_archetype(s):
-        return "online" if s is online_no_path else "offline"
-
     with patch("ipdb._registry._enabled_sources",
-               return_value=[online_no_path, offline_warm]), \
-         patch("ipdb._registry._archetype", side_effect=fake_archetype):
+               return_value=[no_path, offline_warm]):
         assert main._is_cold_start() is False
 
 

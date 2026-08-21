@@ -6,8 +6,6 @@ from ipdb._registry import (
     is_enabled,
     list_sources,
     set_source_enabled,
-    enrich_with_ipapi,
-    enrich_with_ipapi_is,
     manager,
     stale_source_names,
 )

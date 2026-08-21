@@ -32,7 +32,6 @@ function LookupViewInner() {
   const [results, setResults] = useState<LookupResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [enrichError, setEnrichError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<{ invalid: number; ipv6: number } | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [csvModal, setCsvModal] = useState<{
@@ -59,7 +58,6 @@ function LookupViewInner() {
       if (r.error != null) setError(r.error);
     } else {
       setResults(r.results);
-      if (r.enrichError) setEnrichError(r.enrichError);
       if (r.error != null) setError(r.error);
     }
   };
@@ -72,7 +70,6 @@ function LookupViewInner() {
   const runLookup = async (fetcher: () => Promise<StreamOutcome>, failMsg: string) => {
     setLoading(true);
     setError(null);
-    setEnrichError(null);
     setSkipped(null);
     setProgress(null);
     try {
@@ -184,9 +181,7 @@ function LookupViewInner() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                {progress.phase === "enrich"
-                  ? t("lookup.enriching")
-                  : t("lookup.lookingUp", { done: progress.done.toLocaleString(), total: progress.total.toLocaleString() })}
+                {t("lookup.lookingUp", { done: progress.done.toLocaleString(), total: progress.total.toLocaleString() })}
               </span>
               <span className="text-zinc-500 tabular-nums">
                 {progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0}%
@@ -213,12 +208,6 @@ function LookupViewInner() {
         {error && (
           <div className="mb-3 rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-400">
             {error}
-          </div>
-        )}
-
-        {enrichError && (
-          <div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm text-amber-400">
-            {enrichError}
           </div>
         )}
 

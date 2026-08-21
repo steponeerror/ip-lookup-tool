@@ -280,38 +280,3 @@ class CsvSource(IpListSource):
                 except Exception:
                     pass          # lmdb env 二次 close/已失效:容忍
 
-
-class ApiSource:
-    """Base for online API sources — query on demand, no pre-download.
-
-    Subclasses must implement: query_api(ip: str) -> dict.
-    Must define: name, fields, reliability, authoritative_for.
-    """
-
-    name: str
-    fields: tuple[str, ...]
-    reliability: float = 0.5
-    authoritative_for: list[str] = []
-
-    def query(self, ip: str) -> dict[str, Any]:
-        return self.query_api(ip)
-
-    def query_api(self, ip: str) -> dict:
-        raise NotImplementedError("ApiSource subclasses must implement query_api()")
-
-    @property
-    def download_host(self) -> str | None:
-        """API sources have no single remote download URL."""
-        return None
-
-    def download(self, token=None) -> None:
-        pass  # no-op for API sources
-
-    def load(self) -> int:
-        return 0  # no-op
-
-    def health(self) -> SourceHealth:
-        return SourceHealth(
-            name=self.name, loaded=True, record_count=0, covered_ips=0,
-            last_updated=None, is_stale=False,
-        )

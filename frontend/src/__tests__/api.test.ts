@@ -182,7 +182,7 @@ describe("queryIpsStream (row protocol v2)", () => {
       `{"type":"row","idx":1,"result":{"ip":"1.1.1.1"}}`,
       `{"type":"row","idx":0,"result":{"ip":"8.8.8.8"}}`,
       `{"type":"progress","done":2,"total":2}`,
-      `{"type":"done","invalid_lines":0,"ipv6_unsupported":0,"enrich_error":null}`,
+      `{"type":"done","invalid_lines":0,"ipv6_unsupported":0}`,
     ].join("\n");
     const reader = (async function* () {
       for (const line of ndjson.split("\n")) yield new TextEncoder().encode(line + "\n");
@@ -216,7 +216,7 @@ describe("queryIpsStream (row protocol v2)", () => {
     };
     const lines = [`{"type":"start","total":${n}}`];
     for (let i = 0; i < n; i++) lines.push(fakeRow(i));
-    lines.push(`{"type":"done","invalid_lines":0,"ipv6_unsupported":0,"enrich_error":null}`);
+    lines.push(`{"type":"done","invalid_lines":0,"ipv6_unsupported":0}`);
     const ndjson = lines.join("\n");
     const reader = (async function* () {
       yield new TextEncoder().encode(ndjson + "\n");
@@ -246,7 +246,7 @@ describe("queryIpsStream (row protocol v2)", () => {
     const ndjson = [
       `{"type":"start","total":1}`,
       `{"type":"row","idx":0,"result":{"ip":"8.8.8.8"}}`,
-      `{"type":"done","invalid_lines":2,"ipv6_unsupported":1,"enrich_error":null}`,
+      `{"type":"done","invalid_lines":2,"ipv6_unsupported":1}`,
     ].join("\n");
     const reader = (async function* () {
       yield new TextEncoder().encode(ndjson + "\n");
@@ -264,7 +264,7 @@ describe("queryIpsStream (row protocol v2)", () => {
     const ndjson = [
       `{"type":"start","total":2}`,
       `{"type":"row","idx":0,"result":{"ip":"8.8.8.8"}}`,
-      `{"type":"done","invalid_lines":0,"ipv6_unsupported":0,"enrich_error":null,"error":"boom"}`,
+      `{"type":"done","invalid_lines":0,"ipv6_unsupported":0,"error":"boom"}`,
     ].join("\n");
     const reader = (async function* () {
       yield new TextEncoder().encode(ndjson + "\n");

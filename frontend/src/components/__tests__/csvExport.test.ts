@@ -36,6 +36,34 @@ describe("aggregateThreatDepth", () => {
   it("top_reliability = max reliability among the dominant-verdict details", () => {
     expect(aggregateThreatDepth(r).top_reliability).toBe(0.9);
   });
+  it("header has 32 columns ending with first_seen,last_seen,as_domain", () => {
+    const cols = CSV_HEADER.trimEnd().split(",");
+    expect(cols).toHaveLength(32);
+    expect(cols.slice(-3)).toEqual(["first_seen", "last_seen", "as_domain"]);
+  });
+  it("buildCsvRow appends min first_seen, max last_seen, as_domain", () => {
+    const timed: LookupResult = {
+      ...r,
+      classifications: {
+        spam: {
+          type: "spam", verdict: "informational", detected: true, confidence: 50,
+          algorithm: "corroboration", corroborated: false, reporter_total: 3,
+          verdict_conflict: false, malware_names: [],
+          details: [
+            { source: "stopforumspam", reliability: 0.7, first_seen: "2026-01-01", last_seen: "2026-07-12" },
+            { source: "sfs2", reliability: 0.7, first_seen: "2025-12-01", last_seen: "2026-03-01" },
+          ],
+          sources: [],
+        },
+      },
+      attributes: { as_domain: [{ source: "ipinfo_lite", value: "amazon.com" }] },
+    };
+    const cols = buildCsvRow(timed).split(",");
+    expect(cols).toHaveLength(32);
+    expect(cols[29]).toBe("2025-12-01");   // min first_seen
+    expect(cols[30]).toBe("2026-07-12");   // max last_seen
+    expect(cols[31]).toBe("amazon.com");
+  });
   it("top_reliability rounds to 2 decimal places", () => {
     const rounded: LookupResult = {
       ...r,
@@ -129,9 +157,34 @@ describe("buildCsvRow", () => {
     expect(buildCsvRow(r)).toBe(buildCsvContent([r]).split("\n")[1]);
   });
 
-  it("appends city columns at tail", () => {
-    expect(CSV_HEADER.trimEnd().endsWith("city,city_confidence")).toBe(true);
+  it("appends city columns followed by the time/as_domain tail", () => {
+    expect(CSV_HEADER.trimEnd().endsWith("city,city_confidence,first_seen,last_seen,as_domain")).toBe(true);
     const row = buildCsvRow(r);
-    expect(row.trimEnd().endsWith(",Mountain View,95")).toBe(true);
+    expect(row.trimEnd().endsWith(",Mountain View,95,,,")).toBe(true);
+  });
+});
+
+describe("csvEscape formula-injection neutralization", () => {
+  const hostile = (over: Partial<LookupResult>): LookupResult => ({ ...r, ...over });
+  it("prefixes ' onto =-leading as_name (dshield-style hostile feed value)", () => {
+    const row = buildCsvRow(hostile({ as_name: mf('=HYPERLINK("http://evil","x")') }));
+    expect(row).toContain("'=HYPERLINK");
+    expect(row).not.toMatch(/,"=HYPERLINK/);
+  });
+  it("prefixes ' onto + - @ and tab-leading values", () => {
+    const attrs = {
+      carrier: [{ source: "s", value: "+cmd|'/c calc'!A1", native_type: "" }],
+      as_domain: [{ source: "s", value: "-1+1|evil", native_type: "" }],
+      service: [{ source: "s", value: "@evil", native_type: "" }],
+    } as LookupResult["attributes"];
+    const row = buildCsvRow(hostile({ attributes: attrs }));
+    expect(row).toContain("'+cmd|'/c calc'!A1");
+    expect(row).toContain("'-1+1|evil");
+    expect(row).toContain("'@evil");
+  });
+  it("leaves benign values (leading - only in numeric-ish ip/asn context stays intact, plain text untouched)", () => {
+    const row = buildCsvRow(r);
+    expect(row).toContain("Google");
+    expect(row).toContain("8.8.8.8");
   });
 });

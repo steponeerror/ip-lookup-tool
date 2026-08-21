@@ -24,13 +24,6 @@ class OfflineSource(Protocol):
     def health(self) -> SourceHealth: ...
 
 
-class OnlineEnricher(Protocol):
-    name: str
-    fields: tuple[str, ...]
-
-    def enrich_batch(self, ips: list[str]) -> dict[str, dict]: ...
-
-
 class MergeStrategy(Protocol):
     field: str
 
@@ -65,6 +58,7 @@ class EvidenceObservation:
     verdict: str = "malicious"               # malicious|suspicious|benign|informational
     reliability: float = 0.5
     first_seen: Optional[str] = None         # ISO-8601 +00:00; ordinal across sources
+    last_seen: Optional[str] = None          # ISO-8601; newest activity per source
     confidence: Optional[int] = None         # source-native (threatfox %, abuseipdb score)
     malware_name: Optional[str] = None       # raw lowercase, NOT normalized
     comment: Optional[str] = None

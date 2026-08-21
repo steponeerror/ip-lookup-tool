@@ -25,7 +25,7 @@ _ISP_FILES = {
 
 class ChineseISPSource(Source):
     name = "cn_isp"
-    fields = ("country_code", "as_name", "is_isp", "ip_range")
+    fields = ("country_code", "carrier", "is_isp", "ip_range")
     stale_days = 7
     reliability = 0.85
     filename = "cn_isp"   # Source base sets _lmdb_base = data_dir/"cn_isp.lmdb"
@@ -151,8 +151,7 @@ class ChineseISPSource(Source):
             return {}
         return {
             "country_code": node["country_code"],
-            "as_name": node["isp"],
-            "is_isp": True,
+            "is_isp": node["country_code"] == "CN",   # D6: HK/MO/TW rows aren't ISPs
             "carrier": node["isp"],
             "ip_range": node["_net"],
         }

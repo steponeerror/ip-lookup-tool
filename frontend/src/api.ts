@@ -26,6 +26,7 @@ export interface ClassificationDetail {
   malware_name?: string;
   native_confidence?: number;
   first_seen?: string;
+  last_seen?: string;
   comment?: string;
   tags?: string[];
   native_categories?: string[];
@@ -86,7 +87,6 @@ export interface StreamOutcome {
   csvDownloaded: boolean;
   invalidLines: number;
   ipv6Unsupported: number;
-  enrichError?: string | null;
   error?: string | null;   // backend done.error (spec §4)
   total: number;
 }
@@ -122,7 +122,6 @@ export async function getDbStatus(): Promise<DbStatus> {
 export interface Progress {
   done: number;
   total: number;
-  phase: "lookup" | "enrich";
 }
 
 async function readStream(
@@ -141,7 +140,6 @@ async function readStream(
   let rowBuffer: string[] = [];
   let invalidLines = 0;
   let ipv6Unsupported = 0;
-  let enrichError: string | null = null;
   let error: string | null = null;
   let sawDone = false;
 
@@ -175,12 +173,11 @@ async function readStream(
           if (rowBuffer.length >= 1000) flushRows();
         }
       } else if (evt.type === "progress") {
-        onProgress({ done: evt.done, total: evt.total, phase: "lookup" });
+        onProgress({ done: evt.done, total: evt.total });
       } else if (evt.type === "done") {
         sawDone = true;
         invalidLines = evt.invalid_lines ?? 0;
         ipv6Unsupported = evt.ipv6_unsupported ?? 0;
-        enrichError = evt.enrich_error ?? null;
         error = evt.error ?? null;
       }
     }
@@ -193,16 +190,16 @@ async function readStream(
     flushRows();
     if (csvParts.length > 1) {  // more than just the header → has rows
       downloadCsv(csvParts);
-      return { results: [], csvDownloaded: true, invalidLines, ipv6Unsupported, enrichError, error, total };
+      return { results: [], csvDownloaded: true, invalidLines, ipv6Unsupported, error, total };
     }
-    return { results: [], csvDownloaded: false, invalidLines, ipv6Unsupported, enrichError, error, total };
+    return { results: [], csvDownloaded: false, invalidLines, ipv6Unsupported, error, total };
   }
 
   // table mode — reassemble in idx order
   const results = Array.from({ length: total }, (_, i) => resultsByIdx.get(i)).filter(
     (x): x is LookupResult => x !== undefined,
   );
-  return { results, csvDownloaded: false, invalidLines, ipv6Unsupported, enrichError, error, total };
+  return { results, csvDownloaded: false, invalidLines, ipv6Unsupported, error, total };
 }
 
 function streamFetchTimeout(controller: AbortController, connectMs = 30_000, idleMs = 120_000) {
@@ -285,7 +282,7 @@ export interface SourceInfo {
   name: string;
   enabled: boolean;
   category: "geo_asn" | "threat" | "asset" | "other";
-  archetype: "offline" | "online";
+  archetype: "offline";
   fields: string[];
   reliability: number;
   authoritative_for: string[];

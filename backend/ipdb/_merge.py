@@ -42,6 +42,7 @@ def to_observation(
         verdict=_opt("verdict") or verdict,
         reliability=reliability,
         first_seen=_opt("first_seen"),
+        last_seen=_opt("last_seen"),
         confidence=_opt("confidence"),
         malware_name=(mal.lower() if isinstance(mal, str) else mal),
         comment=_opt("comment"),
@@ -65,8 +66,6 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "x4bnet_vpn":  0.70,
     "ipsum":       0.55,
     "firehol":     0.50,
-    "ip_api":      0.45,
-    "ipapi_is":    0.50,
     # Phase 4 new sources
     "spamhaus":    0.90,
     "threatfox":   0.85,
@@ -83,6 +82,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "bruteforce": 0.60,
     "greensnow": 0.60,
     "dataplane": 0.70,
+    "dshield": 0.70,     # DShield sensor reputation — same tier as dataplane
     "f3csystems": 0.60,
     "reportedip": 0.65,
     "proxyscrape": 0.45,
@@ -180,7 +180,12 @@ class FactualVoting:
 
 
 class NamingAuthority:
-    """Authority model for naming fields (as_name)."""
+    """Authority model for naming fields (as_name).
+
+    cn_isp once held a CN/HK/MO/TW authority branch (conf 90) — removed when
+    cn_isp stopped emitting as_name (spec D6): region names like "香港" were
+    polluting the org slot. First valid by reliability order wins; see git
+    history if a CN authority source ever returns."""
 
     def __init__(self):
         self.field = "as_name"
@@ -190,22 +195,6 @@ class NamingAuthority:
         valid = [a for a in attributions if a.value and a.value != "N/A"]
         if not valid:
             return MergedField("N/A", 0, "authority", attributions)
-        if len(valid) == 1:
-            return MergedField(valid[0].value, 50, "authority", attributions)
-
-        country_sources = context.get("country", {})
-        cn_country = country_sources.get("cn_isp", "")
-        lite_country = country_sources.get("ipinfo_lite", "")
-        country_val = cn_country or lite_country
-
-        authoritative = None
-        if country_val in ("CN", "HK", "MO", "TW"):
-            cn_vals = [a.value for a in valid if a.source == "cn_isp"]
-            if cn_vals:
-                authoritative = cn_vals[0]
-
-        if authoritative:
-            return MergedField(authoritative, 90, "authority", attributions)
         return MergedField(valid[0].value, 50, "authority", attributions)
 
 
@@ -331,6 +320,8 @@ def _assess_classification(group: list) -> ClassificationAssessment:
             d["native_confidence"] = o.confidence
         if o.first_seen:
             d["first_seen"] = o.first_seen
+        if o.last_seen:
+            d["last_seen"] = o.last_seen
         if o.comment:
             d["comment"] = o.comment
         if o.tags:

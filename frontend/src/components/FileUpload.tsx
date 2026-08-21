@@ -4,7 +4,7 @@ import { useI18n } from "../i18n";
 interface FileUploadProps {
   onUpload: (file: File) => void;
   loading: boolean;
-  progress?: { done: number; total: number; phase: string } | null;
+  progress?: { done: number; total: number } | null;
   disabled?: boolean;
 }
 
@@ -69,9 +69,7 @@ export function FileUpload({ onUpload, loading, progress, disabled }: FileUpload
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
             {progress
-              ? progress.phase === "enrich"
-                ? t("fileUpload.enriching", { done: progress.done.toLocaleString(), total: progress.total.toLocaleString() })
-                : t("fileUpload.lookingUp", { done: progress.done.toLocaleString(), total: progress.total.toLocaleString() })
+              ? t("fileUpload.lookingUp", { done: progress.done.toLocaleString(), total: progress.total.toLocaleString() })
               : t("fileUpload.uploading")}
           </div>
           {progress ? (

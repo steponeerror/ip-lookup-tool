@@ -77,17 +77,14 @@ def test_task_state_returns_state_or_none():
 
 
 def test_enabled_offline_sources_returns_objects_not_names(tmp_path):
-    """enabled_offline_sources returns Source objects (offline+enabled), not names.
-    Online (ApiSource) sources are excluded."""
+    """enabled_offline_sources returns Source objects (offline+enabled), not names."""
     from ipdb._registry import enabled_offline_sources
     srcs = enabled_offline_sources()
     # Every returned object is a Source instance with a .name and an _path attr
     # (offline sources set _path in __init__). We assert on shape, not specific
     # sources, since the discovered set is environment-dependent.
-    from ipdb._sources._base import ApiSource
     for s in srcs:
         assert isinstance(s.name, str) and s.name
-        assert not isinstance(s, ApiSource), "online source leaked into offline list"
         assert hasattr(s, "_path"), f"{s.name} has no _path (not offline-shaped)"
 
 

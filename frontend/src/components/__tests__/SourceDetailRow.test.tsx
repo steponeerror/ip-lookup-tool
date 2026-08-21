@@ -22,6 +22,7 @@ describe("SourceDetailRow", () => {
       reporter_count: 4,
       native_confidence: 85,
       first_seen: "2026-07-01T00:00:00+00:00",
+      last_seen: "2026-08-15T00:00:00+00:00",
       native_categories: ["PUB"],
     };
     renderWithI18n(<SourceDetailRow detail={d} />);
@@ -31,6 +32,7 @@ describe("SourceDetailRow", () => {
     expect(screen.getByText(/\[PUB\]/)).toBeInTheDocument();
     expect(screen.getByText(/native 85/)).toBeInTheDocument();
     expect(screen.getByText(/first 2026-07-01/)).toBeInTheDocument();
+    expect(screen.getByText(/last 2026-08-15/)).toBeInTheDocument();
   });
 
   it("omits optional lines and the extra toggle when absent", () => {
@@ -49,16 +51,17 @@ describe("SourceDetailRow", () => {
     expect(node.textContent).toContain("…");
   });
 
-  it("toggles the extra JSON block", () => {
+  it("toggles the extra key/value block", () => {
     const d: ClassificationDetail = {
       ...base,
       extra: { foo: "bar", n: 1, b: true },
     };
     renderWithI18n(<SourceDetailRow detail={d} />);
     const toggle = screen.getByRole("button", { name: /extra 3 keys/i });
-    expect(screen.queryByText(/"foo"/)).not.toBeInTheDocument();
+    const rowText = () => document.body.textContent ?? "";
     fireEvent.click(toggle);
-    expect(screen.getByText(/"foo"/)).toBeInTheDocument();
+    expect(rowText()).toContain("foo: ");
+    expect(rowText()).toContain('"bar"');
   });
 
   it("renders native_categories as chips", () => {
@@ -72,5 +75,21 @@ describe("SourceDetailRow", () => {
     const d: ClassificationDetail = { ...base, extra: { native_type: "PUB" } };
     renderWithI18n(<SourceDetailRow detail={d} />);
     expect(screen.queryByText(/\[PUB\]/)).not.toBeInTheDocument();  // fallback gone
+  });
+
+  it("sbl_id and urls render as links, others plain", () => {
+    const d: ClassificationDetail = {
+      ...base,
+      extra: { sbl_id: "SBL123456", tweet_url: "https://x.com/p/1", port: 80 },
+    };
+    renderWithI18n(<SourceDetailRow detail={d} />);
+    fireEvent.click(screen.getByRole("button", { name: /extra 3 keys/i }));
+    const sbl = screen.getByRole("link", { name: "SBL123456" }) as HTMLAnchorElement;
+    expect(sbl.href).toBe("https://check.spamhaus.org/sbl/query/SBL123456");
+    expect(sbl.target).toBe("_blank");
+    const tweet = screen.getByRole("link", { name: "https://x.com/p/1" }) as HTMLAnchorElement;
+    expect(tweet.href).toBe("https://x.com/p/1");
+    // non-link values render as bare JSON text (no quotes stripped)
+    expect(screen.getByText((c, el) => c === "80" && el?.className.includes("break-all") === false)).toBeTruthy();
   });
 });

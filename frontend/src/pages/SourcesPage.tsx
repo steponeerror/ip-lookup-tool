@@ -20,8 +20,8 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-function timeAgo(iso: string | null, archetype: "offline" | "online"): { key: string; vars?: Record<string, string | number> } {
-  if (!iso) return { key: archetype === "online" ? "sources.timeAgo.onDemand" : "sources.timeAgo.noData" };
+function timeAgo(iso: string | null): { key: string; vars?: Record<string, string | number> } {
+  if (!iso) return { key: "sources.timeAgo.noData" };
   const ms = Date.now() - Date.parse(iso);
   if (Number.isNaN(ms)) return { key: "sources.timeAgo.unknown" };
   const min = Math.floor(ms / 60000);
@@ -35,7 +35,6 @@ function timeAgo(iso: string | null, archetype: "offline" | "online"): { key: st
 function statusOf(s: SourceInfo): { key: string; className: string } {
   if (s.health.error) return { key: "sources.status.error", className: "text-red-400 border-red-400/30 bg-red-400/10" };
   if (!s.enabled) return { key: "sources.status.off", className: "text-zinc-500 border-zinc-700 bg-zinc-800/50" };
-  if (s.archetype === "online") return { key: "sources.status.onDemand", className: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" };
   if (!s.health.loaded) return { key: "sources.status.notLoaded", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" };
   if (s.health.is_stale) return { key: "sources.status.stale", className: "text-amber-400 border-amber-400/30 bg-amber-400/10" };
   return { key: "sources.status.fresh", className: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" };
@@ -73,7 +72,7 @@ export default function SourcesPage() {
   const reduce = useReducedMotion();
 
   const fmtTime = (s: SourceInfo) => {
-    const ta = timeAgo(s.health.last_updated, s.archetype);
+    const ta = timeAgo(s.health.last_updated);
     return t(ta.key, ta.vars);
   };
 
@@ -229,19 +228,17 @@ export default function SourcesPage() {
                         onChange={(v) => handleToggle(s, v)}
                         label={t("sources.toggleAria", { name: s.name })}
                       />
-                      {s.archetype === "online" ? null : (
-                        <button
-                          onClick={() => handleUpdate(s.name)}
-                          disabled={busy || refreshingAll}
-                          className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {phase === "loading"
-                            ? t("sources.loading")
-                            : phase === "downloading"
-                              ? t("sources.downloading")
-                              : t("sources.update")}
-                        </button>
-                      )}
+                      <button
+                        onClick={() => handleUpdate(s.name)}
+                        disabled={busy || refreshingAll}
+                        className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {phase === "loading"
+                          ? t("sources.loading")
+                          : phase === "downloading"
+                            ? t("sources.downloading")
+                            : t("sources.update")}
+                      </button>
                     </div>
                   </li>
                 );

@@ -17,3 +17,10 @@ def test_no_feodo_in_registry_or_merge():
 
 def test_feodo_source_file_deleted():
     assert not (BACKEND / "ipdb" / "_sources" / "feodo.py").exists()
+
+
+def test_feodo_not_discovered_under_any_filename():
+    """_discover_sources globs by filename — a renamed _sources/feodo2.py
+    would slip past the text grep above. Assert against live instances."""
+    from ipdb import _registry
+    assert all(s.name != "feodo" for s in _registry._sources)

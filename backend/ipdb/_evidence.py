@@ -19,10 +19,10 @@ CORE_FIELDS = frozenset({
     "malware_name", "first_seen", "confidence",
 })
 
-SCALAR_SLOTS = frozenset({"country_code", "asn", "as_name", "ip_range", "isp", "city"})
+SCALAR_SLOTS = frozenset({"country_code", "asn", "as_name", "ip_range", "city"})
 RICH_SLOTS = frozenset({"native_categories", "comment", "tags", "reporter_count", "last_seen"})
 ASSET_SLOTS = frozenset({"is_proxy", "is_hosting", "is_tor", "is_vpn", "carrier",
-                         "service"})  # service: public-infra role (dns/ntp/...) — string, like carrier
+                         "service", "as_domain"})  # service: public-infra role (dns/ntp/...) — string, like carrier; as_domain: registrar domain (ipinfo_lite)
 CANONICAL_SLOTS = SCALAR_SLOTS | RICH_SLOTS | ASSET_SLOTS
 ALL_KNOWN = CORE_FIELDS | CANONICAL_SLOTS
 
@@ -44,7 +44,6 @@ class Evidence:
     asn: Optional[int] = None
     as_name: Optional[str] = None
     ip_range: Optional[str] = None
-    isp: Optional[str] = None
     city: Optional[str] = None
     # ── canonical rich slots ──
     native_categories: list = field(default_factory=list)
@@ -59,6 +58,7 @@ class Evidence:
     is_vpn: Optional[bool] = None
     carrier: Optional[str] = None
     service: Optional[str] = None     # public-infra role (dns/ntp/...) — string asset slot
+    as_domain: Optional[str] = None   # registrar domain (ASSET_SLOTS contract)
     # ── per-asset native labels (serialized as the internal _native_types key) ──
     native_types: dict = field(default_factory=dict)
     # ── open bag (long tail, lossless) ──

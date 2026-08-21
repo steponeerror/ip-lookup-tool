@@ -111,18 +111,6 @@ class TestNamingAuthority:
         assert result.value == "China Telecom"
         assert result.confidence == 50
 
-    def test_cn_isp_authoritative_for_cn(self, monkeypatch):
-        monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
-                            {"ipinfo_lite": 0.95, "cn_isp": 0.85})
-        monkeypatch.setattr(_merge, "AUTHORITATIVE_SOURCES", {})
-        na = NamingAuthority()
-        result = na.merge(
-            {"ipinfo_lite": "China Telecom", "cn_isp": "中国电信"},
-            {"country": {"cn_isp": "CN", "ipinfo_lite": "CN"}, "ip": "1.2.3.4"},
-        )
-        assert result.value == "中国电信"
-        assert result.confidence == 90
-
     def test_no_authoritative_falls_back(self, monkeypatch):
         monkeypatch.setattr(_merge, "SOURCE_RELIABILITY",
                             {"ipinfo_lite": 0.95, "iptoasn": 0.90})

@@ -35,7 +35,7 @@ entries file; on `rebuild()` it re-reads the file line by line, emits one
 reopens on a closed-env hit. You usually set attributes and write nothing else.
 
 Real examples: `spamhaus.py`, `tor_exits.py`, `binarydefense.py`, `ciarm.py`,
-`greensnow.py`, `stopforumspam.py`, `emerging_threats.py`, `x4bnet_vpn.py`,
+`greensnow.py`, `emerging_threats.py`, `x4bnet_vpn.py`,
 `abuseipdb.py` (keyed `download()` + JSON guard — read for the auth pattern).
 
 ```python

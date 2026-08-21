@@ -25,8 +25,6 @@ from ._merge import (
     _assess_classification,
     SOURCE_RELIABILITY,   # needed for get_status / scalar strategies
 )
-from ._enrichers.ip_api import IPApiEnricher
-from ._enrichers.ipapi_is import IPApiIsEnricher
 
 _app_dir = Path(__file__).parent.parent
 load_dotenv(_app_dir / ".env")
@@ -106,14 +104,6 @@ def _update_lock_for(name: str) -> threading.Lock:
             _update_locks[name] = lock
         return lock
 
-# --- Enricher instances ---
-
-_ip_api = IPApiEnricher()
-_ipapi_is = IPApiIsEnricher(
-    key=os.environ.get("IPAPI_IS_KEY", ""),
-    enabled=os.environ.get("IPAPI_IS_ENABLED", "false").lower() == "true",
-)
-
 # --- Strategy map (scalar fields only; threats use _assess_boolean) ---
 
 _strategies = {
@@ -154,6 +144,7 @@ SOURCE_CATEGORIES = {
     "bruteforce": "threat",
     "greensnow": "threat",
     "dataplane": "threat",
+    "dshield": "threat",
     "f3csystems": "threat",
     "reportedip": "threat",
     "ip2proxy": "asset",
@@ -202,9 +193,8 @@ def _db_loaded() -> bool:
 
 
 def _archetype(source) -> str:
-    """online = query-on-demand ApiSource; offline = file-backed."""
-    from ipdb._sources._base import ApiSource
-    return "online" if isinstance(source, ApiSource) else "offline"
+    """All sources are offline file-backed now (enrichers removed, spec D1)."""
+    return "offline"
 
 
 def _source_info(source) -> dict:
@@ -512,9 +502,3 @@ def is_db_stale() -> bool:
     return any(s.health().is_stale for s in _enabled_sources())
 
 
-def enrich_with_ipapi(ips: list[str]) -> dict[str, dict]:
-    return _ip_api.enrich_batch(ips)
-
-
-def enrich_with_ipapi_is(ips: list[str]) -> tuple[dict[str, dict], bool]:
-    return _ipapi_is.enrich_batch(ips)

@@ -49,7 +49,7 @@ class TestLookupResponseShape:
         done = events[-1]
         assert "invalid_lines" in done
         assert "ipv6_unsupported" in done
-        assert done["enrich_error"] is None
+        assert "enrich_error" not in done   # D1: enricher dead contract removed
 
     def test_update_db_skips_when_no_offline_sources(self):
         """Refresh-all enqueues nothing when there are no enabled offline
