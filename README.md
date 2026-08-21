@@ -165,9 +165,9 @@ curl -s http://127.0.0.1:8000/api/sources
 
 ## 用 AI 扩展数据源 | Extending Sources with AI
 
-仓库还自带三个 Claude Code skills（`.claude/skills/`）——装了 [Claude Code](https://claude.com/claude-code) 的话，一句话就能让 AI 替你把源加上：
+仓库还自带三个 AI agent skills（`.pi/skills/`）——用支持项目级 skills 的编码代理（如 [pi](https://github.com/earendil-works/pi)），一句话就能让 AI 替你把源加上：
 
-> The repo also ships three Claude Code skills (`.claude/skills/`) — with [Claude Code](https://claude.com/claude-code) installed, one sentence lets AI wire the source in for you:
+> The repo also ships three AI agent skills (`.pi/skills/`) — with an agent that loads project-level skills (e.g. [pi](https://github.com/earendil-works/pi)), one sentence lets AI wire the source in for you:
 
 | Skill | 什么时候用 When | 一句话示例 Example |
 |---|---|---|
