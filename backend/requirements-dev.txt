@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest==9.0.3
+# Optional: enables the STIX export tests (skipped otherwise) and the
+# /api/lookup/{ip}/stix endpoint at runtime.
+stix2>=3.0.1

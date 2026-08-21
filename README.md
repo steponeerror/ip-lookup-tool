@@ -14,15 +14,15 @@
 
 ## 特性 | Features
 
-- **开箱即用，25/29 源不需要密钥** —— 首次启动自动下载构建，≈9.6M 条记录入库；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
-- **冷启动不挡路** —— 容器数秒就能打开，免钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
+- **开箱即用，25/29 源不需要密钥** —— 首次启动自动下载构建，数百万条记录入库（确切数量以 `/api/db-status` 实测为准）；剩下 4 个 🔑 源想开的话，密钥填法见[快速开始](#快速开始--quick-start)。
+- **冷启动不挡路** —— 容器数秒就能打开，免密钥源的下载/构建进度在页面顶部横幅实时滚动，建完查询自动解锁——绝不拿着半份数据先给结论。
 - **一份裁决，不是一堆列表** —— 单 IP 一句话结论，逐源证据摆给你看，0-100 置信度（源可靠性加权、交叉佐证、随时间衰减）。
 - **地理 · 城市 · ASN** —— GeoLite2 给城市，iptoasn 给自治域，CN ISP 归属（含港澳台）也认得。
 - **代理 · VPN · Tor · CDN，一眼认出来** —— 开放代理、VPN 网段、Tor 出口、三大 CDN 边缘，都标得清清楚楚。
 - **一个容器跑全栈，内存自己看着办** —— `docker compose up -d --build` 就有；并发按宿主机内存自动收敛，默认每 30 分钟后台刷新。
 - **STIX 2.1 导出（可选）** —— `/api/lookup/{ip}/stix` 一键导出；Docker 镜像默认不带 `stix2`，`pip install stix2` 装上即开。
 
-> - **25 of 29 feeds need zero API keys** — first start downloads and builds them all into ≈9.6M records; to light up the other 4 🔑 sources, see [Quick Start](#快速开始--quick-start).
+> - **25 of 29 feeds need zero API keys** — first start downloads and builds them all into millions of records (live count: `/api/db-status`); to light up the other 4 🔑 sources, see [Quick Start](#快速开始--quick-start).
 > - **Cold start doesn't block** — the container opens within seconds, a top banner tracks the keyless feeds' download/build progress live, and queries unlock themselves once the build settles — never a verdict on half a dataset.
 > - **A verdict, not a pile of lists** — one line of conclusion per IP, per-source evidence on the table, 0-100 confidence (reliability-weighted, corroborated, time-decayed).
 > - **Geo · City · ASN** — GeoLite2 for the city, iptoasn for the ASN, plus CN ISP classification incl. HK/MO/TW.
@@ -62,9 +62,9 @@ cd ip-radar
 docker compose up -d --build
 ```
 
-打开 http://127.0.0.1:8000 。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（29 个源中的 25 个，含地理/城市/ASN 与主要封禁列表）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
+打开 http://127.0.0.1:8000。首次启动数秒内容器即可访问——页面顶部横幅会实时展示免密钥源（29 个源中的 25 个，含地理/城市/ASN 与主要封禁列表）的下载/构建进度，构建完成后查询自动解锁；之后每次启动都从 `ipradar-data` 卷秒级加载。
 
-> Open http://127.0.0.1:8000. The container is reachable within seconds on first start — it comes up immediately, and a banner at the top of the page shows real-time download/build progress for the keyless feeds (25 of the 29 sources, including geo/city/ASN and the major blocklists). Queries unlock automatically once the build completes. Subsequent starts load from the `ipradar-data` volume in seconds.
+> Open http://127.0.0.1:8000. The container is reachable within seconds — a banner at the top of the page shows real-time download/build progress for the keyless feeds (25 of the 29 sources, including geo/city/ASN and the major blocklists). Queries unlock automatically once the build completes. Subsequent starts load from the `ipradar-data` volume in seconds.
 
 想开 4 个密钥源（ipinfo_lite / abuseipdb / otx / ip2proxy）？把密钥写进 `.env.local`（已 gitignore，盖过 `.env`）：
 
@@ -119,12 +119,12 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 ./dev.sh
 ```
 
-**想分开跑也行：**
+**想分开跑也行**（注意 `--host 0.0.0.0` 会把**无鉴权**的 API 暴露给局域网/公网，仅在清楚后果时使用）：
 
-> **Or run each side yourself:**
+> **Or run each side yourself** (mind: `--host 0.0.0.0` exposes the **unauthenticated** API to your LAN/public network — use only if you know what you're doing):
 
 ```bash
-# backend
+# backend (first run: python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt)
 cd backend && source .venv/bin/activate
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
@@ -142,7 +142,7 @@ cd frontend && npm run dev
 
 ## 使用 | Usage
 
-打开 http://127.0.0.1:8000 ，随手输一个 IP：裁决、逐源证据、地理/ASN 一起回来。API 也能直接用：
+打开 http://127.0.0.1:8000，随手输一个 IP：裁决、逐源证据、地理/ASN 一起回来。API 也能直接用：
 
 > Open http://127.0.0.1:8000 and type any IP: verdict, per-source evidence, and geo/ASN come back together. The API works directly too:
 
@@ -158,9 +158,9 @@ curl -s http://127.0.0.1:8000/api/db-status
 curl -s http://127.0.0.1:8000/api/sources
 ```
 
-其余管理端点（update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。
+其余管理端点（update-db / tasks / events 等）都在代码里；UI 上点一下也能触发刷新。提醒：本 API 无鉴权，勿将端口暴露给不受信网络。
 
-> The other management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too.
+> The other management endpoints (update-db / tasks / events, …) live in the code; the UI triggers refreshes with one click too. Mind: the API has no authentication — don't expose the port to untrusted networks.
 
 ## 用 AI 扩展数据源 | Extending Sources with AI
 
@@ -204,11 +204,11 @@ curl -s http://127.0.0.1:8000/api/sources
 | blocklist_de `*` | [Blocklist.de](https://www.blocklist.de/) | 10 attack-type sublists + aggregate | |
 | emerging_threats | [Proofpoint ET](https://rules.emergingthreats.net/) | Provenance-curated firewall blocklist | |
 | binarydefense | [Binary Defense](https://www.binarydefense.com/banlist.txt) | Honeypot attacker banlist | |
-| bruteforce | [BruteForceBlocker](http://danger.rulez.sk/) | SSH brute-force attacker IPs | |
-| ciarm | [CINS Army](http://cinsscore.com/) | Passive-reputation bad-guys list | |
+| bruteforce | [BruteForceBlocker](https://danger.rulez.sk/) | SSH brute-force attacker IPs | |
+| ciarm | [CINS Army](https://cinsscore.com/) | Passive-reputation bad-guys list | |
 | greensnow | [GreenSnow](https://greensnow.co/) | Compromised-host blocklist | |
 | dataplane | [Dataplane.org](https://dataplane.org/) | Rolling 7-day sensor signals (merged) | |
-| dshield | [DShield](https://dshield.org/block.txt) | Top-attacker /24 blocks (attack counts) | |
+| dshield | [DShield](https://feeds.dshield.org/block.txt) | Top-attacker /24 blocks (attack counts) | |
 | f3csystems | [f3cSystems](https://github.com/f3cSystems/BlockList_IP) | Honeypot scanner blocklist (Sekoia sensors) | |
 | reportedip | [ReportedIP](https://github.com/reportedip/reportedip-blacklist) | WordPress-honeypot community reputation | |
 
@@ -229,14 +229,21 @@ curl -s http://127.0.0.1:8000/api/sources
 | proxyscrape | [ProxyScrape](https://github.com/proxyscrape/free-proxy-list) | Open proxy IPs | |
 | tor_exits | [Tor Project](https://check.torproject.org/exit-addresses) | Tor exit node addresses | |
 | x4bnet_vpn | [X4BNet](https://github.com/X4BNet/lists_vpn) | VPN ranges | |
-| cdn_edges | AWS · Cloudflare · Fastly | CDN edge ranges | |
+| cdn_edges | [AWS](https://ip-ranges.amazonaws.com/ip-ranges.json) · [Cloudflare](https://www.cloudflare.com/ips-v4) · [Fastly](https://api.fastly.com/public-ip-list) | CDN edge ranges | |
 | infra_services | curated | Public DNS-root / NTP infrastructure | |
 
 ## 测试 | Tests
 
+首次先装依赖（含 pytest / stix2）：
+
+> First time, install the dev dependencies (incl. pytest / stix2):
+
 ```bash
 # backend (from backend/)
-cd backend && python3 -m pytest -q
+cd backend
+[ -d .venv ] || python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q
 
 # frontend (from frontend/)
 cd frontend && npm test
@@ -256,15 +263,15 @@ AGPL-3.0，见 [LICENSE](LICENSE)；各情报源有自己的使用条款。
 
 ## 后记 | Epilogue
 
-上一家公司的工作经验，为本项目的开发提供了相当多的支持。某 TJ 威胁情报公司：工作氛围友好，强度也不高——只是欠了我大半年的工资，劳动仲裁之后，依然没有支付。
+某 TJ 威胁情报公司：工作氛围友好，强度也不高——只是欠了我大半年的工资，劳动仲裁之后，依然没有支付。
 
-说实话，我对它并没有恨意，只是作为工作者立场不同。同时公司的处理方式并不正确
+说实话，我对它并没有恨意，只是作为工作者立场不同。同时公司的处理方式并不正确。
 
 只是，我用正常账号访问公司的免费基础服务，你把我的号封了——这就有点离谱了吧。
 
 本项目致力于维护劳动者的合法权益，同时保证人人都有基础的 IP 情报可用。
 
-> Most of what went into this project, I owe to my previous employer — a certain TJ threat-intelligence company. The atmosphere was friendly, the pace was gentle; they simply owed me over half a year of wages, and after labor arbitration, still did not pay.
+> My previous employer — a certain TJ threat-intelligence company: the atmosphere was friendly, the pace was gentle; they simply owed me over half a year of wages, and after labor arbitration, still did not pay.
 >
 > To be honest, I hold no grudge against them — as a worker, we simply stand on different sides. That said, the way the company handled it was not right.
 >
@@ -274,7 +281,7 @@ AGPL-3.0，见 [LICENSE](LICENSE)；各情报源有自己的使用条款。
 
 ## 404星链计划 | 404Starlink
 
-<img src="https://github.com/knownsec/404StarLink-Project/raw/master/logo.png" width="30%">
+<img src="assets/404starlink-logo.png" width="30%">
 
 IP Radar 现已加入 [404星链计划](https://github.com/knownsec/404StarLink)
 
