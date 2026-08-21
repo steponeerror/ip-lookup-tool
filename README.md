@@ -170,6 +170,14 @@ curl -s http://127.0.0.1:8000/api/sources
 >
 > `scripts/fail2ban/ipradar.conf` is a fail2ban action that triages every ban against your local IP Radar verdict first: confirmed-malicious IPs (confidence ≥ 70, tunable) go on a persistent long-ban list; CDN/infra edges skip the ban entirely with a loud log line — no more banning Cloudflare. Install & options: [`scripts/fail2ban/README.md`](scripts/fail2ban/README.md).
 
+### Graylog 集成：日志富化
+
+用 Graylog 内置 Lookup Table（HTTP JSONPath adapter）把日志里的源 IP 换成国家、ASN 和融合威胁裁决（`threat.verdict` / `threat.confidence`）——无插件、查询不出网、无限量。配置步骤与 pipeline 规则见 [`integrations/graylog/README.md`](integrations/graylog/README.md)。
+
+> ### Graylog integration: log enrichment
+>
+> Use Graylog's built-in Lookup Tables (HTTP JSONPath adapter) to turn source IPs into country, ASN, and a fused threat verdict (`threat.verdict` / `threat.confidence`) — no plugin, unlimited local lookups, nothing leaves the machine. Step-by-step config + pipeline rules: [`integrations/graylog/README.md`](integrations/graylog/README.md).
+
 ## 用 AI 扩展数据源 | Extending Sources with AI
 
 仓库还自带三个 AI agent skills（`.pi/skills/`）——用支持项目级 skills 的编码代理（如 [pi](https://github.com/earendil-works/pi)），一句话就能让 AI 替你把源加上：
