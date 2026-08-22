@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="vbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1020"/>
+      <stop offset="55%" stop-color="#0f0a1a"/>
+      <stop offset="100%" stop-color="#0a1626"/>
+    </linearGradient>
+    <radialGradient id="icglowbg" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <!-- favicon defs, ids namespaced ic* -->
+    <linearGradient id="icbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="icglow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c4b5fd" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#67e8f9" stop-opacity="0.6"/>
+    </linearGradient>
+    <linearGradient id="icring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="50%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="word" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#93c5fd"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#vbg)"/>
+
+  <!-- subtle grid -->
+  <g stroke="#22d3ee" stroke-width="0.5" opacity="0.05">
+    <path d="M0 80 H1280 M0 160 H1280 M0 240 H1280 M0 320 H1280 M0 400 H1280 M0 480 H1280 M0 560 H1280"/>
+    <path d="M80 0 V640 M240 0 V640 M400 0 V640 M560 0 V640 M720 0 V640 M880 0 V640 M1040 0 V640 M1200 0 V640"/>
+  </g>
+
+  <!-- icon glow + icon (scaled favicon, scale 13 => 416px) centered-left -->
+  <circle cx="330" cy="320" r="330" fill="url(#icglowbg)"/>
+  <g transform="translate(122 112) scale(13)">
+    <circle cx="16" cy="16" r="15" fill="url(#icbg)"/>
+    <circle cx="16" cy="16" r="15" fill="#0f0a1a" opacity="0.7"/>
+    <circle cx="16" cy="16" r="11" fill="none" stroke="url(#icring)" stroke-width="0.5" opacity="0.4"/>
+    <circle cx="16" cy="16" r="7.5" fill="none" stroke="url(#icring)" stroke-width="0.5" opacity="0.5"/>
+    <circle cx="16" cy="16" r="4" fill="none" stroke="url(#icring)" stroke-width="0.5" opacity="0.6"/>
+    <ellipse cx="16" cy="16" rx="11" ry="4" fill="none" stroke="url(#icring)" stroke-width="0.5" opacity="0.4"/>
+    <ellipse cx="16" cy="12" rx="8.5" ry="3" fill="none" stroke="url(#icring)" stroke-width="0.4" opacity="0.3"/>
+    <ellipse cx="16" cy="20" rx="8.5" ry="3" fill="none" stroke="url(#icring)" stroke-width="0.4" opacity="0.3"/>
+    <ellipse cx="16" cy="16" rx="4" ry="11" fill="none" stroke="url(#icring)" stroke-width="0.5" opacity="0.4"/>
+    <line x1="16" y1="2" x2="16" y2="7" stroke="#22d3ee" stroke-width="0.8" opacity="0.7"/>
+    <line x1="16" y1="25" x2="16" y2="30" stroke="#22d3ee" stroke-width="0.8" opacity="0.7"/>
+    <line x1="2" y1="16" x2="7" y2="16" stroke="#22d3ee" stroke-width="0.8" opacity="0.7"/>
+    <line x1="25" y1="16" x2="30" y2="16" stroke="#22d3ee" stroke-width="0.8" opacity="0.7"/>
+    <path d="M16 8c-3.3 0-6 2.5-6 5.5 0 4.1 6 10.5 6 10.5s6-6.4 6-10.5c0-3-2.7-5.5-6-5.5z" fill="none" stroke="url(#icglow)" stroke-width="1.2" stroke-linejoin="round"/>
+    <circle cx="16" cy="13.5" r="2.5" fill="url(#icglow)"/>
+    <path d="M5.5 7.5A14 14 0 0 1 24.5 5" fill="none" stroke="#22d3ee" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+    <path d="M8 5A11 11 0 0 1 25.5 9" fill="none" stroke="#a78bfa" stroke-width="0.6" stroke-linecap="round" opacity="0.3"/>
+    <path d="M3 8 L3 3 L8 3" fill="none" stroke="#22d3ee" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+    <path d="M29 8 L29 3 L24 3" fill="none" stroke="#22d3ee" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+    <path d="M3 24 L3 29 L8 29" fill="none" stroke="#22d3ee" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+    <path d="M29 24 L29 29 L24 29" fill="none" stroke="#22d3ee" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="600" y="316" font-family="DejaVu Sans, sans-serif" font-size="96" font-weight="bold" fill="url(#word)">IP Radar</text>
+  <text x="604" y="392" font-family="DejaVu Sans, sans-serif" font-size="34" fill="#94a3b8">Self-hosted threat intelligence · 29 sources, one verdict</text>
+
+  <!-- corner brackets -->
+  <g stroke="#22d3ee" stroke-width="2.5" stroke-linecap="round" opacity="0.5" fill="none">
+    <path d="M24 64 L24 24 L64 24"/>
+    <path d="M1256 64 L1256 24 L1216 24"/>
+    <path d="M24 576 L24 616 L64 616"/>
+    <path d="M1256 576 L1256 616 L1216 616"/>
+  </g>
+</svg>
