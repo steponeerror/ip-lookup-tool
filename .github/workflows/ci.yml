@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc -b
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
+
+  backend:
+    # needs frontend: SPA fallback tests assert on frontend/dist contents
+    needs: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Tests — core/ per-file (known cross-file state pollution, see #17)
+        run: |
+          for f in tests/core/test_*.py; do
+            echo "::group::$f"
+            python -m pytest "$f" -q || exit 1
+            echo "::endgroup::"
+          done
+      - name: Tests — remaining suites whole-dir
+        run: python -m pytest tests/eval tests/evidence tests/lookup tests/source_infra tests/sources -q
+      - name: Full suite in one process (reference only — flake tracking, do not gate)
+        run: python -m pytest tests -q
+        continue-on-error: true
+      - name: Dependency audit (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit --skip-editable
+        continue-on-error: true # informative for a security tool, does not gate
+
+  docker:
+    # validates the artifact users actually deploy: docker compose up -d --build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t ipradar:ci .
