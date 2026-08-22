@@ -11,6 +11,12 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from fastapi.testclient import TestClient
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _tiny_db(tiny_db):
+    """CI 干净检出无 data/ — 需要最小库打开查询门, 否则所有路由 503。"""
 
 
 class TestLookupResponseShape:
