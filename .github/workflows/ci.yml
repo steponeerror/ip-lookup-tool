@@ -3,7 +3,9 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore: ["**.md", "assets/**", "LICENSE"]  # 纯文档/图片变更不跑 5 分钟 CI
   pull_request:
+    paths-ignore: ["**.md", "assets/**", "LICENSE"]
 
 permissions:
   contents: read
