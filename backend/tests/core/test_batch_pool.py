@@ -7,6 +7,23 @@ from ipdb import _registry
 from concurrent.futures.process import BrokenProcessPool
 
 
+@pytest.fixture
+def tiny_db(tmp_path, monkeypatch):
+    """最小库: tmp 下建一个 ipinfo_lite LMDB。
+    进程内 monkeypatch 换 _sources; spawn 子进程靠 IP_RADAR_DATA_DIR 环境继承
+    (monkeypatch 过不了进程边界)。CI 干净检出没有 data/, 不建库则 Database not loaded。"""
+    from ipdb._sources._lmdb import rebuild_lmdb
+    envs = []
+    rebuild_lmdb([
+        ("8.8.8.0/24", {"country_code": "US", "_net": "8.8.8.0/24", "has_asn": False}),
+        ("1.1.1.0/24", {"country_code": "AU", "_net": "1.1.1.0/24", "has_asn": False}),
+    ], tmp_path / "ipinfo_lite.csv.lmdb", envs.append)
+    envs[0].close()  # py-lmdb 同路径双开禁止, rebuild 句柄先关
+    monkeypatch.setenv("IP_RADAR_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(_registry, "_sources", _registry._discover_sources(tmp_path))
+    _registry.load_db()  # fixture 统一 preload — load() 不幂等, 测试里不再重复调
+
+
 @pytest.mark.parametrize("cpu, ram_mb, expected", [
     (16, 3900, (2, 6)),   # P=16 -> N=2, M=min(6, (16-2)//2=7)=6
     (8, 8192, (2, 3)),    # P=8  -> N=2, M=min(6, (8-2)//2=3)=3
@@ -90,10 +107,9 @@ def test_resolve_layout_non_numeric_total_procs_falls_back():
     assert (N, M) == (2, 6)
 
 
-def test_work_chunk_returns_to_dict_dicts():
+def test_work_chunk_returns_to_dict_dicts(tiny_db):
     """_work_chunk returns plain dicts (lookup().to_dict()), not LookupResult."""
     from ipdb import _registry
-    _registry.load_db()
     out = _batch_pool._work_chunk(["8.8.8.8", "1.1.1.1"])
     assert len(out) == 2
     assert all(isinstance(d, dict) for d in out)
@@ -102,7 +118,7 @@ def test_work_chunk_returns_to_dict_dicts():
     assert out[0] == _registry.lookup("8.8.8.8").to_dict()
 
 
-def test_work_chunk_spawns_in_isolated_process():
+def test_work_chunk_spawns_in_isolated_process(tiny_db):
     """Regression for the spawn __main__ re-import trap: worker fns must run in a
     spawned child. If they were under __main__, this would recurse/crash."""
     import multiprocessing
@@ -114,11 +130,8 @@ def test_work_chunk_spawns_in_isolated_process():
     assert results == [[_registry.lookup("8.8.8.8").to_dict()]]
 
 
-def test_fan_out_lookup_inline_below_threshold(monkeypatch):
+def test_fan_out_lookup_inline_below_threshold(monkeypatch, tiny_db):
     """<= INLINE_THRESHOLD IPs go inline even when pool is available."""
-    # Ensure DB is loaded for lookups
-    _registry.load_db()
-
     # Inject a poison pool that raises if its .map is called
     class _Poison:
         def map(self, fn, iterable):
@@ -132,11 +145,8 @@ def test_fan_out_lookup_inline_below_threshold(monkeypatch):
     _batch_pool.set_pool(None)  # cleanup
 
 
-def test_fan_out_lookup_falls_back_to_inline_on_broken_pool(monkeypatch):
+def test_fan_out_lookup_falls_back_to_inline_on_broken_pool(monkeypatch, tiny_db):
     """A broken pool triggers inline fallback (never raises to the caller)."""
-    # Ensure DB is loaded for lookups
-    _registry.load_db()
-
     # Force the pool path by reducing INLINE_THRESHOLD below our test size
     monkeypatch.setattr(_batch_pool, "INLINE_THRESHOLD", 1)
 
@@ -160,11 +170,8 @@ def test_fan_out_lookup_falls_back_to_inline_on_broken_pool(monkeypatch):
         _batch_pool.set_pool(None)
 
 
-def test_fan_out_lookup_preserves_order_and_count():
+def test_fan_out_lookup_preserves_order_and_count(tiny_db):
     """Output is in input order, one dict per IP, bit-identical to inline."""
-    # Ensure DB is loaded for lookups
-    _registry.load_db()
-
     import hashlib, ipaddress
     ips = []
     i = 0
