@@ -1,4 +1,6 @@
-# <img src="assets/logo.svg" width="32" valign="middle"> IP Radar
+# <img src="assets/logo.svg" width="28" alt="logo" style="vertical-align: -6px"> IP Radar
+
+![IP Radar — self-hosted threat intelligence](assets/social-preview.png)
 
 把 29 个公开情报源搬回家：查任何 IP，拿一份说人话的裁决——证据、置信度、地理、ASN 一次看全。一条命令，自己部署。
 
