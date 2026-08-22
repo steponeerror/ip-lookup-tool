@@ -96,6 +96,8 @@ describe("SourcesPage", () => {
   it("Refresh all enqueues batch", async () => {
     render(<SourcesPage />);
     const btn = await screen.findByRole("button", { name: /Refresh all/i });
+    // loading 期间按钮 disabled, click 被吞 — 等可用再点 (CI 慢机竞态)
+    await waitFor(() => expect(btn).not.toBeDisabled());
     fireEvent.click(btn);
     await waitFor(() => expect(enqueueBatch).toHaveBeenCalled());
   });

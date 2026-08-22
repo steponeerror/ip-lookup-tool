@@ -1,7 +1,7 @@
 """S1 batch process-pool: layout sizing + fan-out."""
 import pytest
 
-# Module under test (created in this task)
+# Module under test (created in this task); tiny_db fixture 来自 tests/conftest.py
 from ipdb import _batch_pool
 from ipdb import _registry
 from concurrent.futures.process import BrokenProcessPool
@@ -90,10 +90,9 @@ def test_resolve_layout_non_numeric_total_procs_falls_back():
     assert (N, M) == (2, 6)
 
 
-def test_work_chunk_returns_to_dict_dicts():
+def test_work_chunk_returns_to_dict_dicts(tiny_db):
     """_work_chunk returns plain dicts (lookup().to_dict()), not LookupResult."""
     from ipdb import _registry
-    _registry.load_db()
     out = _batch_pool._work_chunk(["8.8.8.8", "1.1.1.1"])
     assert len(out) == 2
     assert all(isinstance(d, dict) for d in out)
@@ -102,7 +101,7 @@ def test_work_chunk_returns_to_dict_dicts():
     assert out[0] == _registry.lookup("8.8.8.8").to_dict()
 
 
-def test_work_chunk_spawns_in_isolated_process():
+def test_work_chunk_spawns_in_isolated_process(tiny_db):
     """Regression for the spawn __main__ re-import trap: worker fns must run in a
     spawned child. If they were under __main__, this would recurse/crash."""
     import multiprocessing
@@ -114,11 +113,8 @@ def test_work_chunk_spawns_in_isolated_process():
     assert results == [[_registry.lookup("8.8.8.8").to_dict()]]
 
 
-def test_fan_out_lookup_inline_below_threshold(monkeypatch):
+def test_fan_out_lookup_inline_below_threshold(monkeypatch, tiny_db):
     """<= INLINE_THRESHOLD IPs go inline even when pool is available."""
-    # Ensure DB is loaded for lookups
-    _registry.load_db()
-
     # Inject a poison pool that raises if its .map is called
     class _Poison:
         def map(self, fn, iterable):
@@ -132,11 +128,8 @@ def test_fan_out_lookup_inline_below_threshold(monkeypatch):
     _batch_pool.set_pool(None)  # cleanup
 
 
-def test_fan_out_lookup_falls_back_to_inline_on_broken_pool(monkeypatch):
+def test_fan_out_lookup_falls_back_to_inline_on_broken_pool(monkeypatch, tiny_db):
     """A broken pool triggers inline fallback (never raises to the caller)."""
-    # Ensure DB is loaded for lookups
-    _registry.load_db()
-
     # Force the pool path by reducing INLINE_THRESHOLD below our test size
     monkeypatch.setattr(_batch_pool, "INLINE_THRESHOLD", 1)
 
@@ -160,11 +153,8 @@ def test_fan_out_lookup_falls_back_to_inline_on_broken_pool(monkeypatch):
         _batch_pool.set_pool(None)
 
 
-def test_fan_out_lookup_preserves_order_and_count():
+def test_fan_out_lookup_preserves_order_and_count(tiny_db):
     """Output is in input order, one dict per IP, bit-identical to inline."""
-    # Ensure DB is loaded for lookups
-    _registry.load_db()
-
     import hashlib, ipaddress
     ips = []
     i = 0
